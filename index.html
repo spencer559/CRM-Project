@@ -227,17 +227,17 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <div class="field"><span class="lbl">Provider / Clinic</span><input type="text" id="pt-provider"></div>
     </div>
 
-    <div class="sub-lbl">Device Type <span class="sub-note">(select all that apply — leads &amp; pacing % update automatically)</span></div>
+    <div class="sub-lbl">Device Type <span class="sub-note">(select one — leads &amp; pacing % update automatically)</span></div>
     <div class="cbg" id="dtype-group">
-      <label class="cbl"><input type="checkbox" name="dtype" value="PPM-SC" onchange="updateConditionals()"> PPM (SC)</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="PPM-DC" onchange="updateConditionals()"> PPM (DC)</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="CRT-P" onchange="updateConditionals()"> CRT-P</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="ICD-SC" onchange="updateConditionals()"> ICD (SC)</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="ICD-DC" onchange="updateConditionals()"> ICD (DC)</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="CRT-D" onchange="updateConditionals()"> CRT-D</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="S-ICD" onchange="updateConditionals()"> S-ICD</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="Leadless" onchange="updateConditionals()"> Leadless (Micra/AV)</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="Aveir" onchange="updateConditionals()"> Aveir (Abbott)</label>
+      <label class="cbl"><input type="radio" name="dtype" value="PPM-SC" onchange="onDtypeChange()"> PPM (SC)</label>
+      <label class="cbl"><input type="radio" name="dtype" value="PPM-DC" onchange="onDtypeChange()"> PPM (DC)</label>
+      <label class="cbl"><input type="radio" name="dtype" value="CRT-P" onchange="onDtypeChange()"> CRT-P</label>
+      <label class="cbl"><input type="radio" name="dtype" value="ICD-SC" onchange="onDtypeChange()"> ICD (SC)</label>
+      <label class="cbl"><input type="radio" name="dtype" value="ICD-DC" onchange="onDtypeChange()"> ICD (DC)</label>
+      <label class="cbl"><input type="radio" name="dtype" value="CRT-D" onchange="onDtypeChange()"> CRT-D</label>
+      <label class="cbl"><input type="radio" name="dtype" value="S-ICD" onchange="onDtypeChange()"> S-ICD</label>
+      <label class="cbl"><input type="radio" name="dtype" value="Leadless" onchange="onDtypeChange()"> Leadless (Micra/AV)</label>
+      <label class="cbl"><input type="radio" name="dtype" value="Aveir" onchange="onDtypeChange()"> Aveir (Abbott)</label>
     </div>
     <div id="aveir-chambers" style="display:none; margin-top:5px; padding:6px 10px; background:#e6eef6; border-left:3px solid #1e3a5f; border-radius:2px;">
       <span class="lbl" style="display:inline-block; margin-right:8px;">Aveir Chambers Implanted:</span>
@@ -428,6 +428,20 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 </main>
 
 <script>
+// ── DTYPE CHANGE: clear measurements then update ──
+function onDtypeChange() {
+  // Clear pacing statistics
+  ['pct-a','pct-v','pct-lv','pct-biv'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  // Clear all lead/electrode measurement inputs
+  document.querySelectorAll('#leads-tbody input').forEach(function(el) {
+    if (el.type !== 'checkbox' && el.type !== 'radio') el.value = '';
+  });
+  updateConditionals();
+}
+
 // ── LEAD CONFIG ──
 var LEAD_CFG = {
   'ra':      { label:'RA Lead',          pos:'RA',            pacing:true },
@@ -590,6 +604,11 @@ function updateReprogTable() {
 function updatePacingPct() {
   var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
   var has2C  = vals.some(function(v){ return ['PPM-DC','ICD-DC','CRT-P','CRT-D'].indexOf(v)>-1; });
+  // Aveir with RA chamber selected also needs A Paced %
+  if (vals.indexOf('Aveir') > -1) {
+    var aChams = Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; });
+    if (aChams.indexOf('RA') > -1) has2C = true;
+  }
   var hasCRT = vals.some(function(v){ return v==='CRT-P'||v==='CRT-D'; });
   var hasV   = vals.some(function(v){ return v!=='S-ICD'; }) && vals.length>0;
   document.getElementById('pct-a-wrap').style.display   = has2C  ? '' : 'none';
@@ -741,7 +760,11 @@ function loadSaved() {
   for (var i = 0; i < ep; i++) addEpRow();
   for (var i = 0; i < rp; i++) addRpRow();
 
-  // restore dtype checkboxes first so leads can be rebuilt correctly
+  // restore dtype radio first so leads can be rebuilt correctly
+  if (d['r:dtype']) {
+    document.querySelectorAll('input[name="dtype"][value="'+d['r:dtype']+'"]').forEach(function(el){ el.checked = true; });
+  }
+  // also handle legacy cx: keys from old checkbox saves
   Object.keys(d).forEach(function(key) {
     if (!key.startsWith('cx:')) return;
     var parts = key.slice(3).split(':');
@@ -979,8 +1002,8 @@ function exportPDF() {
 
     + psec('Remote Monitoring',
         '<div class="row">'
-        + pf('Enrolled', r('rm-enrolled'))
-        + pf('Compliant', r('rm-comply'))
+        + pf('Enrolled', v('rm-enrolled'))
+        + pf('Compliant', v('rm-comply'))
         + pf('Last Transmission', v('rm-last'))
         + pf('Active Alerts', v('rm-active'))
         + '</div>'
@@ -1198,8 +1221,8 @@ function buildSummaryLines() {
 
   // REMOTE MONITORING
   sPos = secStart('REMOTE MONITORING');
-  add('Enrolled:          ', radio('rm-enrolled'));
-  add('Compliant:         ', radio('rm-comply'));
+  add('Enrolled:          ', val('rm-enrolled'));
+  add('Compliant:         ', val('rm-comply'));
   add('Last Transmission: ', val('rm-last'));
   add('Active Alerts:     ', val('rm-active'));
   secEnd(sPos);
