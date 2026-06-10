@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRM Interrogation — Digital Form</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy: #1e3a5f;
+  --navy-lt: #e6eef6;
+  --navy-mid: #c8d8e8;
+  --bg: #d0d6df;
+  --card: #fff;
+  --text: #111;
+  --text-soft: #556;
+  --border: #cdd5df;
+  --input-bg: #f7f9fb;
+  --green: #2d7d46;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 11px; }
+body { font-family: 'Barlow', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.35; }
+
+/* APP BAR */
+.app-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 300;
+  background: #fff; border-bottom: 1px solid var(--border);
+  padding: 0 18px; height: 44px;
+  display: flex; align-items: center; gap: 14px;
+  box-shadow: 0 1px 5px rgba(0,0,0,.1);
+}
+.app-bar-title { font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--navy); white-space: nowrap; }
+.divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+.save-status { font-size: 10px; color: #999; white-space: nowrap; }
+.save-status.saved { color: var(--green); }
+.save-status.dirty { color: #c87000; }
+.app-bar-actions { margin-left: auto; display: flex; gap: 7px; align-items: center; }
+.btn { padding: 5px 12px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; border-radius: 3px; border: 1px solid var(--border); cursor: pointer; font-family: 'Barlow', sans-serif; transition: background .1s, color .1s; display: flex; align-items: center; gap: 5px; }
+.btn-primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+.btn-primary:hover { background: #162e4d; }
+.btn-ghost { background: #f3f5f8; color: var(--text-soft); }
+.btn-ghost:hover { background: #e5e9ef; }
+.btn-danger { background: #fff; color: #b03030; border-color: #dbb; }
+.btn-danger:hover { background: #fdf0f0; }
+
+/* SIDEBAR */
+.sidebar {
+  position: fixed; top: 44px; left: 0; bottom: 0; width: 186px;
+  background: #fff; border-right: 1px solid var(--border);
+  overflow-y: auto; z-index: 200; padding: 10px 0 20px;
+}
+.nav-group-lbl { padding: 8px 14px 3px; font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #aaa; }
+.nav-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 14px; font-size: 10.5px; font-weight: 500;
+  color: #445; cursor: pointer; border-left: 2px solid transparent;
+  transition: background .1s, border-color .1s, color .1s;
+  text-decoration: none;
+}
+.nav-item:hover { background: var(--navy-lt); color: var(--navy); }
+.nav-item.active { border-left-color: var(--navy); background: var(--navy-lt); color: var(--navy); font-weight: 700; }
+.nav-dot { width: 6px; height: 6px; border-radius: 50%; background: #ddd; flex-shrink: 0; transition: background .15s; }
+.nav-item.active .nav-dot { background: var(--navy); }
+.nav-item.filled .nav-dot { background: var(--green); }
+.nav-item.hidden-nav { display: none; }
+
+/* MAIN */
+.main { margin-left: 186px; padding: 60px 26px 60px; }
+.form-body { max-width: 860px; }
+
+/* SECTION */
+.section { margin-bottom: 16px; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+.section.hidden-section { display: none; }
+.sec-hdr {
+  background: var(--navy); color: #fff;
+  padding: 5px 11px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 8px;
+}
+.sec-hdr .badge { margin-left: auto; background: rgba(255,255,255,.18); padding: 1px 8px; font-size: 9px; border-radius: 10px; letter-spacing: .3px; }
+.sec-body { padding: 12px 14px; }
+
+/* SUB LABEL */
+.sub-lbl { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .35px; color: var(--navy); border-bottom: 1px solid var(--navy-mid); padding-bottom: 2px; margin: 11px 0 6px; }
+.sub-lbl:first-child { margin-top: 0; }
+.sub-note { font-size: 9px; font-weight: 400; text-transform: none; letter-spacing: 0; color: #888; }
+
+/* FIELD GRID */
+.fg { display: grid; gap: 8px; margin-bottom: 8px; }
+.fg-2 { grid-template-columns: 1fr 1fr; }
+.fg-3 { grid-template-columns: 1fr 1fr 1fr; }
+.fg-4 { grid-template-columns: repeat(4, 1fr); }
+.fg-5 { grid-template-columns: repeat(5, 1fr); }
+.fg-6 { grid-template-columns: repeat(6, 1fr); }
+.fg-7 { grid-template-columns: repeat(7, 1fr); }
+
+/* FIELD */
+.field { display: flex; flex-direction: column; gap: 2px; }
+.lbl { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--navy); }
+input[type=text], input[type=number], input[type=date], input[type=datetime-local], select {
+  border: 1px solid var(--border); border-radius: 2px;
+  background: var(--input-bg); padding: 3px 6px;
+  font-size: 10.5px; font-family: 'Barlow', sans-serif;
+  color: var(--text); width: 100%; height: 24px;
+}
+input:focus, select:focus { border-color: var(--navy); background: #fff; outline: none; box-shadow: 0 0 0 2px rgba(30,58,95,.1); }
+textarea { border: 1px solid var(--border); border-radius: 2px; background: var(--input-bg); padding: 5px 7px; font-size: 10.5px; font-family: 'Barlow', sans-serif; color: var(--text); width: 100%; resize: vertical; min-height: 50px; }
+textarea:focus { border-color: var(--navy); background: #fff; outline: none; box-shadow: 0 0 0 2px rgba(30,58,95,.1); }
+
+/* CHECKBOX / RADIO GROUP */
+.cbg { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding: 3px 0; }
+.cbl { display: flex; align-items: center; gap: 4px; font-size: 10.5px; cursor: pointer; user-select: none; white-space: nowrap; }
+.cbl input[type=checkbox], .cbl input[type=radio] {
+  appearance: none; -webkit-appearance: none;
+  width: 11px; height: 11px; border: 1.5px solid var(--navy); background: #fff;
+  border-radius: 1px; cursor: pointer; flex-shrink: 0; position: relative;
+}
+.cbl input[type=radio] { border-radius: 50%; }
+.cbl input[type=checkbox]:checked { background: var(--navy); }
+.cbl input[type=checkbox]:checked::after { content: ''; position: absolute; left: 2px; top: 0; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(40deg); }
+.cbl input[type=radio]:checked { background: var(--navy); box-shadow: inset 0 0 0 2px #fff; }
+.cbg-lbl { font-size: 10px; font-weight: 600; color: var(--text-soft); margin-right: 4px; }
+
+/* DATA TABLE */
+.dt { width: 100%; border-collapse: collapse; font-size: 10px; border: 1px solid #b8ccdf; margin-bottom: 8px; }
+.dt th { background: var(--navy-lt); color: var(--navy); text-align: left; font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .25px; padding: 4px 6px; white-space: nowrap; border-bottom: 1px solid var(--navy-mid); border-right: 1px solid var(--navy-mid); }
+.dt th:last-child { border-right: none; }
+.dt td { padding: 2px 4px; border-bottom: 1px solid #e0e8f0; border-right: 1px solid #edf1f6; vertical-align: middle; }
+.dt td:last-child { border-right: none; }
+.dt tr:last-child td { border-bottom: none; }
+.dt input:not([type=checkbox]):not([type=radio]), .dt select { border: none; background: transparent; padding: 2px 3px; font-size: 10px; font-family: 'Barlow', sans-serif; color: var(--text); width: 100%; min-width: 36px; height: 22px; }
+.dt input:not([type=checkbox]):not([type=radio]):focus, .dt select:focus { outline: none; background: #eef4fb; border-radius: 2px; box-shadow: none; }
+.dt .cbg { gap: 2px 6px; flex-wrap: nowrap; }
+.dt .cbl { font-size: 9.5px; }
+
+/* DYNAMIC ROWS */
+.add-btn { background: none; border: 1px dashed var(--navy-mid); color: var(--navy); font-size: 10px; font-weight: 600; padding: 4px 12px; cursor: pointer; border-radius: 2px; font-family: 'Barlow', sans-serif; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .2px; transition: background .1s; }
+.add-btn:hover { background: var(--navy-lt); }
+.del-btn { background: none; border: none; color: #b03030; cursor: pointer; font-size: 14px; padding: 0 3px; line-height: 1; }
+
+/* SIG BLOCK */
+.sig-block { border-top: 1.5px solid var(--navy-mid); margin-top: 12px; padding-top: 10px; }
+
+/* EPISODE CHECKBOX GROUPS */
+.ep-cbg { gap: 2px 7px; padding: 1px 0; flex-wrap: nowrap; }
+.ep-grp-lbl { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--navy); opacity: .65; width: 22px; flex-shrink: 0; }
+
+/* PRINT */
+@media print {
+  @page { size: letter; margin: .45in .5in; }
+  body { background: #fff; }
+  .app-bar, .sidebar { display: none !important; }
+  .main { margin-left: 0 !important; padding: 0 !important; }
+  .section { box-shadow: none; margin-bottom: 14px; page-break-inside: avoid; }
+  .add-btn, .del-btn { display: none !important; }
+  .dt input:not([type=checkbox]):not([type=radio]), .dt select { font-size: 9px; }
+  input, select { background: #fff !important; }
+  textarea { background: #fff !important; height: auto !important; overflow: visible !important; }
+  .dt td textarea { height: auto !important; min-height: 0 !important; overflow: visible !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- APP BAR -->
+<header class="app-bar">
+  <svg width="34" height="20" viewBox="0 0 36 22" fill="none" aria-hidden="true" style="flex-shrink:0">
+    <polyline points="0,11 5,11 7,5 9,17 11,3 13,19 15,11 20,11 21,8 22,14 23,11 36,11" stroke="#1e3a5f" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+  </svg>
+  <div class="app-bar-title">CRM Interrogation — Digital Form</div>
+  <div class="divider"></div>
+  <span class="save-status" id="save-status">No data saved</span>
+  <div class="app-bar-actions">
+    <button class="btn btn-danger" onclick="clearForm()">New Patient</button>
+    <button class="btn btn-ghost" onclick="copyToClipboard()">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="1" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="4" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4" fill="white"/></svg>
+      Copy to Clipboard
+    </button>
+    <button class="btn btn-ghost" onclick="exportSummary()">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0L5 7m3 3l3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="2" y="11" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+      Export .txt
+    </button>
+    <button class="btn btn-ghost" onclick="window.print()">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="1" y="6" width="14" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M4 6V2.5A.5.5 0 014.5 2h7a.5.5 0 01.5.5V6" stroke="currentColor" stroke-width="1.4"/><rect x="4" y="10" width="8" height="1.2" rx=".6" fill="currentColor"/><rect x="4" y="12" width="5" height="1.2" rx=".6" fill="currentColor"/></svg>
+      Print
+    </button>
+    <button class="btn btn-primary" onclick="exportPDF()">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 1h6l3 3v10a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4"/><path d="M9 1v4h3" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5 9h6M5 11.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      Save PDF
+    </button>
+  </div>
+</header>
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="nav-group-lbl">Patient</div>
+  <a class="nav-item" id="nav-patient" href="#s-patient" onclick="return navTo('s-patient')"><span class="nav-dot"></span>Patient &amp; Device</a>
+  <div class="nav-group-lbl">Interrogation</div>
+  <a class="nav-item" id="nav-battery" href="#s-battery" onclick="return navTo('s-battery')"><span class="nav-dot"></span>Battery Status</a>
+  <a class="nav-item" id="nav-params" href="#s-params" onclick="return navTo('s-params')"><span class="nav-dot"></span>Parameters</a>
+  <a class="nav-item" id="nav-leads" href="#s-leads" onclick="return navTo('s-leads')"><span class="nav-dot"></span>Lead Measurements</a>
+  <div class="nav-group-lbl">Review</div>
+  <a class="nav-item" id="nav-episodes" href="#s-episodes" onclick="return navTo('s-episodes')"><span class="nav-dot"></span>Episode Log</a>
+  <a class="nav-item" id="nav-remote" href="#s-remote" onclick="return navTo('s-remote')"><span class="nav-dot"></span>Remote Monitoring</a>
+  <div class="nav-group-lbl">Documentation</div>
+  <a class="nav-item" id="nav-reprog" href="#s-reprog" onclick="return navTo('s-reprog')"><span class="nav-dot"></span>Reprogramming</a>
+  <a class="nav-item" id="nav-ap" href="#s-ap" onclick="return navTo('s-ap')"><span class="nav-dot"></span>Assessment &amp; Plan</a>
+</nav>
+
+<main class="main">
+<div class="form-body">
+
+<!-- §1 PATIENT & DEVICE -->
+<div class="section" id="s-patient">
+  <div class="sec-hdr">Patient &amp; Device Information</div>
+  <div class="sec-body">
+    <div class="fg fg-5">
+      <div class="field"><span class="lbl">Patient Name</span><input type="text" id="pt-name" placeholder="Last, First MI"></div>
+      <div class="field"><span class="lbl">Date of Birth</span><input type="date" id="pt-dob"></div>
+      <div class="field"><span class="lbl">MRN</span><input type="text" id="pt-mrn"></div>
+      <div class="field"><span class="lbl">Interrogation Date</span><input type="date" id="pt-date"></div>
+      <div class="field"><span class="lbl">Visit Type</span>
+        <select id="pt-visit"><option value="">—</option><option>In-person</option><option>Remote</option></select>
+      </div>
+    </div>
+    <div class="fg fg-2" style="max-width:420px">
+      <div class="field"><span class="lbl">Provider / Clinic</span><input type="text" id="pt-provider"></div>
+    </div>
+
+    <div class="sub-lbl">Device Type <span class="sub-note">(select all that apply — leads &amp; pacing % update automatically)</span></div>
+    <div class="cbg" id="dtype-group">
+      <label class="cbl"><input type="checkbox" name="dtype" value="PPM-1C" onchange="updateConditionals()"> PPM (1C)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="PPM-2C" onchange="updateConditionals()"> PPM (2C)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="CRT-P" onchange="updateConditionals()"> CRT-P</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="ICD-1C" onchange="updateConditionals()"> ICD (1C)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="ICD-2C" onchange="updateConditionals()"> ICD (2C)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="CRT-D" onchange="updateConditionals()"> CRT-D</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="S-ICD" onchange="updateConditionals()"> S-ICD</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="Leadless" onchange="updateConditionals()"> Leadless (Micra/AV)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="Aveir" onchange="updateConditionals()"> Aveir (Abbott)</label>
+    </div>
+    <div id="aveir-chambers" style="display:none; margin-top:5px; padding:6px 10px; background:#e6eef6; border-left:3px solid #1e3a5f; border-radius:2px;">
+      <span class="lbl" style="display:inline-block; margin-right:8px;">Aveir Chambers Implanted:</span>
+      <label class="cbl"><input type="checkbox" name="aveir-chamber" value="RA" onchange="updateConditionals()"> RA</label>
+      <label class="cbl"><input type="checkbox" name="aveir-chamber" value="RV" onchange="updateConditionals()"> RV</label>
+    </div>
+
+    <div class="sub-lbl">Manufacturer</div>
+    <div class="cbg">
+      <label class="cbl"><input type="radio" name="mfr" value="Medtronic"> Medtronic</label>
+      <label class="cbl"><input type="radio" name="mfr" value="Abbott"> Abbott / SJM</label>
+      <label class="cbl"><input type="radio" name="mfr" value="BSc"> Boston Scientific</label>
+      <label class="cbl"><input type="radio" name="mfr" value="Biotronik"> Biotronik</label>
+    </div>
+
+    <div class="fg fg-3" style="margin-top:8px; max-width:520px">
+      <div class="field"><span class="lbl">Model</span><input type="text" id="dev-model"></div>
+      <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-serial"></div>
+      <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-implant"></div>
+    </div>
+  </div>
+</div>
+
+<!-- §2 BATTERY -->
+<div class="section" id="s-battery">
+  <div class="sec-hdr">Battery / Device Status</div>
+  <div class="sec-body">
+    <table class="dt">
+      <thead><tr>
+        <th style="width:26%">Parameter</th><th>Value</th><th style="width:20%">Units / Reference</th><th>Status / Flag</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td>Longevity Estimate</td>
+          <td><input type="text" name="bat-lon-cur" placeholder="e.g. 4.2"></td>
+          <td><select name="bat-lon-unit"><option value="years" selected>years</option><option value="months">months</option><option value="percent">percent</option></select></td>
+          <td></td>
+        </tr>
+        <tr id="bat-cc-row" style="display:none;">
+          <td>Cap. Charge Time (ICD)</td>
+          <td><input type="text" name="bat-cc-cur" placeholder="sec"></td>
+          <td>sec &nbsp;<span style="font-size:8.5px;color:#888">(&lt;10s normal)</span></td>
+          <td><div class="cbg"><label class="cbl"><input type="checkbox" name="bat-cc-na"> N/A</label></div></td>
+        </tr>
+        <tr>
+          <td>Battery Status</td>
+          <td colspan="2"><div class="cbg"><label class="cbl"><input type="radio" name="bat-status" value="BOL"> BOL</label><label class="cbl"><input type="radio" name="bat-status" value="Mid-Life"> Mid-Life</label><label class="cbl"><input type="radio" name="bat-status" value="ERI"> ERI / RRT</label><label class="cbl"><input type="radio" name="bat-status" value="EOL"> EOL</label></div></td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="fg" style="grid-template-columns: 130px 130px 160px; margin-top:8px; margin-bottom:4px;">
+      <div class="field"><span class="lbl">Device Function</span><select id="ap-devfx"><option value="">—</option><option>Normal</option><option>Abnormal</option></select></div>
+      <div class="field"><span class="lbl">Pacing Dependency</span><select id="ap-dep"><option value="">—</option><option>Yes</option><option>No</option></select></div>
+      <div class="field"><span class="lbl">Intrinsic Rhythm</span><input type="text" id="ap-rhythm" placeholder="e.g. NSR, AF, CHB"></div>
+    </div>
+    <div class="sub-lbl" id="pct-lbl">Pacing Statistics <span class="sub-note" id="pct-note">— select device type above</span></div>
+    <div class="fg" style="grid-template-columns: repeat(4, 110px);" id="pct-grid">
+      <div class="field" id="pct-a-wrap"><span class="lbl">A Paced %</span><input type="number" id="pct-a" min="0" max="100" step="0.1"></div>
+      <div class="field" id="pct-v-wrap"><span class="lbl" id="pct-v-lbl">V Paced %</span><input type="number" id="pct-v" min="0" max="100" step="0.1"></div>
+      <div class="field" id="pct-lv-wrap"><span class="lbl">LV Paced %</span><input type="number" id="pct-lv" min="0" max="100" step="0.1"></div>
+      <div class="field" id="pct-biv-wrap"><span class="lbl">BiV Paced %</span><input type="number" id="pct-biv" min="0" max="100" step="0.1"></div>
+    </div>
+  </div>
+</div>
+
+<!-- §3 PARAMETERS -->
+<div class="section" id="s-params">
+  <div class="sec-hdr">Programmed Parameters</div>
+  <div class="sec-body">
+    <div class="sub-lbl">Pacing Mode &amp; Rates</div>
+    <div class="fg" style="grid-template-columns: 120px 90px 90px 90px;">
+      <div class="field"><span class="lbl">Mode</span>
+        <select id="p-mode"><option value="">—</option><option>AAI</option><option>AAIR</option><option>VVI</option><option>VVIR</option><option>DDD</option><option>DDDR</option><option>DDI</option><option>DDIR</option><option>VDI</option><option>VDIR</option><option>AOO</option><option>VOO</option><option>DOO</option><option>OOO (Off)</option></select>
+      </div>
+      <div class="field"><span class="lbl">LRL (bpm)</span><input type="number" id="p-lrl" min="30" max="100"></div>
+      <div class="field"><span class="lbl">UTR (bpm)</span><input type="number" id="p-utr" min="80" max="220"></div>
+      <div class="field"><span class="lbl">USR (bpm)</span><input type="number" id="p-usr" min="80" max="220"></div>
+    </div>
+
+    <div class="sub-lbl">AV Timing / Intervals</div>
+    <div class="fg" style="grid-template-columns: 110px 110px 110px 110px;">
+      <div class="field"><span class="lbl">Sensed AV (ms)</span><input type="number" id="p-sav"></div>
+      <div class="field"><span class="lbl">Paced AV (ms)</span><input type="number" id="p-pav"></div>
+      <div class="field"><span class="lbl">Mode Switch</span>
+        <select id="p-ms"><option value="">—</option><option>On</option><option>Off</option></select>
+      </div>
+      <div class="field"><span class="lbl">MS Rate (bpm)</span><input type="number" id="p-msrate"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- §4 LEADS -->
+<div class="section" id="s-leads">
+  <div class="sec-hdr">Lead / Electrode Measurements</div>
+  <div class="sec-body">
+    <table class="dt">
+      <thead><tr>
+        <th>Lead</th><th>Impedance (Ω)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th><th>Flag</th>
+      </tr></thead>
+      <tbody id="leads-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- §5 EPISODES -->
+<div class="section" id="s-episodes">
+  <div class="sec-hdr">Stored Episodes / Arrhythmia Log</div>
+  <div class="sec-body">
+    <div class="fg" style="grid-template-columns: 110px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
+      <div class="field"><span class="lbl">Total Episodes</span><input type="number" id="ep-total" min="0"></div>
+      <div class="field"><span class="lbl">AHR <span class="sub-note">(AT / AF / AFl)</span></span><input type="number" id="ep-ahr" min="0"></div>
+      <div class="field"><span class="lbl">HVR <span class="sub-note">(VT / VF / NS-VT)</span></span><input type="number" id="ep-hvr" min="0"></div>
+      <div class="field"><span class="lbl">PMT</span><input type="number" id="ep-pmt" min="0"></div>
+      <div class="field"><span class="lbl">Episodes Reviewed</span>
+        <select id="ep-reviewed"><option value="">—</option><option>All</option><option>None</option><option>Most recent</option><option>N/A</option></select>
+      </div>
+    </div>
+    <table class="dt">
+      <thead><tr><th style="width:18px">#</th><th style="min-width:128px">Date / Time</th><th>Episode Type</th><th>Duration</th><th>Max Rate</th><th>Therapy</th><th>Approp.?</th><th>Notes</th><th style="width:16px"></th></tr></thead>
+      <tbody id="ep-tbody"></tbody>
+    </table>
+    <button class="add-btn" onclick="addEpRow()">+ Add Episode</button>
+  </div>
+</div>
+
+<!-- §7 REMOTE MONITORING -->
+<div class="section" id="s-remote">
+  <div class="sec-hdr">Remote Monitoring</div>
+  <div class="sec-body">
+    <div class="fg" style="grid-template-columns: 80px 80px 130px 140px 130px 100px;">
+      <div class="field"><span class="lbl">Enrolled</span><select id="rm-enrolled"><option value="">—</option><option>Yes</option><option>No</option></select></div>
+      <div class="field"><span class="lbl">Compliant</span><select id="rm-comply"><option value="">—</option><option>Yes</option><option>No</option></select></div>
+      <div class="field"><span class="lbl">Last Transmission</span><input type="date" id="rm-last"></div>
+      <div class="field"><span class="lbl">Reviewed By</span><input type="text" id="rm-reviewer"></div>
+      <div class="field"><span class="lbl">Next Scheduled</span><input type="date" id="rm-next"></div>
+      <div class="field"><span class="lbl">Alerts Configured</span><select id="rm-alerts"><option value="">—</option><option>Yes</option><option>No</option></select></div>
+    </div>
+    <div class="field" style="margin-top:4px;"><span class="lbl">Active Alerts Since Last Visit</span><input type="text" id="rm-active" placeholder="None — or describe"></div>
+  </div>
+</div>
+
+<!-- §8 REPROGRAMMING -->
+<div class="section" id="s-reprog">
+  <div class="sec-hdr">Reprogramming Documentation</div>
+  <div class="sec-body">
+    <div class="cbg" style="margin-bottom:8px;">
+      <span class="cbg-lbl">Changes made this visit:</span>
+      <label class="cbl"><input type="radio" name="rp-chg" value="Yes" onchange="updateReprogTable()"> Yes</label>
+      <label class="cbl"><input type="radio" name="rp-chg" value="No" onchange="updateReprogTable()"> No changes made</label>
+    </div>
+    <div id="rp-table-wrap" style="display:none;">
+    <table class="dt">
+      <thead><tr><th style="width:30%">Parameter Changed</th><th style="width:18%">Previous Value</th><th style="width:18%">New Value</th><th>Clinical Reason / Indication</th><th style="width:18px"></th></tr></thead>
+      <tbody id="rp-tbody"></tbody>
+    </table>
+    <button class="add-btn" onclick="addRpRow()">+ Add Parameter Change</button>
+    </div>
+  </div>
+</div>
+
+<!-- §9 ASSESSMENT & PLAN -->
+<div class="section" id="s-ap">
+  <div class="sec-hdr">Assessment &amp; Plan</div>
+  <div class="sec-body">
+
+    <div class="fg" style="grid-template-columns: 260px 160px;">
+      <div class="field"><span class="lbl">Device Technician</span><input type="text" id="sig-name"></div>
+      <div class="field"><span class="lbl">Date Completed</span><input type="date" id="sig-date"></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- form-body -->
+</main>
+
+<script>
+// ── LEAD CONFIG ──
+var LEAD_CFG = {
+  'ra':      { label:'RA Lead',          pos:'RA',            pacing:true },
+  'rv':      { label:'RV Lead',          pos:'RV',            pacing:true },
+  'lv':      { label:'LV Lead',          pos:'LV',            pacing:true },
+  'rv-coil': { label:'RV Shock Coil',    pos:'RV Coil',       pacing:false },
+  'svc-coil':{ label:'SVC / Can Coil',   pos:'SVC',           pacing:false },
+  'sicd':    { label:'S-ICD Electrode',  pos:'Subcutaneous',  pacing:false },
+  'leadless':  { label:'Leadless (RV)',        pos:'RV Septum',  pacing:true  },
+  'aveir-ra':   { label:'Aveir RA (Leadless)',   pos:'RA Septum',  pacing:true  },
+  'aveir-rv':   { label:'Aveir RV (Leadless)',   pos:'RV Septum',  pacing:true  },
+};
+var DTYPE_LEADS = {
+  'PPM-1C':  ['rv'],
+  'PPM-2C':  ['ra','rv'],
+  'CRT-P':   ['ra','rv','lv'],
+  'ICD-1C':  ['rv','rv-coil','svc-coil'],
+  'ICD-2C':  ['ra','rv','rv-coil','svc-coil'],
+  'CRT-D':   ['ra','rv','lv','rv-coil','svc-coil'],
+  'S-ICD':   ['sicd'],
+  'Leadless':['leadless'],
+};
+var LEAD_ORDER = ['ra','rv','lv','rv-coil','svc-coil','sicd','leadless','aveir-ra','aveir-rv'];
+
+function rebuildLeads() {
+  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  var seen = {};
+  vals.forEach(function(d){ (DTYPE_LEADS[d]||[]).forEach(function(k){ seen[k]=true; }); });
+  // Aveir: add leads based on sub-chamber checkboxes
+  if (vals.indexOf('Aveir') > -1) {
+    var aChams = Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; });
+    if (aChams.indexOf('RA') > -1) seen['aveir-ra'] = true;
+    if (aChams.indexOf('RV') > -1) seen['aveir-rv'] = true;
+  }
+  var keys = LEAD_ORDER.filter(function(k){ return seen[k]; });
+
+  var tb = document.getElementById('leads-tbody');
+  tb.innerHTML = '';
+
+  if (!keys.length) {
+    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;font-style:italic;padding:10px 6px;font-size:10px;">Select a device type above to populate lead rows</td></tr>';
+    return;
+  }
+  keys.forEach(function(k) {
+    var c = LEAD_CFG[k];
+    var tr = document.createElement('tr');
+    var sensCell = c.pacing
+      ? '<input type="number" name="lead-'+k+'-sens" step="0.1" placeholder="mV">'
+      : '<span style="color:#bbb;font-size:10px;padding-left:4px;">\u2014</span>';
+    var thrCell = c.pacing
+      ? '<input type="number" name="lead-'+k+'-thr" step="0.1" placeholder="V">'
+      : '<span style="color:#bbb;font-size:10px;padding-left:4px;">\u2014</span>';
+    var pwCell = c.pacing
+      ? '<input type="number" name="lead-'+k+'-pw" step="0.05" placeholder="ms">'
+      : '<span style="color:#bbb;font-size:10px;padding-left:4px;">\u2014</span>';
+    tr.innerHTML =
+      '<td><strong>' + c.label + '</strong><br><span style="font-size:8.5px;color:#888;">' + c.pos + '</span></td>' +
+      '<td><input type="number" name="lead-'+k+'-imp" step="1" placeholder="\u03a9"></td>' +
+      '<td>' + sensCell + '</td>' +
+      '<td>' + thrCell + '</td>' +
+      '<td>' + pwCell + '</td>' +
+      '<td><div class="cbg">' +
+        '<label class="cbl"><input type="radio" name="lead-'+k+'-flag" value="OK"> OK</label>' +
+        '<label class="cbl"><input type="radio" name="lead-'+k+'-flag" value="Hi"> \u2191</label>' +
+        '<label class="cbl"><input type="radio" name="lead-'+k+'-flag" value="Lo"> \u2193</label>' +
+        '<label class="cbl"><input type="radio" name="lead-'+k+'-flag" value="NA"> N/A</label>' +
+      '</div></td>';
+    tb.appendChild(tr);
+  });
+}
+rebuildLeads();
+
+// ── AUTO-GROW TEXTAREAS ──
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+// ── SAVE STATUS (declared early so scheduleSave can reference it) ──
+var saveTimer;
+var ss = document.getElementById('save-status');
+
+// ── EPISODE ROWS ──
+var epN = 0;
+function addEpRow() {
+  epN++;
+  var n = epN;
+  var tr = document.createElement('tr');
+  tr.id = 'ep-' + n;
+  // Checkboxes grouped: HVR | AHR | other
+  var hvrTypes = ['VT','VF','NS-VT'];
+  var ahrTypes = ['AF/AHR','AT','SVT'];
+  var otherTypes = ['PMT','Other'];
+  function cbRow(types, grp) {
+    return types.map(function(t) {
+      return '<label class="cbl"><input type="checkbox" name="ep'+n+'-type" value="'+t+'"> '+t+'</label>';
+    }).join('');
+  }
+  var typeCell =
+    '<div style="display:flex;flex-direction:column;gap:1px;">' +
+    '<div class="cbg ep-cbg"><span class="ep-grp-lbl">HVR</span>' + cbRow(hvrTypes) + '</div>' +
+    '<div class="cbg ep-cbg"><span class="ep-grp-lbl">AHR</span>' + cbRow(ahrTypes) + '</div>' +
+    '<div class="cbg ep-cbg"><span class="ep-grp-lbl ep-grp-other">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>' + cbRow(otherTypes) + '</div>' +
+    '</div>';
+  var therapyRadios = ['ATP','Shock','None'].map(function(t) {
+    return '<label class="cbl"><input type="radio" name="ep'+n+'-therapy" value="'+t+'"> '+t+'</label>';
+  }).join('');
+  var appRadios = ['Y','N','N/A'].map(function(t) {
+    return '<label class="cbl"><input type="radio" name="ep'+n+'-app" value="'+t+'"> '+t+'</label>';
+  }).join('');
+  tr.innerHTML =
+    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '</td>' +
+    '<td><input type="datetime-local" name="ep'+n+'-dt" style="width:138px"></td>' +
+    '<td>' + typeCell + '</td>' +
+    '<td><input type="text" name="ep'+n+'-dur" placeholder="hh:mm:ss" style="width:72px"></td>' +
+    '<td><input type="number" name="ep'+n+'-rate" placeholder="bpm" style="width:52px"></td>' +
+    '<td><div class="cbg" style="flex-direction:column;gap:2px;">' + therapyRadios + '</div></td>' +
+    '<td><div class="cbg" style="flex-direction:column;gap:2px;">' + appRadios + '</div></td>' +
+    '<td><textarea name="ep'+n+'-notes" rows="1" style="width:100%;min-height:24px;resize:none;font-size:9.5px;padding:2px 4px;overflow:hidden;" oninput="autoGrow(this)"></textarea></td>' +
+    '<td><button class="del-btn" onclick="delRow(\'ep-'+n+'\')">×</button></td>';
+  document.getElementById('ep-tbody').appendChild(tr);
+  scheduleSave();
+}
+addEpRow(); addEpRow(); addEpRow();
+
+// ── REPROG ROWS ──
+var rpN = 0;
+function addRpRow() {
+  rpN++;
+  var n = rpN;
+  var tr = document.createElement('tr');
+  tr.id = 'rp-' + n;
+  tr.innerHTML =
+    '<td><input type="text" name="rp' + n + '-param" placeholder="e.g. LRL, Mode, Amplitude"></td>' +
+    '<td><input type="text" name="rp' + n + '-prev" placeholder="Old value"></td>' +
+    '<td><input type="text" name="rp' + n + '-new" placeholder="New value"></td>' +
+    '<td><input type="text" name="rp' + n + '-reason" placeholder="Clinical rationale"></td>' +
+    '<td><button class="del-btn" onclick="delRow(\'rp-' + n + '\')">×</button></td>';
+  document.getElementById('rp-tbody').appendChild(tr);
+  scheduleSave();
+}
+addRpRow(); addRpRow(); addRpRow();
+
+function delRow(id) {
+  var el = document.getElementById(id);
+  if (el) el.remove();
+  scheduleSave();
+}
+
+// ── REPROG TABLE TOGGLE ──
+function updateReprogTable() {
+  var yes = document.querySelector('input[name="rp-chg"][value="Yes"]');
+  var wrap = document.getElementById('rp-table-wrap');
+  if (wrap) wrap.style.display = (yes && yes.checked) ? '' : 'none';
+}
+
+// ── PACING % VISIBILITY ──
+function updatePacingPct() {
+  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  var has2C  = vals.some(function(v){ return ['PPM-2C','ICD-2C','CRT-P','CRT-D'].indexOf(v)>-1; });
+  var hasCRT = vals.some(function(v){ return v==='CRT-P'||v==='CRT-D'; });
+  var hasV   = vals.some(function(v){ return v!=='S-ICD'; }) && vals.length>0;
+  document.getElementById('pct-a-wrap').style.display   = has2C  ? '' : 'none';
+  document.getElementById('pct-v-wrap').style.display   = hasV   ? '' : 'none';
+  document.getElementById('pct-lv-wrap').style.display  = hasCRT ? '' : 'none';
+  document.getElementById('pct-biv-wrap').style.display = hasCRT ? '' : 'none';
+  var lbl = document.getElementById('pct-v-lbl');
+  if (lbl) lbl.textContent = hasCRT ? 'RV Paced %' : 'V Paced %';
+  var note = document.getElementById('pct-note');
+  if (note) {
+    if (!vals.length) note.textContent = '— select device type above';
+    else if (hasCRT) note.textContent = 'A / RV / LV / BiV';
+    else if (has2C)  note.textContent = 'A / V';
+    else             note.textContent = 'V';
+  }
+}
+
+// ── CONDITIONALS ──
+function updateConditionals() {
+  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  var hasAveir = vals.indexOf('Aveir') > -1;
+  var aDiv = document.getElementById('aveir-chambers');
+  if (aDiv) aDiv.style.display = hasAveir ? '' : 'none';
+  if (!hasAveir) {
+    document.querySelectorAll('input[name="aveir-chamber"]').forEach(function(el){ el.checked = false; });
+  }
+  rebuildLeads();
+  updatePacingPct();
+  var hasICD = vals.some(function(v){ return ['ICD-1C','ICD-2C','CRT-D','S-ICD'].indexOf(v)>-1; });
+  var ccRow = document.getElementById('bat-cc-row');
+  if (ccRow) ccRow.style.display = hasICD ? '' : 'none';
+}
+
+// ── SIDEBAR NAV ──
+function navTo(id) {
+  var el = document.getElementById(id);
+  if (!el) return false;
+  var top = el.getBoundingClientRect().top + window.pageYOffset - 56;
+  window.scrollTo({ top: top, behavior: 'smooth' });
+  return false;
+}
+
+var sectionIds = ['s-patient','s-battery','s-params','s-leads','s-episodes','s-remote','s-reprog','s-ap'];
+var io = new IntersectionObserver(function(entries) {
+  entries.forEach(function(e) {
+    if (e.isIntersecting) {
+      var id = 'nav-' + e.target.id.replace('s-','');
+      document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+      var active = document.getElementById(id);
+      if (active) active.classList.add('active');
+    }
+  });
+}, { rootMargin: '-15% 0px -75% 0px' });
+sectionIds.forEach(function(id) { var el = document.getElementById(id); if (el) io.observe(el); });
+
+// ── AUTO-SAVE ──
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  ss.textContent = 'Unsaved changes…';
+  ss.className = 'save-status dirty';
+  saveTimer = setTimeout(doSave, 900);
+}
+
+function doSave() {
+  var d = { __ep: epN, __rp: rpN };
+  document.querySelectorAll('input, select, textarea').forEach(function(el) {
+    if (el.type === 'radio') { if (el.checked) d['r:' + el.name] = el.value; }
+    else if (el.type === 'checkbox') {
+      var key = el.id ? 'c:' + el.id : 'cx:' + el.name + ':' + el.value;
+      d[key] = el.checked;
+    } else {
+      var key = el.id ? el.id : 'n:' + el.name;
+      d[key] = el.value;
+    }
+  });
+  try {
+    localStorage.setItem('crm-digital', JSON.stringify(d));
+    var t = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    ss.textContent = 'Saved ' + t;
+    ss.className = 'save-status saved';
+  } catch(e) {
+    ss.textContent = 'Save failed';
+    ss.className = 'save-status';
+  }
+}
+
+function loadSaved() {
+  var raw = localStorage.getItem('crm-digital');
+  if (!raw) return;
+  var d;
+  try { d = JSON.parse(raw); } catch(e) { return; }
+
+  // rebuild dynamic rows first
+  var ep = Math.max(d.__ep || 3, 0);
+  var rp = Math.max(d.__rp || 3, 0);
+  document.getElementById('ep-tbody').innerHTML = '';
+  document.getElementById('rp-tbody').innerHTML = '';
+  epN = 0; rpN = 0;
+  for (var i = 0; i < ep; i++) addEpRow();
+  for (var i = 0; i < rp; i++) addRpRow();
+
+  // restore dtype checkboxes first so leads can be rebuilt correctly
+  Object.keys(d).forEach(function(key) {
+    if (!key.startsWith('cx:')) return;
+    var parts = key.slice(3).split(':');
+    if (parts[0] !== 'dtype') return;
+    document.querySelectorAll('input[name="dtype"][value="'+parts[1]+'"]').forEach(function(el){ el.checked = d[key]; });
+  });
+  updateConditionals(); // rebuilds leads & pacing % with correct device types
+
+  function applyValues(d) {
+    Object.keys(d).forEach(function(key) {
+      if (key === '__ep' || key === '__rp') return;
+      var val = d[key];
+      if (key.startsWith('r:')) {
+        document.querySelectorAll('input[name="' + key.slice(2) + '"]').forEach(function(el) {
+          if (el.value === val) el.checked = true;
+        });
+      } else if (key.startsWith('c:')) {
+        var el = document.getElementById(key.slice(2));
+        if (el) el.checked = val;
+      } else if (key.startsWith('cx:')) {
+        var parts = key.slice(3).split(':');
+        document.querySelectorAll('input[name="'+parts[0]+'"][value="'+parts[1]+'"]').forEach(function(el){ el.checked = val; });
+      } else if (key.startsWith('n:')) {
+        var el = document.querySelector('[name="' + key.slice(2) + '"]:not([type=radio]):not([type=checkbox])');
+        if (el) el.value = val;
+      } else {
+        var el = document.getElementById(key);
+        if (el && el.type !== 'radio' && el.type !== 'checkbox') el.value = val;
+      }
+    });
+  }
+
+  applyValues(d); // first pass: everything except dynamic lead inputs (not yet in DOM)
+  updateConditionals(); // leads now in DOM with correct types
+  applyValues(d); // second pass: picks up newly created lead inputs
+
+  ss.textContent = 'Form restored';
+  ss.className = 'save-status saved';
+}
+
+function clearForm() {
+  if (!confirm('Clear all data and start a new patient record?\n\nThis cannot be undone.')) return;
+  localStorage.removeItem('crm-digital');
+  location.reload();
+}
+
+// ── EXPORT ──
+function copyToClipboard() {
+  var lines = buildSummaryLines();
+  var text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(function() {
+    var btn = document.querySelector('.btn-ghost[onclick="copyToClipboard()"]');
+    if (btn) { var orig = btn.innerHTML; btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Copied!'; setTimeout(function(){ btn.innerHTML = orig; }, 2000); }
+  }).catch(function() {
+    alert('Copy failed — please use Export .txt instead.');
+  });
+}
+
+function exportPDF() {
+  function v(id) { var e = document.getElementById(id); return e ? (e.value || '') : ''; }
+  function r(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
+  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ') || '—';
+  var lonUnit = (document.querySelector('[name="bat-lon-unit"]')||{value:'years'}).value;
+  var lonVal  = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
+
+  // Build lead rows HTML
+  var leadRows = '';
+  document.querySelectorAll('#leads-tbody tr').forEach(function(tr) {
+    var cells = tr.querySelectorAll('td');
+    if (!cells.length) return;
+    var label = cells[0] ? cells[0].innerText.trim() : '';
+    var imp  = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
+    var sens = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
+    var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
+    var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
+    var flag = cells[5] ? (function(){ var c=cells[5].querySelector('input:checked'); return c?c.value:''; })() : '';
+    leadRows += '<tr><td>'+label+'</td><td>'+(imp||'—')+'</td><td>'+(sens||'—')+'</td><td>'+(thr||'—')+'</td><td>'+(pw||'—')+'</td><td>'+(flag||'—')+'</td></tr>';
+  });
+
+  // Build episode rows HTML
+  var epRows = '';
+  document.querySelectorAll('#ep-tbody tr').forEach(function(tr) {
+    var cells = tr.querySelectorAll('td');
+    if (!cells.length) return;
+    var num   = cells[0] ? cells[0].innerText.trim() : '';
+    var dt    = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
+    var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
+    var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
+    var rate  = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
+    var ther  = cells[5] ? (function(){ var c=cells[5].querySelector('input:checked'); return c?c.value:''; })() : '';
+    var app   = cells[6] ? (function(){ var c=cells[6].querySelector('input:checked'); return c?c.value:''; })() : '';
+    var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
+    if (!dt && !types && !dur) return; // skip blank rows
+    epRows += '<tr><td>'+num+'</td><td>'+(dt||'—')+'</td><td>'+(types||'—')+'</td><td>'+(dur||'—')+'</td><td>'+(rate||'—')+'</td><td>'+(ther||'—')+'</td><td>'+(app||'—')+'</td><td style="white-space:pre-wrap">'+(notes||'—')+'</td></tr>';
+  });
+
+  // Build reprog rows HTML
+  var rpRows = '';
+  var rpChg = r('rp-chg');
+  if (rpChg === 'Yes') {
+    document.querySelectorAll('#rp-tbody tr').forEach(function(tr) {
+      var cells = tr.querySelectorAll('td');
+      if (!cells.length) return;
+      var param  = cells[0] ? (cells[0].querySelector('input')||{value:''}).value : '';
+      var prev   = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
+      var nval   = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
+      var reason = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
+      if (!param) return;
+      rpRows += '<tr><td>'+param+'</td><td>'+prev+'</td><td>'+nval+'</td><td>'+reason+'</td></tr>';
+    });
+  }
+
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    + '<title>CRM Record — ' + (v('pt-name')||'Unknown') + '</title>'
+    + '<style>'
+    + 'body{font-family:system-ui,sans-serif;font-size:11px;color:#111;margin:0;padding:24px 32px;}'
+    + 'h1{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:6px;margin-bottom:14px;}'
+    + 'h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#1e3a5f;color:#fff;padding:3px 8px;margin:12px 0 6px;}'
+    + 'h3{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#1e3a5f;border-bottom:1px solid #c8d8e8;padding-bottom:1px;margin:8px 0 4px;}'
+    + '.row{display:flex;flex-wrap:wrap;gap:4px 20px;margin-bottom:5px;}'
+    + '.f{display:flex;flex-direction:column;gap:1px;min-width:100px;}'
+    + '.lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#1e3a5f;}'
+    + '.val{font-size:11px;border-bottom:1px solid #c8d8e8;min-width:80px;padding-bottom:1px;}'
+    + 'table{width:100%;border-collapse:collapse;font-size:9.5px;border:1px solid #b8ccdf;margin-bottom:8px;}'
+    + 'th{background:#e6eef6;color:#1e3a5f;text-align:left;font-size:8px;font-weight:700;text-transform:uppercase;padding:3px 5px;border-bottom:1px solid #b8ccdf;border-right:1px solid #b8ccdf;}'
+    + 'th:last-child{border-right:none;}'
+    + 'td{padding:3px 5px;border-bottom:1px solid #e0e8f0;border-right:1px solid #edf1f6;vertical-align:top;}'
+    + 'td:last-child{border-right:none;}'
+    + 'tr:last-child td{border-bottom:none;}'
+    + '.gen{font-size:8.5px;color:#888;margin-bottom:10px;}'
+    + '@media print{@page{size:letter;margin:.45in .5in;}body{padding:0;}}'
+    + '</style></head><body>'
+    + '<h1>Cardiac CRM Interrogation &amp; Reprogramming Record</h1>'
+    + '<div class="gen">Generated: ' + new Date().toLocaleString() + '</div>'
+
+    + '<h2>Patient &amp; Device</h2>'
+    + '<div class="row">'
+    + '<div class="f"><span class="lbl">Patient Name</span><span class="val">'+(v('pt-name')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">DOB</span><span class="val">'+(v('pt-dob')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">MRN</span><span class="val">'+(v('pt-mrn')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Date</span><span class="val">'+(v('pt-date')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Visit Type</span><span class="val">'+(v('pt-visit')||'&nbsp;')+'</span></div>'
+    + '</div>'
+    + '<div class="row">'
+    + '<div class="f"><span class="lbl">Device Type</span><span class="val">'+dtype+'</span></div>'
+    + '<div class="f"><span class="lbl">Manufacturer</span><span class="val">'+(r('mfr')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Model</span><span class="val">'+(v('dev-model')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Serial #</span><span class="val">'+(v('dev-serial')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Implant Date</span><span class="val">'+(v('dev-implant')||'&nbsp;')+'</span></div>'
+    + '</div>'
+
+    + '<h2>Battery / Device Status</h2>'
+    + '<div class="row">'
+    + '<div class="f"><span class="lbl">Longevity</span><span class="val">'+(lonVal||'&nbsp;')+' '+lonUnit+'</span></div>'
+    + '<div class="f"><span class="lbl">Battery Status</span><span class="val">'+(r('bat-status')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Device Function</span><span class="val">'+(v('ap-devfx')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Pacing Dependency</span><span class="val">'+(v('ap-dep')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Intrinsic Rhythm</span><span class="val">'+(v('ap-rhythm')||'&nbsp;')+'</span></div>'
+    + '</div>'
+
+    + '<h2>Programmed Parameters</h2>'
+    + '<div class="row">'
+    + '<div class="f"><span class="lbl">Mode</span><span class="val">'+(v('p-mode')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">LRL (bpm)</span><span class="val">'+(v('p-lrl')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">UTR (bpm)</span><span class="val">'+(v('p-utr')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">USR (bpm)</span><span class="val">'+(v('p-usr')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Sensed AV (ms)</span><span class="val">'+(v('p-sav')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Paced AV (ms)</span><span class="val">'+(v('p-pav')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Mode Switch</span><span class="val">'+(v('p-ms')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">MS Rate (bpm)</span><span class="val">'+(v('p-msrate')||'&nbsp;')+'</span></div>'
+    + '</div>'
+
+    + '<h2>Lead / Electrode Measurements</h2>'
+    + '<table><thead><tr><th>Lead</th><th>Impedance (Ω)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th><th>Flag</th></tr></thead><tbody>'
+    + (leadRows || '<tr><td colspan="6" style="color:#999;font-style:italic">No leads selected</td></tr>')
+    + '</tbody></table>'
+
+    + '<h2>Stored Episodes</h2>'
+    + '<div class="row" style="margin-bottom:8px;">'
+    + '<div class="f"><span class="lbl">Total</span><span class="val">'+(v('ep-total')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">AHR</span><span class="val">'+(v('ep-ahr')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">HVR</span><span class="val">'+(v('ep-hvr')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">PMT</span><span class="val">'+(v('ep-pmt')||'&nbsp;')+'</span></div>'
+    + '</div>'
+    + (epRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Therapy</th><th>Approp.</th><th>Notes</th></tr></thead><tbody>'+epRows+'</tbody></table>' : '')
+
+    + '<h2>Remote Monitoring</h2>'
+    + '<div class="row">'
+    + '<div class="f"><span class="lbl">Enrolled</span><span class="val">'+(v('rm-enrolled')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Compliant</span><span class="val">'+(v('rm-comply')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Last Transmission</span><span class="val">'+(v('rm-last')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Next Scheduled</span><span class="val">'+(v('rm-next')||'&nbsp;')+'</span></div>'
+    + '</div>'
+    + '<div class="row"><div class="f" style="min-width:300px"><span class="lbl">Active Alerts</span><span class="val">'+(v('rm-active')||'&nbsp;')+'</span></div></div>'
+
+    + (rpChg === 'Yes' && rpRows ? '<h2>Reprogramming</h2><table><thead><tr><th>Parameter</th><th>Previous</th><th>New Value</th><th>Reason</th></tr></thead><tbody>'+rpRows+'</tbody></table>' : '')
+
+    + '<h2>Device Technician</h2>'
+    + '<div class="row">'
+    + '<div class="f" style="min-width:220px"><span class="lbl">Name</span><span class="val">'+(v('sig-name')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">Date Completed</span><span class="val">'+(v('sig-date')||'&nbsp;')+'</span></div>'
+    + '</div>'
+    + '<script>window.onload=function(){window.print();}<\/script>'
+    + '</body></html>';
+
+  var blob = new Blob([html], {type: 'text/html'});
+  var url  = URL.createObjectURL(blob);
+  var win  = window.open(url, '_blank');
+  if (!win) {
+    // Fallback for WebViews that block window.open
+    var a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.click();
+  }
+}
+
+function exportSummary() {
+  var lines = buildSummaryLines();
+  var blob = new Blob([lines.join('\n')], {type:'text/plain'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'CRM_' + (v('pt-name').replace(/[^a-zA-Z]/g,'_') || 'Record') + '_' + new Date().toISOString().slice(0,10) + '.txt';
+  a.click();
+}
+
+function buildSummaryLines() {
+  function v(id) { var e = document.getElementById(id); return e ? (e.value || '—') : '—'; }
+  function r(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : '—'; }
+  function lonUnit() { var e = document.querySelector('[name="bat-lon-unit"]'); return e ? e.value : 'years'; }
+  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ') || '—';
+  var lines = [
+    '═══════════════════════════════════════════════════════════',
+    '  CARDIAC CRM INTERROGATION & REPROGRAMMING RECORD',
+    '  Generated: ' + new Date().toLocaleString(),
+    '═══════════════════════════════════════════════════════════',
+    '',
+    'PATIENT',
+    '  Name:     ' + v('pt-name'),
+    '  DOB:      ' + v('pt-dob') + '    MRN: ' + v('pt-mrn'),
+    '  Date:     ' + v('pt-date') + '    Visit: ' + v('pt-visit'),
+    '  Provider: ' + v('pt-provider'),
+    '',
+    'DEVICE',
+    '  Type:         ' + dtype,
+    '  Manufacturer: ' + r('mfr'),
+    '  Model:        ' + v('dev-model') + '    Serial: ' + v('dev-serial'),
+    '  Implant Date: ' + v('dev-implant'),
+    '',
+    'BATTERY / DEVICE STATUS',
+    '  Longevity:         ' + (document.querySelector('[name="bat-lon-cur"]')||{value:'—'}).value + ' ' + lonUnit(),
+    '  Battery Status:    ' + r('bat-status'),
+    '  Device Function:   ' + v('ap-devfx'),
+    '  Pacing Dependency: ' + v('ap-dep'),
+    '  Intrinsic Rhythm:  ' + v('ap-rhythm'),
+    '',
+    'PROGRAMMED PARAMETERS',
+    '  Mode: ' + v('p-mode') + '    LRL: ' + v('p-lrl') + ' bpm    UTR: ' + v('p-utr') + ' bpm    USR: ' + v('p-usr') + ' bpm',
+    '  Sensed AV: ' + v('p-sav') + ' ms    Paced AV: ' + v('p-pav') + ' ms    Mode Switch: ' + v('p-ms') + '    MS Rate: ' + v('p-msrate') + ' bpm',
+    '',
+    'REMOTE MONITORING',
+    '  Enrolled: ' + v('rm-enrolled') + '    Compliant: ' + v('rm-comply'),
+    '  Last Transmission: ' + v('rm-last') + '    Next: ' + v('rm-next'),
+    '  Active Alerts: ' + v('rm-active'),
+    '',
+    'DEVICE TECHNICIAN',
+    '  Name: ' + v('sig-name') + '    Date: ' + v('sig-date'),
+    '',
+    '═══════════════════════════════════════════════════════════',
+  ];
+  return lines;
+}
+
+// ── INIT ──
+updatePacingPct();
+document.addEventListener('input', scheduleSave);
+document.addEventListener('change', scheduleSave);
+loadSaved();
+</script>
+</body>
+</html>
