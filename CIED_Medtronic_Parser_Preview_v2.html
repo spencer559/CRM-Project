@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medtronic Parser Preview v2 — leadless + dual-chamber</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#1e3a5f; --navy-dk:#162e4d; --navy-lt:#e6eef6;
+  --bg:#d0d6df; --card:#fff; --text:#111; --soft:#556; --line:#cdd5df;
+  --inset:#f7f9fb; --green:#2d7d46; --amber:#c87000; --red:#b03030;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:13px}
+body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.4;padding:18px}
+.wrap{max-width:1080px;margin:0 auto}
+header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--navy)}
+.sub{font-size:12px;color:var(--soft)}
+.privacy{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--green);background:#eaf5ee;border:1px solid #bfe0cb;border-radius:3px;padding:3px 9px;margin:7px 0 16px}
+.privacy .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+
+#drop{background:var(--card);border:2px dashed var(--line);border-radius:6px;padding:34px 24px;text-align:center;cursor:pointer;transition:.12s}
+#drop:hover{border-color:var(--navy);background:#fafcff}
+#drop.over{border-color:var(--navy);background:var(--navy-lt)}
+#drop .big{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy)}
+#drop .small{font-size:12px;color:var(--soft);margin-top:4px}
+#file{display:none}
+.err{display:none;background:#fdf0f0;border:1px solid #e3b8b8;color:#9a2f2f;font-size:12px;padding:10px 14px;border-radius:5px;margin-top:14px}
+
+#out{display:none;margin-top:16px}
+#route{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--navy);color:#fff;border-radius:6px;padding:11px 16px;margin-bottom:6px}
+#route .r{display:flex;flex-direction:column}
+#route .rk{font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:#9fb4cc;font-weight:700}
+#route .rv{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;letter-spacing:.4px}
+#route .div{width:1px;height:26px;background:#36567a}
+
+.section-h{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);margin:18px 0 7px;display:flex;align-items:center;gap:8px}
+.section-h .n{font-size:11px;color:#aaa;font-weight:600;letter-spacing:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{background:#fbfcfe;text-align:left;padding:7px 12px;border-bottom:1px solid var(--line);font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;color:#aaa;font-weight:700}
+tbody td{padding:6px 12px;border-bottom:1px solid #eef1f5;vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+.fld{font-weight:600;color:var(--soft);white-space:nowrap}
+.fld code{font-family:var(--mono);font-size:10.5px;color:#99a;font-weight:400;display:block;margin-top:1px}
+.val{font-family:var(--mono);font-size:12.5px;color:var(--text);word-break:break-word}
+.val.empty{color:#bbb;font-style:italic}
+.src{font-size:10.5px;color:#9ab;white-space:nowrap}
+.st{font-size:9.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:3px;white-space:nowrap}
+.st.auto{background:#eaf5ee;color:var(--green)}
+.st.review{background:#fff4e6;color:var(--amber)}
+.st.empty{background:#f1f3f6;color:#99a}
+.note{font-size:11px;color:var(--amber);margin-top:3px;line-height:1.35}
+.left-list{padding:12px 16px;font-size:12px;color:var(--soft);line-height:1.7}
+.left-list b{color:var(--text)}
+.gotcha{padding:0;list-style:none}
+.gotcha li{display:flex;gap:9px;padding:8px 14px;border-bottom:1px solid #eef1f5;font-size:12px}
+.gotcha li:last-child{border-bottom:none}
+.gotcha .tag{flex-shrink:0;font-family:var(--mono);font-size:10px;font-weight:700;color:#fff;background:var(--navy);border-radius:3px;padding:2px 6px;height:fit-content}
+.gotcha .body{color:var(--soft)} .gotcha .body b{color:var(--text)}
+#objTxt{width:100%;min-height:200px;font-family:var(--mono);font-size:11px;line-height:1.5;border:1px solid var(--line);border-radius:5px;padding:11px 13px;background:var(--inset);resize:vertical;margin-top:8px}
+.bar{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.btn{font-family:'Barlow',sans-serif;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;padding:6px 13px;border-radius:4px;border:1px solid var(--line);cursor:pointer;background:#f3f5f8;color:var(--soft)}
+.btn:hover{background:#e5e9ef}
+.btn-primary{background:var(--navy);color:#fff;border-color:var(--navy)} .btn-primary:hover{background:var(--navy-dk)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;font-size:12px;font-weight:600;padding:9px 18px;border-radius:5px;transition:.25s;z-index:50}
+.toast.show{transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Medtronic Parser Preview <span style="color:#7a93b0">v2</span></h1>
+    <span class="sub">auto-routes by device — leadless (Micra) + dual-chamber (Azure/Adapta)</span>
+  </header>
+  <div class="privacy"><span class="dot"></span>Runs entirely in this browser. Nothing is uploaded or stored.</div>
+
+  <div id="drop">
+    <div class="big">Drop a Medtronic SmartSync PDF</div>
+    <div class="small">or click to browse — the engine detects the device class and applies the matching map</div>
+  </div>
+  <input type="file" id="file" accept="application/pdf">
+  <div class="err" id="err"></div>
+
+  <div id="out">
+    <div id="route"></div>
+
+    <div class="section-h">Extracted fields <span class="n" id="autoCount"></span></div>
+    <div class="card"><table><thead><tr><th>Form field</th><th>Extracted value</th><th>Source</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
+
+    <div class="section-h" id="leadH" style="display:none">Lead inventory <span class="n">feeds the Lead Information table — stable across visits</span></div>
+    <div class="card" id="leadCard" style="display:none"><table><thead><tr><th>Chamber</th><th>Model</th><th>Serial</th><th>Implant</th></tr></thead><tbody id="leadRows"></tbody></table></div>
+
+    <div class="section-h">How it resolved ambiguity <span class="n">what broke the single-chamber map, and the fix</span></div>
+    <div class="card"><ul class="gotcha" id="gotchas"></ul></div>
+
+    <div class="section-h">Left for the clinician <span class="n">judgment calls the parser won't guess</span></div>
+    <div class="card"><div class="left-list" id="leftList"></div></div>
+
+    <div class="section-h">Field map object <span class="n">what applyToForm() consumes</span></div>
+    <textarea id="objTxt" spellcheck="false"></textarea>
+    <div class="bar"><button class="btn btn-primary" onclick="copyObj()">Copy object</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<!-- pdf.js (UMD) loaded at runtime in YOUR browser — no data leaves the machine. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- shared engine + the Medtronic vendor map (classic scripts; work over file:// and http) -->
+<script src="engine.js"></script>
+<script src="medtronic.js"></script>
+<script>
+/* =====================================================================
+   PAGE GLUE — Medtronic SmartSync preview v2 (device-class routing).
+   The reusable engine lives in engine.js; the router + maps in
+   medtronic.js. MEDTRONIC.runMap(LINES, META) routes by model and
+   returns { RESULT, GOTCHAS, LEADS, ROUTE, ORDER }. This file only
+   wires the drop zone, runs the pipeline, and renders.
+   ===================================================================== */
+
+let META={}, RESULT={}, LEADS=[], GOTCHAS=[], ROUTE={}, ORDER=[];
+
+const drop=document.getElementById('drop'), fileIn=document.getElementById('file');
+Engine.wireDrop(drop, fileIn, handle);
+function showErr(m){const e=document.getElementById('err');e.textContent=m;e.style.display='block';}
+
+async function handle(file){
+  document.getElementById('err').style.display='none';
+  try{
+    const buf=await file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    const items=await Engine.extractItems(pdf);
+    META={name:file.name,pages:pdf.numPages,items:items.length};
+    const LINES=Engine.tagSections(Engine.normalize(items));
+    const out=MEDTRONIC.runMap(LINES, META);
+    RESULT=out.RESULT; LEADS=out.LEADS; GOTCHAS=out.GOTCHAS; ROUTE=out.ROUTE; ORDER=out.ORDER;
+    render();
+  }catch(e){console.error(e);showErr('Could not parse: '+e.message+'. If text does not select in a viewer, it is scanned and needs OCR.');}
+}
+
+/* ---------- render ---------- */
+function render(){
+  const esc=Engine.esc;
+  document.getElementById('out').style.display='block';
+  document.getElementById('route').innerHTML=
+    '<div class="r"><span class="rk">Device</span><span class="rv">'+esc(RESULT['dev-model'].v||'—')+'</span></div>'+
+    '<div class="div"></div><div class="r"><span class="rk">Detected class</span><span class="rv">'+ROUTE.label+'</span></div>'+
+    '<div class="div"></div><div class="r"><span class="rk">Map applied</span><span class="rv">'+ROUTE.family+'</span></div>'+
+    (ROUTE.note?'<div class="r" style="flex-basis:100%"><span class="note" style="color:#ffd9a6">'+esc(ROUTE.note)+'</span></div>':'');
+
+  let auto=0;
+  document.getElementById('rows').innerHTML=ORDER.map(f=>{
+    const r=RESULT[f];if(!r)return '';if(r.status==='auto')auto++;
+    const val=r.v?('<span class="val">'+esc(r.v).replace(/\n/g,'<br>')+'</span>'):'<span class="val empty">—</span>';
+    const note=r.note?'<div class="note">'+esc(r.note)+'</div>':'';
+    return '<tr><td class="fld">'+r.label+'<code>'+f+'</code></td><td>'+val+note+'</td><td class="src">'+(r.src||'')+'</td><td><span class="st '+r.status+'">'+r.status+'</span></td></tr>';
+  }).join('');
+  document.getElementById('autoCount').textContent=auto+' of '+ORDER.length+' auto-filled';
+
+  if(LEADS.length){
+    document.getElementById('leadH').style.display='flex';
+    document.getElementById('leadCard').style.display='block';
+    document.getElementById('leadRows').innerHTML=LEADS.map(l=>
+      '<tr><td class="fld">'+esc(l.chamber)+'</td><td class="val">'+esc(l.model)+'</td><td class="val">'+esc(l.serial)+'</td><td class="val">'+esc(l.date)+'</td></tr>').join('');
+  }else{document.getElementById('leadH').style.display='none';document.getElementById('leadCard').style.display='none';}
+
+  document.getElementById('gotchas').innerHTML=GOTCHAS.map(g=>'<li><span class="tag">'+g.tag+'</span><span class="body">'+g.body+'</span></li>').join('');
+  document.getElementById('leftList').innerHTML=
+    '<b>Device Function · Pacing Dependency · Intrinsic Rhythm</b> — clinical interpretation.<br>'+
+    '<b>Battery status (BOL/ERI/EOL)</b> — a classification call; left to you.<br>'+
+    '<b>Remote monitoring</b> — not in a session file.<br>'+
+    '<b>Episode counts (total, AT/AF, PMT)</b> — vary by report section; only AF burden and NS-VT are auto-pulled. Confirm the rest in the device log.<br>'+
+    '<b>Technician name</b> — your persistent default.';
+
+  const obj={};ORDER.forEach(f=>{const r=RESULT[f];if(r&&r.v)obj[f]=r.v;});
+  if(LEADS.length)obj['_leadInventory']=LEADS;
+  document.getElementById('objTxt').value=JSON.stringify(obj,null,2);
+}
+function copyObj(){navigator.clipboard.writeText(document.getElementById('objTxt').value).then(()=>Engine.toast('Field map copied'));}
+</script>
+</body>
+</html>

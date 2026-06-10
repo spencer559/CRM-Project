@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CIED PDF Extraction Harness</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#1e3a5f; --navy-dk:#162e4d; --navy-lt:#e6eef6;
+  --bg:#d0d6df; --card:#fff; --text:#111; --soft:#556; --line:#cdd5df;
+  --inset:#f7f9fb; --green:#2d7d46; --amber:#c87000; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:13px}
+body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.4;padding:18px}
+.wrap{max-width:1180px;margin:0 auto}
+
+/* header */
+header{display:flex;align-items:baseline;gap:14px;margin-bottom:4px}
+h1{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--navy)}
+.sub{font-size:12px;color:var(--soft)}
+.privacy{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--green);
+  background:#eaf5ee;border:1px solid #bfe0cb;border-radius:3px;padding:3px 9px;margin-bottom:16px;margin-top:6px}
+.privacy .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+
+/* drop zone */
+#drop{background:var(--card);border:2px dashed var(--line);border-radius:6px;padding:40px 24px;text-align:center;
+  cursor:pointer;transition:border-color .12s,background .12s}
+#drop:hover{border-color:var(--navy);background:#fafcff}
+#drop.over{border-color:var(--navy);background:var(--navy-lt)}
+#drop .big{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy)}
+#drop .small{font-size:12px;color:var(--soft);margin-top:5px}
+#file{display:none}
+
+/* summary strip */
+#summary{display:none;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:5px;overflow:hidden;margin-top:16px}
+.scell{background:var(--card);padding:9px 14px;flex:1}
+.scell .k{font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#aaa}
+.scell .v{font-size:14px;font-weight:600;color:var(--text);margin-top:1px}
+.scell .v.good{color:var(--green)} .scell .v.warn{color:var(--amber)}
+
+/* controls */
+#panel{display:none;margin-top:16px}
+.bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{font-family:'Barlow',sans-serif;font-size:11.5px;font-weight:600;padding:6px 13px;border:none;background:var(--card);color:var(--soft);cursor:pointer}
+.seg button.on{background:var(--navy);color:#fff}
+.bar label{font-size:11px;font-weight:600;color:var(--soft);text-transform:uppercase;letter-spacing:.4px}
+.bar input[type=text]{font-family:var(--mono);font-size:12px;padding:6px 9px;border:1px solid var(--line);border-radius:4px;background:var(--inset);min-width:200px}
+.spacer{flex:1}
+.btn{font-family:'Barlow',sans-serif;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;
+  padding:6px 13px;border-radius:4px;border:1px solid var(--line);cursor:pointer;background:#f3f5f8;color:var(--soft)}
+.btn:hover{background:#e5e9ef}
+.btn-primary{background:var(--navy);color:#fff;border-color:var(--navy)} .btn-primary:hover{background:var(--navy-dk)}
+
+/* output card */
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.card-h{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#aaa;padding:8px 14px;border-bottom:1px solid var(--line);background:#fbfcfe}
+.view{display:none;max-height:440px;overflow:auto}
+.view.on{display:block}
+
+/* reading-order view */
+#vRead{font-family:var(--mono);font-size:11.5px;padding:10px 14px}
+.ln{display:flex;gap:0;padding:1px 0;white-space:pre}
+.ln:hover{background:var(--navy-lt)}
+.ln .yc{color:#bbb;width:64px;flex-shrink:0;user-select:none}
+.ln .it{color:var(--text)}
+.ln .it+.it{margin-left:0}
+.tok{color:var(--navy);background:#eef3f9;border-radius:2px;padding:0 3px;margin-right:7px}
+.tok .x{color:#9ab;font-size:10px;margin-right:3px}
+
+/* coordinate table */
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+thead th{position:sticky;top:0;background:#fbfcfe;text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);
+  font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;color:#aaa;font-weight:700}
+tbody td{padding:3px 10px;border-bottom:1px solid #eef1f5}
+tbody tr:hover{background:var(--navy-lt)}
+td.num{color:var(--soft);text-align:right;width:60px}
+td.pg{color:#aaa;width:44px}
+
+/* probe results */
+#vProbe{padding:12px 14px;font-family:var(--mono);font-size:12px}
+#vProbe .hint{font-family:'Barlow',sans-serif;font-size:12px;color:var(--soft);margin-bottom:10px}
+.match{padding:7px 10px;border:1px solid var(--line);border-radius:4px;margin-bottom:6px;background:var(--inset)}
+.match .lbl{color:var(--soft)}
+.match .arrow{color:#bbb;margin:0 8px}
+.match .val{color:var(--navy);font-weight:600;background:#eef3f9;padding:1px 5px;border-radius:2px}
+.match .none{color:var(--amber)}
+.match .meta{font-family:'Barlow',sans-serif;font-size:10px;color:#aaa;margin-top:3px}
+
+/* export */
+#exportBox{display:none;margin-top:16px}
+#exportTxt{width:100%;min-height:200px;font-family:var(--mono);font-size:11px;line-height:1.45;
+  border:1px solid var(--line);border-radius:5px;padding:11px 13px;background:var(--inset);color:var(--text);resize:vertical}
+.exp-h{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.exp-h .t{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--navy)}
+.exp-h .scrub{font-size:11px;color:var(--soft)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;
+  font-size:12px;font-weight:600;padding:9px 18px;border-radius:5px;transition:transform .25s;z-index:50}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.err{display:none;background:#fdf0f0;border:1px solid #e3b8b8;color:#9a2f2f;font-size:12px;padding:10px 14px;border-radius:5px;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CIED PDF Extraction Harness</h1>
+    <span class="sub">Drop a programmer report &middot; inspect the text layer &middot; export for parser authoring</span>
+  </header>
+  <div class="privacy"><span class="dot"></span>Runs entirely in this browser. The file is read into memory only — never uploaded, never written to disk, gone when you close the tab.</div>
+
+  <div id="drop">
+    <div class="big">Drop a programmer PDF here</div>
+    <div class="small">or click to browse &mdash; Medtronic, Abbott, Boston Scientific, Biotronik</div>
+  </div>
+  <input type="file" id="file" accept="application/pdf">
+
+  <div class="err" id="err"></div>
+
+  <div id="summary">
+    <div class="scell"><div class="k">File</div><div class="v" id="s-file">—</div></div>
+    <div class="scell"><div class="k">Pages</div><div class="v" id="s-pages">—</div></div>
+    <div class="scell"><div class="k">Text items</div><div class="v" id="s-items">—</div></div>
+    <div class="scell"><div class="k">Text layer</div><div class="v" id="s-layer">—</div></div>
+    <div class="scell"><div class="k">Vendor guess</div><div class="v" id="s-vendor">—</div></div>
+  </div>
+
+  <div id="panel">
+    <div class="bar">
+      <div class="seg">
+        <button id="t-read" class="on" onclick="setView('read')">Reading order</button>
+        <button id="t-coord" onclick="setView('coord')">Coordinate dump</button>
+        <button id="t-probe" onclick="setView('probe')">Label probe</button>
+      </div>
+      <span id="probeWrap" style="display:none;align-items:center;gap:8px">
+        <label>Label</label>
+        <input type="text" id="probeIn" placeholder="e.g. Impedance, Serial, Model" oninput="runProbe()">
+      </span>
+      <div class="spacer"></div>
+      <button class="btn" onclick="buildExport()">Build export ↓</button>
+    </div>
+
+    <div class="card">
+      <div class="card-h" id="viewLabel">Reading order — items grouped into lines (top→bottom), sorted left→right</div>
+      <div id="vRead" class="view on"></div>
+      <div id="vCoord" class="view"><table><thead><tr><th class="pg">Pg</th><th class="num">x</th><th class="num">y</th><th>Text</th></tr></thead><tbody id="coordBody"></tbody></table></div>
+      <div id="vProbe" class="view">
+        <div class="hint">Type a label above. For every text item that matches, this shows the item immediately to its <strong>right</strong> on the same line — the value an anchor-based parser would capture. This is the "value-to-the-right-of-label" extraction, tested live against your real PDF.</div>
+        <div id="probeBody"></div>
+      </div>
+    </div>
+
+    <div id="exportBox">
+      <div class="exp-h">
+        <span class="t">Export</span>
+        <span class="scrub">Editable — scrub anything before copying. Then send it back and I'll write the field map.</span>
+      </div>
+      <textarea id="exportTxt" spellcheck="false"></textarea>
+      <div class="bar" style="margin-top:8px">
+        <button class="btn btn-primary" onclick="copyExport()">Copy to clipboard</button>
+        <button class="btn" onclick="downloadExport()">Download .txt</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- pdf.js (UMD). Loaded from cdnjs at runtime in YOUR browser — no data leaves the machine. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- shared engine (worker loader, normalize, probe primitive, vendor sigs, utils) -->
+<script src="engine.js"></script>
+<script>
+/* =====================================================================
+   CIED PDF EXTRACTION HARNESS — page glue.
+   Purpose: prove the text layer is extractable, expose coordinates,
+   and produce a clean export to author a vendor field-map against.
+   The reusable engine lives in engine.js; this file is harness UI only.
+   ===================================================================== */
+
+let ITEMS = [];   // [{page, x, y, w, str}]
+let LINES = [];   // [{page, y, items:[...]}]
+let META = {};
+
+/* ---------------- drag & drop wiring ---------------- */
+const drop=document.getElementById('drop'), fileIn=document.getElementById('file');
+Engine.wireDrop(drop, fileIn, handle);
+
+function showErr(msg){ const el=document.getElementById('err'); el.textContent=msg; el.style.display='block'; }
+function clearErr(){ document.getElementById('err').style.display='none'; }
+
+/* ---------------- main parse ---------------- */
+async function handle(file){
+  clearErr();
+  if(file.type!=='application/pdf' && !/\.pdf$/i.test(file.name)){ showErr('That doesn\'t look like a PDF. Drop a .pdf programmer export.'); return; }
+  try{
+    const buf=await file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    ITEMS=await Engine.extractItems(pdf);
+    META={name:file.name, pages:pdf.numPages, items:ITEMS.length, vendor:Engine.guessVendor(ITEMS)};
+    LINES=Engine.normalize(ITEMS);
+    render();
+  }catch(e){
+    console.error(e);
+    showErr('Could not parse this PDF: '+e.message+'. If text doesn\'t highlight when you select it in a viewer, it\'s a scanned image and needs OCR instead.');
+  }
+}
+
+/* ---------------- rendering ---------------- */
+function render(){
+  const esc=Engine.esc;
+  document.getElementById('summary').style.display='flex';
+  document.getElementById('panel').style.display='block';
+  document.getElementById('s-file').textContent=META.name;
+  document.getElementById('s-pages').textContent=META.pages;
+  document.getElementById('s-items').textContent=META.items;
+  const layer=document.getElementById('s-layer');
+  if(META.items>0){ layer.textContent='Present ✓'; layer.className='v good'; }
+  else{ layer.textContent='None — likely scanned'; layer.className='v warn'; }
+  const ven=document.getElementById('s-vendor');
+  ven.textContent=META.vendor; ven.className=(META.vendor==='Unknown')?'v warn':'v';
+
+  // reading order
+  const rd=document.getElementById('vRead');
+  rd.innerHTML=LINES.map(l=>{
+    const toks=l.items.map(it=>
+      '<span class="tok"><span class="x">'+Math.round(it.x)+'</span>'+esc(it.str)+'</span>'
+    ).join('');
+    return '<div class="ln"><span class="yc">y'+Math.round(l.y)+'</span><span class="it">'+toks+'</span></div>';
+  }).join('');
+
+  // coordinate dump
+  const cb=document.getElementById('coordBody');
+  cb.innerHTML=ITEMS.map(it=>
+    '<tr><td class="pg">'+it.page+'</td><td class="num">'+it.x.toFixed(1)+'</td><td class="num">'+it.y.toFixed(1)+'</td><td>'+esc(it.str)+'</td></tr>'
+  ).join('');
+
+  document.getElementById('exportBox').style.display='none';
+  setView('read');
+}
+
+/* ---------------- view switching ---------------- */
+function setView(v){
+  const map={read:['t-read','vRead','Reading order — items grouped into lines (top→bottom), sorted left→right'],
+             coord:['t-coord','vCoord','Coordinate dump — every text item with its x / y (pdf.js user space, origin bottom-left)'],
+             probe:['t-probe','vProbe','Label probe — live test of value-to-the-right-of-label extraction']};
+  ['t-read','t-coord','t-probe'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  ['vRead','vCoord','vProbe'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  document.getElementById(map[v][0]).classList.add('on');
+  document.getElementById(map[v][1]).classList.add('on');
+  document.getElementById('viewLabel').textContent=map[v][2];
+  document.getElementById('probeWrap').style.display=(v==='probe')?'inline-flex':'none';
+  if(v==='probe') runProbe();
+}
+
+/* ---------------- label probe (anchor demo) ---------------- */
+function runProbe(){
+  const esc=Engine.esc;
+  const q=document.getElementById('probeIn').value.trim();
+  const body=document.getElementById('probeBody');
+  if(!q){ body.innerHTML='<div class="hint" style="margin:0">Enter a label to test…</div>'; return; }
+  const re=new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i');
+  const out=Engine.findAllRight(LINES, re);
+  if(!out.length){ body.innerHTML='<div class="hint" style="margin:0">No items matched "'+esc(q)+'".</div>'; return; }
+  body.innerHTML=out.map(m=>
+    '<div class="match"><span class="lbl">'+esc(m.label)+'</span><span class="arrow">→</span>'+
+    (m.val!==null?'<span class="val">'+esc(m.val)+'</span>':'<span class="none">[nothing to the right — value may be below, or in this same item]</span>')+
+    '<div class="meta">page '+m.page+' &middot; label at x'+m.lx+' y'+m.ly+'</div></div>'
+  ).join('');
+}
+
+/* ---------------- export builder ---------------- */
+function buildExport(){
+  const lines=[];
+  lines.push('### CIED PDF EXTRACTION — export for parser authoring');
+  lines.push('# file: '+META.name+'  |  pages: '+META.pages+'  |  text items: '+META.items);
+  lines.push('# vendor guess: '+META.vendor);
+  lines.push('# coords are pdf.js user space (origin bottom-left); y descending = top→bottom of page.');
+  lines.push('# each line below = one reconstructed text line; tokens shown as  x###|"text"');
+  lines.push('');
+  let pg=0;
+  LINES.forEach(l=>{
+    if(l.page!==pg){ pg=l.page; lines.push('=== PAGE '+pg+' ==='); }
+    const toks=l.items.map(it=>'x'+Math.round(it.x)+'|"'+it.str+'"').join('  ');
+    lines.push('[y'+String(Math.round(l.y)).padStart(4,' ')+'] '+toks);
+  });
+  document.getElementById('exportTxt').value=lines.join('\n');
+  document.getElementById('exportBox').style.display='block';
+  document.getElementById('exportTxt').scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+function copyExport(){
+  const t=document.getElementById('exportTxt');
+  navigator.clipboard.writeText(t.value).then(()=>Engine.toast('Copied — scrub any PHI, then paste it back to me')).catch(()=>{t.select();Engine.toast('Select-all + copy');});
+}
+function downloadExport(){
+  const blob=new Blob([document.getElementById('exportTxt').value],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(META.name||'extract').replace(/\.pdf$/i,'')+'_extract.txt';
+  a.click(); URL.revokeObjectURL(a.href);
+  Engine.toast('Downloaded');
+}
+</script>
+</body>
+</html>
