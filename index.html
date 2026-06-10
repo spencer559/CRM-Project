@@ -946,10 +946,31 @@ function buildSummaryLines() {
     '  Intrinsic Rhythm:  ' + v('ap-rhythm'),
     '  A Paced %: ' + (document.getElementById('pct-a') ? (document.getElementById('pct-a').value||'—') : '—') + '    V Paced %: ' + (document.getElementById('pct-v') ? (document.getElementById('pct-v').value||'—') : '—'),
     '',
+    'LEAD / ELECTRODE MEASUREMENTS',
+  ];
+
+  // Lead rows
+  var hasLeadData = false;
+  document.querySelectorAll('#leads-tbody tr').forEach(function(tr) {
+    var cells = tr.querySelectorAll('td');
+    if (!cells.length || cells.length < 5) return;
+    var label = cells[0] ? cells[0].innerText.trim().replace(/\n/g, ' ') : '';
+    var imp  = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
+    var sens = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
+    var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
+    var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
+    if (!label) return;
+    hasLeadData = true;
+    lines.push('  ' + label + '  |  Imp: ' + (imp||'—') + ' \u03a9  |  Sens: ' + (sens||'—') + ' mV  |  Thr: ' + (thr||'—') + ' V  |  PW: ' + (pw||'—') + ' ms');
+  });
+  if (!hasLeadData) lines.push('  No leads selected.');
+  lines.push('');
+
+  lines.push(
     'STORED EPISODES',
     '  Total: ' + v('ep-total') + '    AF Burden: ' + v('ep-af-burden') + '%    AHR: ' + v('ep-ahr') + '    HVR: ' + v('ep-hvr') + '    PMT: ' + v('ep-pmt'),
-    '',
-  ];
+    ''
+  );
 
   // Episode rows
   var hasEpData = false;
