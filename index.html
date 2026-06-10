@@ -923,7 +923,6 @@ function buildSummaryLines() {
   var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ') || '—';
   var lines = [
     '═══════════════════════════════════════════════════════════',
-    '  CARDIAC CRM INTERROGATION & REPROGRAMMING RECORD',
     '  Generated: ' + new Date().toLocaleString(),
     '═══════════════════════════════════════════════════════════',
     '',
@@ -945,6 +944,7 @@ function buildSummaryLines() {
     '  Device Function:   ' + v('ap-devfx'),
     '  Pacing Dependency: ' + v('ap-dep'),
     '  Intrinsic Rhythm:  ' + v('ap-rhythm'),
+    '  A Paced %: ' + (document.getElementById('pct-a') ? (document.getElementById('pct-a').value||'—') : '—') + '    V Paced %: ' + (document.getElementById('pct-v') ? (document.getElementById('pct-v').value||'—') : '—'),
     '',
     'STORED EPISODES',
     '  Total: ' + v('ep-total') + '    AF Burden: ' + v('ep-af-burden') + '%    AHR: ' + v('ep-ahr') + '    HVR: ' + v('ep-hvr') + '    PMT: ' + v('ep-pmt'),
