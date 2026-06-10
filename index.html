@@ -737,6 +737,13 @@ function copyToClipboard() {
 function exportPDF() {
   function v(id) { var e = document.getElementById(id); return e ? (e.value || '') : ''; }
   function r(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
+  function fmtDT(val) {
+    if (!val) return '—';
+    try {
+      var d = new Date(val);
+      return d.toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    } catch(e) { return val; }
+  }
   var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ') || '—';
   var lonUnit = (document.querySelector('[name="bat-lon-unit"]')||{value:'years'}).value;
   var lonVal  = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
@@ -761,7 +768,7 @@ function exportPDF() {
     var cells = tr.querySelectorAll('td');
     if (!cells.length) return;
     var num   = cells[0] ? cells[0].innerText.trim() : '';
-    var dt    = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
+    var dt    = cells[1] ? fmtDT((cells[1].querySelector('input')||{value:''}).value) : '';
     var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
     var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
     var rate  = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
