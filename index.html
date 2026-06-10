@@ -229,11 +229,11 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
     <div class="sub-lbl">Device Type <span class="sub-note">(select all that apply — leads &amp; pacing % update automatically)</span></div>
     <div class="cbg" id="dtype-group">
-      <label class="cbl"><input type="checkbox" name="dtype" value="PPM-1C" onchange="updateConditionals()"> PPM (1C)</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="PPM-2C" onchange="updateConditionals()"> PPM (2C)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="PPM-SC" onchange="updateConditionals()"> PPM (SC)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="PPM-DC" onchange="updateConditionals()"> PPM (DC)</label>
       <label class="cbl"><input type="checkbox" name="dtype" value="CRT-P" onchange="updateConditionals()"> CRT-P</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="ICD-1C" onchange="updateConditionals()"> ICD (1C)</label>
-      <label class="cbl"><input type="checkbox" name="dtype" value="ICD-2C" onchange="updateConditionals()"> ICD (2C)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="ICD-SC" onchange="updateConditionals()"> ICD (SC)</label>
+      <label class="cbl"><input type="checkbox" name="dtype" value="ICD-DC" onchange="updateConditionals()"> ICD (DC)</label>
       <label class="cbl"><input type="checkbox" name="dtype" value="CRT-D" onchange="updateConditionals()"> CRT-D</label>
       <label class="cbl"><input type="checkbox" name="dtype" value="S-ICD" onchange="updateConditionals()"> S-ICD</label>
       <label class="cbl"><input type="checkbox" name="dtype" value="Leadless" onchange="updateConditionals()"> Leadless (Micra/AV)</label>
@@ -428,11 +428,11 @@ var LEAD_CFG = {
   'aveir-rv':   { label:'Aveir RV (Leadless)',   pos:'RV Septum',  pacing:true  },
 };
 var DTYPE_LEADS = {
-  'PPM-1C':  ['rv'],
-  'PPM-2C':  ['ra','rv'],
+  'PPM-SC':  ['rv'],
+  'PPM-DC':  ['ra','rv'],
   'CRT-P':   ['ra','rv','lv'],
-  'ICD-1C':  ['rv','rv-coil','svc-coil'],
-  'ICD-2C':  ['ra','rv','rv-coil','svc-coil'],
+  'ICD-SC':  ['rv','rv-coil','svc-coil'],
+  'ICD-DC':  ['ra','rv','rv-coil','svc-coil'],
   'CRT-D':   ['ra','rv','lv','rv-coil','svc-coil'],
   'S-ICD':   ['sicd'],
   'Leadless':['leadless'],
@@ -576,7 +576,7 @@ function updateReprogTable() {
 // ── PACING % VISIBILITY ──
 function updatePacingPct() {
   var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
-  var has2C  = vals.some(function(v){ return ['PPM-2C','ICD-2C','CRT-P','CRT-D'].indexOf(v)>-1; });
+  var has2C  = vals.some(function(v){ return ['PPM-DC','ICD-DC','CRT-P','CRT-D'].indexOf(v)>-1; });
   var hasCRT = vals.some(function(v){ return v==='CRT-P'||v==='CRT-D'; });
   var hasV   = vals.some(function(v){ return v!=='S-ICD'; }) && vals.length>0;
   document.getElementById('pct-a-wrap').style.display   = has2C  ? '' : 'none';
@@ -605,7 +605,7 @@ function updateConditionals() {
   }
   rebuildLeads();
   updatePacingPct();
-  var hasICD = vals.some(function(v){ return ['ICD-1C','ICD-2C','CRT-D','S-ICD'].indexOf(v)>-1; });
+  var hasICD = vals.some(function(v){ return ['ICD-SC','ICD-DC','CRT-D','S-ICD'].indexOf(v)>-1; });
   var ccRow = document.getElementById('bat-cc-row');
   if (ccRow) ccRow.style.display = hasICD ? '' : 'none';
 }
