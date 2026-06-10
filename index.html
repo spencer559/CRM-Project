@@ -836,6 +836,7 @@ function exportPDF() {
     var sens = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
     var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
     var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
+    if (!imp && !sens && !thr && !pw) return;
     leadRows += '<tr><td>'+label+'</td><td>'+(imp||'')+'</td><td>'+(sens||'')+'</td><td>'+(thr||'')+'</td><td>'+(pw||'')+'</td></tr>';
   });
 
@@ -938,6 +939,8 @@ function exportPDF() {
         + pf('Intrinsic Rhythm', v('ap-rhythm'))
         + pf('A Paced %', document.getElementById('pct-a') ? document.getElementById('pct-a').value : '')
         + pf('V Paced %', document.getElementById('pct-v') ? document.getElementById('pct-v').value : '')
+        + pf('LV Paced %', document.getElementById('pct-lv') ? document.getElementById('pct-lv').value : '')
+        + pf('BiV Paced %', document.getElementById('pct-biv') ? document.getElementById('pct-biv').value : '')
         + '</div>'
       )
 
@@ -1081,6 +1084,10 @@ function buildSummaryLines() {
   var pctV = document.getElementById('pct-v') ? document.getElementById('pct-v').value : '';
   add('A Paced %:         ', pctA);
   add('V Paced %:         ', pctV);
+  var pctLV  = document.getElementById('pct-lv')  ? document.getElementById('pct-lv').value  : '';
+  var pctBiV = document.getElementById('pct-biv') ? document.getElementById('pct-biv').value : '';
+  add('LV Paced %:        ', pctLV);
+  add('BiV Paced %:       ', pctBiV);
   secEnd(sPos);
 
   // LEAD / ELECTRODE MEASUREMENTS
@@ -1094,6 +1101,7 @@ function buildSummaryLines() {
     var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
     var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
     if (!label) return;
+    if (!imp && !sens && !thr && !pw) return;
     var parts = [label];
     if (imp)  parts.push('Imp: ' + imp + ' \u03a9');
     if (sens) parts.push('Sens: ' + sens + ' mV');
