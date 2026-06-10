@@ -257,6 +257,19 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <div class="field"><span class="lbl">Model</span><input type="text" id="dev-model"></div>
       <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-serial"></div>
     </div>
+
+    <div class="sub-lbl" style="margin-top:12px;">Lead Information</div>
+    <div class="cbg" style="margin-bottom:6px;">
+      <label class="cbl"><input type="radio" name="leadinfo-yn" value="Yes" onchange="updateLeadInfoTable()"> Yes</label>
+      <label class="cbl"><input type="radio" name="leadinfo-yn" value="No" onchange="updateLeadInfoTable()"> No</label>
+    </div>
+    <div id="leadinfo-wrap" style="display:none;">
+      <table class="dt">
+        <thead><tr><th style="width:20%">Lead Location</th><th>Lead Model</th><th>Lead Serial #</th><th style="width:18%">Implant Date</th></tr></thead>
+        <tbody id="leadinfo-tbody"></tbody>
+      </table>
+      <div class="field" style="margin-top:6px;"><span class="lbl">Notes</span><textarea id="leadinfo-notes" placeholder="Optional notes…" style="width:100%;min-height:48px;"></textarea></div>
+    </div>
   </div>
 </div>
 
@@ -605,9 +618,58 @@ function updateConditionals() {
   }
   rebuildLeads();
   updatePacingPct();
+  updateLeadInfoTable();
   var hasICD = vals.some(function(v){ return ['ICD-SC','ICD-DC','CRT-D','S-ICD'].indexOf(v)>-1; });
   var ccRow = document.getElementById('bat-cc-row');
   if (ccRow) ccRow.style.display = hasICD ? '' : 'none';
+}
+
+// ── LEAD INFO TABLE ──
+var LEAD_INFO_LOCS = {
+  'PPM-SC':   ['RV'],
+  'PPM-DC':   ['RA','RV'],
+  'CRT-P':    ['RA','RV','LV'],
+  'ICD-SC':   ['RV'],
+  'ICD-DC':   ['RA','RV'],
+  'CRT-D':    ['RA','RV','LV'],
+  'S-ICD':    ['Subcutaneous'],
+  'Leadless': ['RV (Leadless)'],
+  'Aveir':    ['RA (Aveir)','RV (Aveir)']
+};
+function updateLeadInfoTable() {
+  var yn = document.querySelector('input[name="leadinfo-yn"]:checked');
+  var wrap = document.getElementById('leadinfo-wrap');
+  if (!wrap) return;
+  if (!yn || yn.value !== 'Yes') { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  var dtypes = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  var locs = [];
+  dtypes.forEach(function(d) {
+    if (LEAD_INFO_LOCS[d]) LEAD_INFO_LOCS[d].forEach(function(l){ if (locs.indexOf(l)===-1) locs.push(l); });
+  });
+  if (!locs.length) locs = ['Lead 1'];
+  var tb = document.getElementById('leadinfo-tbody');
+  var existing = {};
+  tb.querySelectorAll('tr').forEach(function(tr) {
+    var loc = tr.getAttribute('data-loc');
+    if (loc) existing[loc] = {
+      model:  (tr.querySelector('.li-model') ||{value:''}).value,
+      serial: (tr.querySelector('.li-serial')||{value:''}).value,
+      date:   (tr.querySelector('.li-date')  ||{value:''}).value
+    };
+  });
+  tb.innerHTML = '';
+  locs.forEach(function(loc) {
+    var p = existing[loc] || {};
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-loc', loc);
+    tr.innerHTML =
+      '<td style="font-weight:600;font-size:10px;">'+loc+'</td>'
+      +'<td><input type="text" class="li-model" value="'+(p.model||'')+'" placeholder="Model"></td>'
+      +'<td><input type="text" class="li-serial" value="'+(p.serial||'')+'" placeholder="Serial #"></td>'
+      +'<td><input type="date" class="li-date" value="'+(p.date||'')+'" ></td>';
+    tb.appendChild(tr);
+  });
 }
 
 // ── SIDEBAR NAV ──
@@ -836,6 +898,25 @@ function exportPDF() {
     + '<div class="f"><span class="lbl">Implant Date</span><span class="val">'+(v('dev-implant')||'&nbsp;')+'</span></div>'
     + '</div>'
 
+    + (function(){
+        var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
+        if (!liYN || liYN.value !== 'Yes') return '';
+        var liRows = '';
+        document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
+          var loc    = tr.getAttribute('data-loc') || '';
+          var model  = (tr.querySelector('.li-model') ||{value:''}).value;
+          var serial = (tr.querySelector('.li-serial')||{value:''}).value;
+          var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
+          liRows += '<tr><td>'+loc+'</td><td>'+(model||'—')+'</td><td>'+(serial||'—')+'</td><td>'+(date||'—')+'</td></tr>';
+        });
+        var liNotes = v('leadinfo-notes');
+        return '<h2>Lead Information</h2>'
+          + '<table><thead><tr><th>Location</th><th>Lead Model</th><th>Lead Serial #</th><th>Implant Date</th></tr></thead><tbody>'
+          + (liRows || '<tr><td colspan="4" style="color:#999;font-style:italic">None</td></tr>')
+          + '</tbody></table>'
+          + (liNotes ? '<p style="font-size:10px;margin:4px 0"><strong>Notes:</strong> '+liNotes+'</p>' : '');
+      })()
+
     + '<h2>Battery / Device Status</h2>'
     + '<div class="row">'
     + '<div class="f"><span class="lbl">Longevity</span><span class="val">'+(lonVal||'&nbsp;')+' '+lonUnit+'</span></div>'
@@ -926,11 +1007,6 @@ function buildSummaryLines() {
     '  Generated: ' + new Date().toLocaleString(),
     '═══════════════════════════════════════════════════════════',
     '',
-    'PATIENT',
-    '  Name:     ' + v('pt-name'),
-    '  DOB:      ' + v('pt-dob') + '    MRN: ' + v('pt-mrn'),
-    '  Date:     ' + v('pt-date'),
-    '',
     'DEVICE',
     '  Type:         ' + dtype,
     '  Manufacturer: ' + r('mfr'),
@@ -938,6 +1014,25 @@ function buildSummaryLines() {
     '  Implant Date: ' + v('dev-implant'),
     '  Provider:     ' + v('pt-provider'),
     '',
+  ];
+
+  // Lead Information (only if Yes)
+  var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
+  if (liYN && liYN.value === 'Yes') {
+    lines.push('LEAD INFORMATION');
+    document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
+      var loc    = tr.getAttribute('data-loc') || '';
+      var model  = (tr.querySelector('.li-model') ||{value:''}).value;
+      var serial = (tr.querySelector('.li-serial')||{value:''}).value;
+      var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
+      lines.push('  ' + loc + '  |  Model: ' + (model||'—') + '  |  Serial: ' + (serial||'—') + '  |  Implant: ' + (date||'—'));
+    });
+    var liNotes = v('leadinfo-notes');
+    if (liNotes && liNotes !== '—') lines.push('  Notes: ' + liNotes);
+    lines.push('');
+  }
+
+  lines.push(
     'BATTERY / DEVICE STATUS',
     '  Longevity:         ' + (document.querySelector('[name="bat-lon-cur"]')||{value:'—'}).value + ' ' + lonUnit(),
     '  Battery Status:    ' + r('bat-status'),
@@ -946,8 +1041,8 @@ function buildSummaryLines() {
     '  Intrinsic Rhythm:  ' + v('ap-rhythm'),
     '  A Paced %: ' + (document.getElementById('pct-a') ? (document.getElementById('pct-a').value||'—') : '—') + '    V Paced %: ' + (document.getElementById('pct-v') ? (document.getElementById('pct-v').value||'—') : '—'),
     '',
-    'LEAD / ELECTRODE MEASUREMENTS',
-  ];
+    'LEAD / ELECTRODE MEASUREMENTS'
+  );
 
   // Lead rows
   var hasLeadData = false;
