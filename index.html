@@ -757,7 +757,7 @@ function exportPDF() {
   document.querySelectorAll('#leads-tbody tr').forEach(function(tr) {
     var cells = tr.querySelectorAll('td');
     if (!cells.length) return;
-    var label = cells[0] ? cells[0].innerText.trim() : '';
+    var label = cells[0] ? (cells[0].querySelector('strong') ? cells[0].querySelector('strong').innerText.trim() : cells[0].innerText.split('\n')[0].trim()) : '';
     var imp  = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
     var sens = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
     var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
@@ -930,13 +930,13 @@ function buildSummaryLines() {
     '  Name:     ' + v('pt-name'),
     '  DOB:      ' + v('pt-dob') + '    MRN: ' + v('pt-mrn'),
     '  Date:     ' + v('pt-date'),
-    '  Provider: ' + v('pt-provider'),
     '',
     'DEVICE',
     '  Type:         ' + dtype,
     '  Manufacturer: ' + r('mfr'),
     '  Model:        ' + v('dev-model') + '    Serial: ' + v('dev-serial'),
     '  Implant Date: ' + v('dev-implant'),
+    '  Provider:     ' + v('pt-provider'),
     '',
     'BATTERY / DEVICE STATUS',
     '  Longevity:         ' + (document.querySelector('[name="bat-lon-cur"]')||{value:'—'}).value + ' ' + lonUnit(),
