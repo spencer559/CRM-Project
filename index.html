@@ -350,14 +350,12 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 <div class="section" id="s-episodes">
   <div class="sec-hdr">Stored Episodes / Arrhythmia Log</div>
   <div class="sec-body">
-    <div class="fg" style="grid-template-columns: 110px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
+    <div class="fg" style="grid-template-columns: 110px 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">Total Episodes</span><input type="number" id="ep-total" min="0"></div>
+      <div class="field"><span class="lbl">AF Burden (%)</span><input type="number" id="ep-af-burden" min="0" max="100" step="0.1" placeholder="0.0"></div>
       <div class="field"><span class="lbl">AHR <span class="sub-note">(AT / AF / AFl)</span></span><input type="number" id="ep-ahr" min="0"></div>
       <div class="field"><span class="lbl">HVR <span class="sub-note">(VT / VF / NS-VT)</span></span><input type="number" id="ep-hvr" min="0"></div>
       <div class="field"><span class="lbl">PMT</span><input type="number" id="ep-pmt" min="0"></div>
-      <div class="field"><span class="lbl">Episodes Reviewed</span>
-        <select id="ep-reviewed"><option value="">—</option><option>All</option><option>None</option><option>Most recent</option><option>N/A</option></select>
-      </div>
     </div>
     <table class="dt">
       <thead><tr><th style="width:18px">#</th><th style="min-width:128px">Date / Time</th><th>Episode Type</th><th>Duration</th><th>Max Rate</th><th>Therapy</th><th>Approp.?</th><th>Notes</th><th style="width:16px"></th></tr></thead>
@@ -371,13 +369,10 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 <div class="section" id="s-remote">
   <div class="sec-hdr">Remote Monitoring</div>
   <div class="sec-body">
-    <div class="fg" style="grid-template-columns: 80px 80px 130px 140px 130px 100px;">
+    <div class="fg" style="grid-template-columns: 80px 80px 130px;">
       <div class="field"><span class="lbl">Enrolled</span><select id="rm-enrolled"><option value="">—</option><option>Yes</option><option>No</option></select></div>
       <div class="field"><span class="lbl">Compliant</span><select id="rm-comply"><option value="">—</option><option>Yes</option><option>No</option></select></div>
       <div class="field"><span class="lbl">Last Transmission</span><input type="date" id="rm-last"></div>
-      <div class="field"><span class="lbl">Reviewed By</span><input type="text" id="rm-reviewer"></div>
-      <div class="field"><span class="lbl">Next Scheduled</span><input type="date" id="rm-next"></div>
-      <div class="field"><span class="lbl">Alerts Configured</span><select id="rm-alerts"><option value="">—</option><option>Yes</option><option>No</option></select></div>
     </div>
     <div class="field" style="margin-top:4px;"><span class="lbl">Active Alerts Since Last Visit</span><input type="text" id="rm-active" placeholder="None — or describe"></div>
   </div>
@@ -522,8 +517,8 @@ function addEpRow() {
     '<div class="cbg ep-cbg"><span class="ep-grp-lbl">AHR</span>' + cbRow(ahrTypes) + '</div>' +
     '<div class="cbg ep-cbg"><span class="ep-grp-lbl ep-grp-other">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>' + cbRow(otherTypes) + '</div>' +
     '</div>';
-  var therapyRadios = ['ATP','Shock','None'].map(function(t) {
-    return '<label class="cbl"><input type="radio" name="ep'+n+'-therapy" value="'+t+'"> '+t+'</label>';
+  var therapyChecks = ['ATP','Shock','None'].map(function(t) {
+    return '<label class="cbl"><input type="checkbox" name="ep'+n+'-therapy" value="'+t+'"> '+t+'</label>';
   }).join('');
   var appRadios = ['Y','N','N/A'].map(function(t) {
     return '<label class="cbl"><input type="radio" name="ep'+n+'-app" value="'+t+'"> '+t+'</label>';
@@ -534,7 +529,7 @@ function addEpRow() {
     '<td>' + typeCell + '</td>' +
     '<td><input type="text" name="ep'+n+'-dur" placeholder="hh:mm:ss" style="width:72px"></td>' +
     '<td><input type="number" name="ep'+n+'-rate" placeholder="bpm" style="width:52px"></td>' +
-    '<td><div class="cbg" style="flex-direction:column;gap:2px;">' + therapyRadios + '</div></td>' +
+    '<td><div class="cbg" style="flex-direction:column;gap:2px;">' + therapyChecks + '</div></td>' +
     '<td><div class="cbg" style="flex-direction:column;gap:2px;">' + appRadios + '</div></td>' +
     '<td><textarea name="ep'+n+'-notes" rows="1" style="width:100%;min-height:24px;resize:none;font-size:9.5px;padding:2px 4px;overflow:hidden;" oninput="autoGrow(this)"></textarea></td>' +
     '<td><button class="del-btn" onclick="delRow(\'ep-'+n+'\')">×</button></td>';
@@ -770,7 +765,7 @@ function exportPDF() {
     var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
     var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
     var rate  = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
-    var ther  = cells[5] ? (function(){ var c=cells[5].querySelector('input:checked'); return c?c.value:''; })() : '';
+    var ther  = cells[5] ? Array.from(cells[5].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join('+') : '';
     var app   = cells[6] ? (function(){ var c=cells[6].querySelector('input:checked'); return c?c.value:''; })() : '';
     var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
     if (!dt && !types && !dur) return; // skip blank rows
@@ -861,6 +856,7 @@ function exportPDF() {
     + '<h2>Stored Episodes</h2>'
     + '<div class="row" style="margin-bottom:8px;">'
     + '<div class="f"><span class="lbl">Total</span><span class="val">'+(v('ep-total')||'&nbsp;')+'</span></div>'
+    + '<div class="f"><span class="lbl">AF Burden (%)</span><span class="val">'+(v('ep-af-burden')||'&nbsp;')+'</span></div>'
     + '<div class="f"><span class="lbl">AHR</span><span class="val">'+(v('ep-ahr')||'&nbsp;')+'</span></div>'
     + '<div class="f"><span class="lbl">HVR</span><span class="val">'+(v('ep-hvr')||'&nbsp;')+'</span></div>'
     + '<div class="f"><span class="lbl">PMT</span><span class="val">'+(v('ep-pmt')||'&nbsp;')+'</span></div>'
@@ -872,7 +868,6 @@ function exportPDF() {
     + '<div class="f"><span class="lbl">Enrolled</span><span class="val">'+(v('rm-enrolled')||'&nbsp;')+'</span></div>'
     + '<div class="f"><span class="lbl">Compliant</span><span class="val">'+(v('rm-comply')||'&nbsp;')+'</span></div>'
     + '<div class="f"><span class="lbl">Last Transmission</span><span class="val">'+(v('rm-last')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Next Scheduled</span><span class="val">'+(v('rm-next')||'&nbsp;')+'</span></div>'
     + '</div>'
     + '<div class="row"><div class="f" style="min-width:300px"><span class="lbl">Active Alerts</span><span class="val">'+(v('rm-active')||'&nbsp;')+'</span></div></div>'
 
@@ -937,13 +932,16 @@ function buildSummaryLines() {
     '  Pacing Dependency: ' + v('ap-dep'),
     '  Intrinsic Rhythm:  ' + v('ap-rhythm'),
     '',
+    'STORED EPISODES',
+    '  Total: ' + v('ep-total') + '    AF Burden: ' + v('ep-af-burden') + '%    AHR: ' + v('ep-ahr') + '    HVR: ' + v('ep-hvr') + '    PMT: ' + v('ep-pmt'),
+    '',
     'PROGRAMMED PARAMETERS',
     '  Mode: ' + v('p-mode') + '    LRL: ' + v('p-lrl') + ' bpm    UTR: ' + v('p-utr') + ' bpm    USR: ' + v('p-usr') + ' bpm',
     '  Sensed AV: ' + v('p-sav') + ' ms    Paced AV: ' + v('p-pav') + ' ms    Mode Switch: ' + v('p-ms') + '    MS Rate: ' + v('p-msrate') + ' bpm',
     '',
     'REMOTE MONITORING',
     '  Enrolled: ' + v('rm-enrolled') + '    Compliant: ' + v('rm-comply'),
-    '  Last Transmission: ' + v('rm-last') + '    Next: ' + v('rm-next'),
+    '  Last Transmission: ' + v('rm-last'),
     '  Active Alerts: ' + v('rm-active'),
     '',
     'DEVICE TECHNICIAN',
