@@ -1046,7 +1046,7 @@ function buildSummaryLines() {
   function radio(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
   function lonUnit() { var e = document.querySelector('[name="bat-lon-unit"]'); return e ? e.value : 'years'; }
 
-  var lines = [''];
+  var lines = [];
 
   // add(label, value) — only pushes if value is non-empty
   // trimEnd() strips alignment padding so output reads cleanly in proportional fonts (Cerner/Arial)
