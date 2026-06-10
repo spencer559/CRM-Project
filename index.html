@@ -221,9 +221,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <div class="field"><span class="lbl">Date of Birth</span><input type="date" id="pt-dob"></div>
       <div class="field"><span class="lbl">MRN</span><input type="text" id="pt-mrn"></div>
       <div class="field"><span class="lbl">Interrogation Date</span><input type="date" id="pt-date"></div>
-      <div class="field"><span class="lbl">Visit Type</span>
-        <select id="pt-visit"><option value="">—</option><option>In-person</option><option>Remote</option></select>
-      </div>
+      <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-implant"></div>
     </div>
     <div class="fg fg-2" style="max-width:420px">
       <div class="field"><span class="lbl">Provider / Clinic</span><input type="text" id="pt-provider"></div>
@@ -255,10 +253,9 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <label class="cbl"><input type="radio" name="mfr" value="Biotronik"> Biotronik</label>
     </div>
 
-    <div class="fg fg-3" style="margin-top:8px; max-width:520px">
+    <div class="fg fg-2" style="max-width:300px; margin-top:8px;">
       <div class="field"><span class="lbl">Model</span><input type="text" id="dev-model"></div>
       <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-serial"></div>
-      <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-implant"></div>
     </div>
   </div>
 </div>
@@ -269,25 +266,22 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="sec-body">
     <table class="dt">
       <thead><tr>
-        <th style="width:26%">Parameter</th><th>Value</th><th style="width:20%">Units / Reference</th><th>Status / Flag</th>
+        <th style="width:26%">Parameter</th><th>Value</th><th style="width:20%">Units / Reference</th>
       </tr></thead>
       <tbody>
         <tr>
           <td>Longevity Estimate</td>
           <td><input type="text" name="bat-lon-cur" placeholder="e.g. 4.2"></td>
           <td><select name="bat-lon-unit"><option value="years" selected>years</option><option value="months">months</option><option value="percent">percent</option></select></td>
-          <td></td>
         </tr>
         <tr id="bat-cc-row" style="display:none;">
           <td>Cap. Charge Time (ICD)</td>
           <td><input type="text" name="bat-cc-cur" placeholder="sec"></td>
           <td>sec &nbsp;<span style="font-size:8.5px;color:#888">(&lt;10s normal)</span></td>
-          <td><div class="cbg"><label class="cbl"><input type="checkbox" name="bat-cc-na"> N/A</label></div></td>
         </tr>
         <tr>
           <td>Battery Status</td>
           <td colspan="2"><div class="cbg"><label class="cbl"><input type="radio" name="bat-status" value="BOL"> BOL</label><label class="cbl"><input type="radio" name="bat-status" value="Mid-Life"> Mid-Life</label><label class="cbl"><input type="radio" name="bat-status" value="ERI"> ERI / RRT</label><label class="cbl"><input type="radio" name="bat-status" value="EOL"> EOL</label></div></td>
-          <td></td>
         </tr>
       </tbody>
     </table>
@@ -339,7 +333,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="sec-body">
     <table class="dt">
       <thead><tr>
-        <th>Lead</th><th>Impedance (Ω)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th><th>Flag</th>
+        <th>Lead</th><th>Impedance (Ω)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th>
       </tr></thead>
       <tbody id="leads-tbody"></tbody>
     </table>
@@ -474,12 +468,7 @@ function rebuildLeads() {
       '<td>' + sensCell + '</td>' +
       '<td>' + thrCell + '</td>' +
       '<td>' + pwCell + '</td>' +
-      '<td><div class="cbg">' +
-        '<label class="cbl"><input type="radio" name="lead-'+k+'-flag" value="OK"> OK</label>' +
-        '<label class="cbl"><input type="radio" name="lead-'+k+'-flag" value="Hi"> \u2191</label>' +
-        '<label class="cbl"><input type="radio" name="lead-'+k+'-flag" value="Lo"> \u2193</label>' +
-        '<label class="cbl"><input type="radio" name="lead-'+k+'-flag" value="NA"> N/A</label>' +
-      '</div></td>';
+      '';
     tb.appendChild(tr);
   });
 }
@@ -758,8 +747,7 @@ function exportPDF() {
     var sens = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
     var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
     var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
-    var flag = cells[5] ? (function(){ var c=cells[5].querySelector('input:checked'); return c?c.value:''; })() : '';
-    leadRows += '<tr><td>'+label+'</td><td>'+(imp||'—')+'</td><td>'+(sens||'—')+'</td><td>'+(thr||'—')+'</td><td>'+(pw||'—')+'</td><td>'+(flag||'—')+'</td></tr>';
+    leadRows += '<tr><td>'+label+'</td><td>'+(imp||'—')+'</td><td>'+(sens||'—')+'</td><td>'+(thr||'—')+'</td><td>'+(pw||'—')+'</td></tr>';
   });
 
   // Build episode rows HTML
@@ -856,8 +844,8 @@ function exportPDF() {
     + '</div>'
 
     + '<h2>Lead / Electrode Measurements</h2>'
-    + '<table><thead><tr><th>Lead</th><th>Impedance (Ω)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th><th>Flag</th></tr></thead><tbody>'
-    + (leadRows || '<tr><td colspan="6" style="color:#999;font-style:italic">No leads selected</td></tr>')
+    + '<table><thead><tr><th>Lead</th><th>Impedance (Ω)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th></tr></thead><tbody>'
+    + (leadRows || '<tr><td colspan="5" style="color:#999;font-style:italic">No leads selected</td></tr>')
     + '</tbody></table>'
 
     + '<h2>Stored Episodes</h2>'
@@ -942,6 +930,35 @@ function buildSummaryLines() {
     'STORED EPISODES',
     '  Total: ' + v('ep-total') + '    AF Burden: ' + v('ep-af-burden') + '%    AHR: ' + v('ep-ahr') + '    HVR: ' + v('ep-hvr') + '    PMT: ' + v('ep-pmt'),
     '',
+  ];
+
+  // Episode rows
+  var hasEpData = false;
+  document.querySelectorAll('#ep-tbody tr').forEach(function(tr) {
+    var cells = tr.querySelectorAll('td');
+    if (!cells.length) return;
+    var num   = cells[0] ? cells[0].innerText.trim() : '';
+    var dtRaw = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
+    var dt    = dtRaw ? (function(){ try { return new Date(dtRaw).toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){ return dtRaw; } })() : '';
+    var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
+    var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
+    var rate  = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
+    var ther  = cells[5] ? Array.from(cells[5].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join('+') : '';
+    var app   = cells[6] ? (function(){ var c=cells[6].querySelector('input:checked'); return c?c.value:''; })() : '';
+    var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
+    if (!dt && !types && !dur) return;
+    hasEpData = true;
+    lines.push(
+      '  [' + num + '] ' + (dt||'—') + '  |  Type: ' + (types||'—') +
+      '  |  Dur: ' + (dur||'—') + '  |  Rate: ' + (rate ? rate+' bpm' : '—') +
+      '  |  Therapy: ' + (ther||'—') + '  |  Approp: ' + (app||'—')
+    );
+    if (notes) lines.push('       Notes: ' + notes);
+  });
+  if (!hasEpData) lines.push('  No episodes recorded.');
+  lines.push('');
+
+  var remainingLines = [
     'PROGRAMMED PARAMETERS',
     '  Mode: ' + v('p-mode') + '    LRL: ' + v('p-lrl') + ' bpm    UTR: ' + v('p-utr') + ' bpm    USR: ' + v('p-usr') + ' bpm',
     '  Sensed AV: ' + v('p-sav') + ' ms    Paced AV: ' + v('p-pav') + ' ms    Mode Switch: ' + v('p-ms') + '    MS Rate: ' + v('p-msrate') + ' bpm',
@@ -956,7 +973,7 @@ function buildSummaryLines() {
     '',
     '═══════════════════════════════════════════════════════════',
   ];
-  return lines;
+  return lines.concat(remainingLines);
 }
 
 // ── INIT ──
