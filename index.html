@@ -810,7 +810,19 @@ function exportPDF() {
       return d.toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
     } catch(e) { return val; }
   }
-  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ') || '—';
+  // pf(label, val) — only renders a field div if val is non-empty
+  function pf(label, val) {
+    if (!val || !val.trim()) return '';
+    return '<div class="f"><span class="lbl">'+label+'</span><span class="val">'+val+'</span></div>';
+  }
+  // psec(title, content) — only renders section if content is non-empty
+  function psec(title, content) {
+    var c = (content||'').trim();
+    if (!c) return '';
+    return '<h2>'+title+'</h2>'+c;
+  }
+
+  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ');
   var lonUnit = (document.querySelector('[name="bat-lon-unit"]')||{value:'years'}).value;
   var lonVal  = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
 
@@ -824,7 +836,7 @@ function exportPDF() {
     var sens = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
     var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
     var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
-    leadRows += '<tr><td>'+label+'</td><td>'+(imp||'—')+'</td><td>'+(sens||'—')+'</td><td>'+(thr||'—')+'</td><td>'+(pw||'—')+'</td></tr>';
+    leadRows += '<tr><td>'+label+'</td><td>'+(imp||'')+'</td><td>'+(sens||'')+'</td><td>'+(thr||'')+'</td><td>'+(pw||'')+'</td></tr>';
   });
 
   // Build episode rows HTML
@@ -840,8 +852,8 @@ function exportPDF() {
     var ther  = cells[5] ? Array.from(cells[5].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join('+') : '';
     var app   = cells[6] ? (function(){ var c=cells[6].querySelector('input:checked'); return c?c.value:''; })() : '';
     var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
-    if (!dt && !types && !dur) return; // skip blank rows
-    epRows += '<tr><td>'+num+'</td><td>'+(dt||'—')+'</td><td>'+(types||'—')+'</td><td>'+(dur||'—')+'</td><td>'+(rate||'—')+'</td><td>'+(ther||'—')+'</td><td>'+(app||'—')+'</td><td style="white-space:pre-wrap">'+(notes||'—')+'</td></tr>';
+    if (!dt && !types && !dur) return;
+    epRows += '<tr><td>'+num+'</td><td>'+(dt||'')+'</td><td>'+(types||'')+'</td><td>'+(dur||'')+'</td><td>'+(rate||'')+'</td><td>'+(ther||'')+'</td><td>'+(app||'')+'</td><td style="white-space:pre-wrap">'+(notes||'')+'</td></tr>';
   });
 
   // Build reprog rows HTML
@@ -861,12 +873,11 @@ function exportPDF() {
   }
 
   var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-    + '<title>CRM Record — ' + (v('pt-name')||'Unknown') + '</title>'
+    + '<title>CRM Record \u2014 ' + (v('pt-name')||'Unknown') + '</title>'
     + '<style>'
     + 'body{font-family:system-ui,sans-serif;font-size:11px;color:#111;margin:0;padding:24px 32px;}'
     + 'h1{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:6px;margin-bottom:14px;}'
     + 'h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#1e3a5f;color:#fff;padding:3px 8px;margin:12px 0 6px;}'
-    + 'h3{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#1e3a5f;border-bottom:1px solid #c8d8e8;padding-bottom:1px;margin:8px 0 4px;}'
     + '.row{display:flex;flex-wrap:wrap;gap:4px 20px;margin-bottom:5px;}'
     + '.f{display:flex;flex-direction:column;gap:1px;min-width:100px;}'
     + '.lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#1e3a5f;}'
@@ -883,20 +894,22 @@ function exportPDF() {
     + '<h1>Cardiac CRM Interrogation &amp; Reprogramming Record</h1>'
     + '<div class="gen">Generated: ' + new Date().toLocaleString() + '</div>'
 
-    + '<h2>Patient &amp; Device</h2>'
-    + '<div class="row">'
-    + '<div class="f"><span class="lbl">Patient Name</span><span class="val">'+(v('pt-name')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">DOB</span><span class="val">'+(v('pt-dob')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">MRN</span><span class="val">'+(v('pt-mrn')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Date</span><span class="val">'+(v('pt-date')||'&nbsp;')+'</span></div>'
-    + '</div>'
-    + '<div class="row">'
-    + '<div class="f"><span class="lbl">Device Type</span><span class="val">'+dtype+'</span></div>'
-    + '<div class="f"><span class="lbl">Manufacturer</span><span class="val">'+(r('mfr')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Model</span><span class="val">'+(v('dev-model')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Serial #</span><span class="val">'+(v('dev-serial')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Implant Date</span><span class="val">'+(v('dev-implant')||'&nbsp;')+'</span></div>'
-    + '</div>'
+    + psec('Patient &amp; Device',
+        '<div class="row">'
+        + pf('Patient Name', v('pt-name'))
+        + pf('DOB', v('pt-dob'))
+        + pf('MRN', v('pt-mrn'))
+        + pf('Date', v('pt-date'))
+        + '</div>'
+        + '<div class="row">'
+        + pf('Device Type', dtype)
+        + pf('Manufacturer', r('mfr'))
+        + pf('Model', v('dev-model'))
+        + pf('Serial #', v('dev-serial'))
+        + pf('Implant Date', v('dev-implant'))
+        + pf('Provider', v('pt-provider'))
+        + '</div>'
+      )
 
     + (function(){
         var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
@@ -907,72 +920,76 @@ function exportPDF() {
           var model  = (tr.querySelector('.li-model') ||{value:''}).value;
           var serial = (tr.querySelector('.li-serial')||{value:''}).value;
           var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
-          liRows += '<tr><td>'+loc+'</td><td>'+(model||'—')+'</td><td>'+(serial||'—')+'</td><td>'+(date||'—')+'</td></tr>';
+          liRows += '<tr><td>'+loc+'</td><td>'+model+'</td><td>'+serial+'</td><td>'+date+'</td></tr>';
         });
         var liNotes = v('leadinfo-notes');
         return '<h2>Lead Information</h2>'
           + '<table><thead><tr><th>Location</th><th>Lead Model</th><th>Lead Serial #</th><th>Implant Date</th></tr></thead><tbody>'
-          + (liRows || '<tr><td colspan="4" style="color:#999;font-style:italic">None</td></tr>')
-          + '</tbody></table>'
+          + liRows + '</tbody></table>'
           + (liNotes ? '<p style="font-size:10px;margin:4px 0"><strong>Notes:</strong> '+liNotes+'</p>' : '');
       })()
 
-    + '<h2>Battery / Device Status</h2>'
-    + '<div class="row">'
-    + '<div class="f"><span class="lbl">Longevity</span><span class="val">'+(lonVal||'&nbsp;')+' '+lonUnit+'</span></div>'
-    + '<div class="f"><span class="lbl">Battery Status</span><span class="val">'+(r('bat-status')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Device Function</span><span class="val">'+(v('ap-devfx')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Pacing Dependency</span><span class="val">'+(v('ap-dep')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Intrinsic Rhythm</span><span class="val">'+(v('ap-rhythm')||'&nbsp;')+'</span></div>'
-    + '</div>'
+    + psec('Battery / Device Status',
+        '<div class="row">'
+        + pf('Longevity', lonVal ? lonVal+' '+lonUnit : '')
+        + pf('Battery Status', r('bat-status'))
+        + pf('Device Function', v('ap-devfx'))
+        + pf('Pacing Dependency', v('ap-dep'))
+        + pf('Intrinsic Rhythm', v('ap-rhythm'))
+        + pf('A Paced %', document.getElementById('pct-a') ? document.getElementById('pct-a').value : '')
+        + pf('V Paced %', document.getElementById('pct-v') ? document.getElementById('pct-v').value : '')
+        + '</div>'
+      )
 
-    + '<h2>Programmed Parameters</h2>'
-    + '<div class="row">'
-    + '<div class="f"><span class="lbl">Mode</span><span class="val">'+(v('p-mode')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">LRL (bpm)</span><span class="val">'+(v('p-lrl')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">UTR (bpm)</span><span class="val">'+(v('p-utr')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">USR (bpm)</span><span class="val">'+(v('p-usr')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Sensed AV (ms)</span><span class="val">'+(v('p-sav')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Paced AV (ms)</span><span class="val">'+(v('p-pav')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Mode Switch</span><span class="val">'+(v('p-ms')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">MS Rate (bpm)</span><span class="val">'+(v('p-msrate')||'&nbsp;')+'</span></div>'
-    + '</div>'
+    + psec('Programmed Parameters',
+        '<div class="row">'
+        + pf('Mode', v('p-mode'))
+        + pf('LRL (bpm)', v('p-lrl'))
+        + pf('UTR (bpm)', v('p-utr'))
+        + pf('USR (bpm)', v('p-usr'))
+        + pf('Sensed AV (ms)', v('p-sav'))
+        + pf('Paced AV (ms)', v('p-pav'))
+        + pf('Mode Switch', v('p-ms'))
+        + pf('MS Rate (bpm)', v('p-msrate'))
+        + '</div>'
+      )
 
-    + '<h2>Lead / Electrode Measurements</h2>'
-    + '<table><thead><tr><th>Lead</th><th>Impedance (Ω)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th></tr></thead><tbody>'
-    + (leadRows || '<tr><td colspan="5" style="color:#999;font-style:italic">No leads selected</td></tr>')
-    + '</tbody></table>'
+    + (leadRows ? '<h2>Lead / Electrode Measurements</h2>'
+        + '<table><thead><tr><th>Lead</th><th>Impedance (\u03a9)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th></tr></thead><tbody>'
+        + leadRows + '</tbody></table>' : '')
 
     + '<h2>Stored Episodes</h2>'
     + '<div class="row" style="margin-bottom:8px;">'
-    + '<div class="f"><span class="lbl">Total</span><span class="val">'+(v('ep-total')||'&nbsp;')+'</span></div>'
+    + pf('Total', v('ep-total'))
     + '<div class="f"><span class="lbl">AF Burden (%)</span><span class="val">'+(v('ep-af-burden')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">AHR</span><span class="val">'+(v('ep-ahr')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">HVR</span><span class="val">'+(v('ep-hvr')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">PMT</span><span class="val">'+(v('ep-pmt')||'&nbsp;')+'</span></div>'
+    + pf('AHR', v('ep-ahr'))
+    + pf('HVR', v('ep-hvr'))
+    + pf('PMT', v('ep-pmt'))
     + '</div>'
     + (epRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Therapy</th><th>Approp.</th><th>Notes</th></tr></thead><tbody>'+epRows+'</tbody></table>' : '')
 
-    + '<h2>Reprogramming / Observations</h2>'
-    + (rpChg === 'Yes' && rpRows ? '<table><thead><tr><th>Parameter</th><th>Previous</th><th>New Value</th><th>Reason</th></tr></thead><tbody>'+rpRows+'</tbody></table>' : (rpChg ? '<p style="font-size:10px;color:#555;margin:4px 0">No changes made this visit.</p>' : ''))
-    + (r('obs-yn') ? '<div class="row" style="margin-top:6px;"><div class="f" style="min-width:100px"><span class="lbl">Observations</span><span class="val">'+(r('obs-yn')||'&nbsp;')+'</span></div></div>' : '')
-    + (r('obs-yn')==='Yes' && v('obs-text') ? '<div class="row"><div class="f" style="min-width:400px"><span class="lbl">Notes</span><span class="val" style="white-space:pre-wrap">'+(v('obs-text')||'&nbsp;')+'</span></div></div>' : '')
+    + psec('Reprogramming / Observations',
+        (rpChg === 'Yes' && rpRows ? '<table><thead><tr><th>Parameter</th><th>Previous</th><th>New Value</th><th>Reason</th></tr></thead><tbody>'+rpRows+'</tbody></table>' : (rpChg === 'No' ? '<p style="font-size:10px;color:#555;margin:4px 0">No changes made this visit.</p>' : ''))
+        + (r('obs-yn') ? '<div class="row" style="margin-top:6px;"><div class="f"><span class="lbl">Observations</span><span class="val">'+r('obs-yn')+'</span></div></div>' : '')
+        + (r('obs-yn')==='Yes' && v('obs-text') ? '<div class="row"><div class="f" style="min-width:400px"><span class="lbl">Notes</span><span class="val" style="white-space:pre-wrap">'+v('obs-text')+'</span></div></div>' : '')
+      )
 
-    + '<h2>Remote Monitoring</h2>'
-    + '<div class="row">'
-    + '<div class="f"><span class="lbl">Enrolled</span><span class="val">'+(v('rm-enrolled')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Compliant</span><span class="val">'+(v('rm-comply')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Last Transmission</span><span class="val">'+(v('rm-last')||'&nbsp;')+'</span></div>'
-    + '</div>'
-    + '<div class="row"><div class="f" style="min-width:300px"><span class="lbl">Active Alerts</span><span class="val">'+(v('rm-active')||'&nbsp;')+'</span></div></div>'
+    + psec('Remote Monitoring',
+        '<div class="row">'
+        + pf('Enrolled', r('rm-enrolled'))
+        + pf('Compliant', r('rm-comply'))
+        + pf('Last Transmission', v('rm-last'))
+        + pf('Active Alerts', v('rm-active'))
+        + '</div>'
+      )
 
+    + psec('Device Technician',
+        '<div class="row">'
+        + pf('Name', v('sig-name'))
+        + pf('Date Completed', v('sig-date'))
+        + '</div>'
+      )
 
-
-    + '<h2>Device Technician</h2>'
-    + '<div class="row">'
-    + '<div class="f" style="min-width:220px"><span class="lbl">Name</span><span class="val">'+(v('sig-name')||'&nbsp;')+'</span></div>'
-    + '<div class="f"><span class="lbl">Date Completed</span><span class="val">'+(v('sig-date')||'&nbsp;')+'</span></div>'
-    + '</div>'
     + '<script>window.onload=function(){window.print();}<\/script>'
     + '</body></html>';
 
@@ -993,30 +1010,46 @@ function exportSummary() {
   var blob = new Blob([lines.join('\n')], {type:'text/plain'});
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'CRM_' + (v('pt-name').replace(/[^a-zA-Z]/g,'_') || 'Record') + '_' + new Date().toISOString().slice(0,10) + '.txt';
+  var ptName = (document.getElementById('pt-name')||{value:''}).value.replace(/[^a-zA-Z]/g,'_') || 'Record';
+  a.download = 'CRM_' + ptName + '_' + new Date().toISOString().slice(0,10) + '.txt';
   a.click();
 }
 
 function buildSummaryLines() {
-  function v(id) { var e = document.getElementById(id); return e ? (e.value || '—') : '—'; }
-  function r(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : '—'; }
+  function val(id) { var e = document.getElementById(id); return e ? (e.value || '').trim() : ''; }
+  function radio(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
   function lonUnit() { var e = document.querySelector('[name="bat-lon-unit"]'); return e ? e.value : 'years'; }
-  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ') || '—';
+
   var lines = [
-    '═══════════════════════════════════════════════════════════',
+    '\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550',
     '  Generated: ' + new Date().toLocaleString(),
-    '═══════════════════════════════════════════════════════════',
-    '',
-    'DEVICE',
-    '  Type:         ' + dtype,
-    '  Manufacturer: ' + r('mfr'),
-    '  Model:        ' + v('dev-model') + '    Serial: ' + v('dev-serial'),
-    '  Implant Date: ' + v('dev-implant'),
-    '  Provider:     ' + v('pt-provider'),
-    '',
+    '\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550',
+    ''
   ];
 
-  // Lead Information (only if Yes)
+  // add(label, value) — only pushes if value is non-empty
+  function add(label, value) {
+    if (value && value.trim()) lines.push('  ' + label + value);
+  }
+  // secStart / secEnd — removes header if section ends up empty
+  function secStart(title) { lines.push(title); return lines.length; }
+  function secEnd(pos) {
+    if (lines.length === pos) lines.pop();
+    else lines.push('');
+  }
+
+  // DEVICE
+  var sPos = secStart('DEVICE');
+  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ');
+  add('Type:         ', dtype);
+  add('Manufacturer: ', radio('mfr'));
+  add('Model:        ', val('dev-model'));
+  add('Serial:       ', val('dev-serial'));
+  add('Implant Date: ', val('dev-implant'));
+  add('Provider:     ', val('pt-provider'));
+  secEnd(sPos);
+
+  // LEAD INFORMATION (only if Yes)
   var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
   if (liYN && liYN.value === 'Yes') {
     lines.push('LEAD INFORMATION');
@@ -1025,27 +1058,33 @@ function buildSummaryLines() {
       var model  = (tr.querySelector('.li-model') ||{value:''}).value;
       var serial = (tr.querySelector('.li-serial')||{value:''}).value;
       var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
-      lines.push('  ' + loc + '  |  Model: ' + (model||'—') + '  |  Serial: ' + (serial||'—') + '  |  Implant: ' + (date||'—'));
+      var parts  = [loc];
+      if (model)  parts.push('Model: ' + model);
+      if (serial) parts.push('Serial: ' + serial);
+      if (date)   parts.push('Implant: ' + date);
+      lines.push('  ' + parts.join('  |  '));
     });
-    var liNotes = v('leadinfo-notes');
-    if (liNotes && liNotes !== '—') lines.push('  Notes: ' + liNotes);
+    var liNotes = val('leadinfo-notes');
+    if (liNotes) lines.push('  Notes: ' + liNotes);
     lines.push('');
   }
 
-  lines.push(
-    'BATTERY / DEVICE STATUS',
-    '  Longevity:         ' + (document.querySelector('[name="bat-lon-cur"]')||{value:'—'}).value + ' ' + lonUnit(),
-    '  Battery Status:    ' + r('bat-status'),
-    '  Device Function:   ' + v('ap-devfx'),
-    '  Pacing Dependency: ' + v('ap-dep'),
-    '  Intrinsic Rhythm:  ' + v('ap-rhythm'),
-    '  A Paced %: ' + (document.getElementById('pct-a') ? (document.getElementById('pct-a').value||'—') : '—') + '    V Paced %: ' + (document.getElementById('pct-v') ? (document.getElementById('pct-v').value||'—') : '—'),
-    '',
-    'LEAD / ELECTRODE MEASUREMENTS'
-  );
+  // BATTERY / DEVICE STATUS
+  sPos = secStart('BATTERY / DEVICE STATUS');
+  var lonCur = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
+  add('Longevity:         ', lonCur ? lonCur + ' ' + lonUnit() : '');
+  add('Battery Status:    ', radio('bat-status'));
+  add('Device Function:   ', val('ap-devfx'));
+  add('Pacing Dependency: ', val('ap-dep'));
+  add('Intrinsic Rhythm:  ', val('ap-rhythm'));
+  var pctA = document.getElementById('pct-a') ? document.getElementById('pct-a').value : '';
+  var pctV = document.getElementById('pct-v') ? document.getElementById('pct-v').value : '';
+  add('A Paced %:         ', pctA);
+  add('V Paced %:         ', pctV);
+  secEnd(sPos);
 
-  // Lead rows
-  var hasLeadData = false;
+  // LEAD / ELECTRODE MEASUREMENTS
+  var leadLines = [];
   document.querySelectorAll('#leads-tbody tr').forEach(function(tr) {
     var cells = tr.querySelectorAll('td');
     if (!cells.length || cells.length < 5) return;
@@ -1055,17 +1094,34 @@ function buildSummaryLines() {
     var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
     var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
     if (!label) return;
-    hasLeadData = true;
-    lines.push('  ' + label + '  |  Imp: ' + (imp||'—') + ' \u03a9  |  Sens: ' + (sens||'—') + ' mV  |  Thr: ' + (thr||'—') + ' V  |  PW: ' + (pw||'—') + ' ms');
+    var parts = [label];
+    if (imp)  parts.push('Imp: ' + imp + ' \u03a9');
+    if (sens) parts.push('Sens: ' + sens + ' mV');
+    if (thr)  parts.push('Thr: ' + thr + ' V');
+    if (pw)   parts.push('PW: ' + pw + ' ms');
+    leadLines.push('  ' + parts.join('  |  '));
   });
-  if (!hasLeadData) lines.push('  No leads selected.');
-  lines.push('');
+  if (leadLines.length) {
+    lines.push('LEAD / ELECTRODE MEASUREMENTS');
+    leadLines.forEach(function(l){ lines.push(l); });
+    lines.push('');
+  }
 
-  lines.push(
-    'STORED EPISODES',
-    '  Total: ' + v('ep-total') + '    AF Burden: ' + v('ep-af-burden') + '%    AHR: ' + v('ep-ahr') + '    HVR: ' + v('ep-hvr') + '    PMT: ' + v('ep-pmt'),
-    ''
-  );
+  // STORED EPISODES
+  lines.push('STORED EPISODES');
+  var epTotal    = val('ep-total');
+  var epAFBurden = val('ep-af-burden');
+  var epAHR      = val('ep-ahr');
+  var epHVR      = val('ep-hvr');
+  var epPMT      = val('ep-pmt');
+  var epSum = [];
+  if (epTotal)  epSum.push('Total: ' + epTotal);
+  epSum.push('AF Burden: ' + (epAFBurden || '\u2014') + '%'); // always included
+  if (epAHR)    epSum.push('AHR: ' + epAHR);
+  if (epHVR)    epSum.push('HVR: ' + epHVR);
+  if (epPMT)    epSum.push('PMT: ' + epPMT);
+  lines.push('  ' + epSum.join('    '));
+  lines.push('');
 
   // Episode rows
   var hasEpData = false;
@@ -1083,22 +1139,24 @@ function buildSummaryLines() {
     var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
     if (!dt && !types && !dur) return;
     hasEpData = true;
-    lines.push(
-      '  [' + num + '] ' + (dt||'—') + '  |  Type: ' + (types||'—') +
-      '  |  Dur: ' + (dur||'—') + '  |  Rate: ' + (rate ? rate+' bpm' : '—') +
-      '  |  Therapy: ' + (ther||'—') + '  |  Approp: ' + (app||'—')
-    );
+    var ep = ['  [' + num + '] ' + (dt||'\u2014')];
+    if (types) ep.push('Type: ' + types);
+    if (dur)   ep.push('Dur: ' + dur);
+    if (rate)  ep.push('Rate: ' + rate + ' bpm');
+    if (ther)  ep.push('Therapy: ' + ther);
+    if (app)   ep.push('Approp: ' + app);
+    lines.push(ep.join('  |  '));
     if (notes) lines.push('       Notes: ' + notes);
   });
   if (!hasEpData) lines.push('  No episodes recorded.');
   lines.push('');
 
-  // Reprogramming / Observations
-  var obsYN = r('obs-yn');
-  var obsText = v('obs-text');
-  var rpChgTxt = r('rp-chg');
-  lines.push('REPROGRAMMING / OBSERVATIONS');
-  lines.push('  Changes this visit: ' + (rpChgTxt||'—'));
+  // REPROGRAMMING / OBSERVATIONS
+  var obsYN    = radio('obs-yn');
+  var obsText  = val('obs-text');
+  var rpChgTxt = radio('rp-chg');
+  sPos = secStart('REPROGRAMMING / OBSERVATIONS');
+  add('Changes this visit: ', rpChgTxt);
   if (rpChgTxt === 'Yes') {
     document.querySelectorAll('#rp-tbody tr').forEach(function(tr) {
       var cells = tr.querySelectorAll('td');
@@ -1108,29 +1166,44 @@ function buildSummaryLines() {
       var nval   = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
       var reason = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
       if (!param) return;
-      lines.push('    ' + param + '  ' + (prev||'—') + ' → ' + (nval||'—') + (reason ? '  (' + reason + ')' : ''));
+      var rp = [param];
+      if (prev || nval) rp.push((prev||'\u2014') + ' \u2192 ' + (nval||'\u2014'));
+      if (reason) rp.push(reason);
+      lines.push('    ' + rp.join('  '));
     });
   }
-  lines.push('  Observations: ' + (obsYN||'—'));
-  if (obsYN === 'Yes' && obsText && obsText !== '—') lines.push('    ' + obsText);
-  lines.push('');
+  add('Observations: ', obsYN);
+  if (obsYN === 'Yes' && obsText) lines.push('    ' + obsText);
+  secEnd(sPos);
 
-  var remainingLines = [
-    'PROGRAMMED PARAMETERS',
-    '  Mode: ' + v('p-mode') + '    LRL: ' + v('p-lrl') + ' bpm    UTR: ' + v('p-utr') + ' bpm    USR: ' + v('p-usr') + ' bpm',
-    '  Sensed AV: ' + v('p-sav') + ' ms    Paced AV: ' + v('p-pav') + ' ms    Mode Switch: ' + v('p-ms') + '    MS Rate: ' + v('p-msrate') + ' bpm',
-    '',
-    'REMOTE MONITORING',
-    '  Enrolled: ' + v('rm-enrolled') + '    Compliant: ' + v('rm-comply'),
-    '  Last Transmission: ' + v('rm-last'),
-    '  Active Alerts: ' + v('rm-active'),
-    '',
-    'DEVICE TECHNICIAN',
-    '  Name: ' + v('sig-name') + '    Date: ' + v('sig-date'),
-    '',
-    '═══════════════════════════════════════════════════════════',
-  ];
-  return lines.concat(remainingLines);
+  // PROGRAMMED PARAMETERS
+  sPos = secStart('PROGRAMMED PARAMETERS');
+  add('Mode:         ', val('p-mode'));
+  add('LRL:          ', val('p-lrl') ? val('p-lrl') + ' bpm' : '');
+  add('UTR:          ', val('p-utr') ? val('p-utr') + ' bpm' : '');
+  add('USR:          ', val('p-usr') ? val('p-usr') + ' bpm' : '');
+  add('Sensed AV:    ', val('p-sav') ? val('p-sav') + ' ms' : '');
+  add('Paced AV:     ', val('p-pav') ? val('p-pav') + ' ms' : '');
+  add('Mode Switch:  ', val('p-ms'));
+  add('MS Rate:      ', val('p-msrate') ? val('p-msrate') + ' bpm' : '');
+  secEnd(sPos);
+
+  // REMOTE MONITORING
+  sPos = secStart('REMOTE MONITORING');
+  add('Enrolled:          ', radio('rm-enrolled'));
+  add('Compliant:         ', radio('rm-comply'));
+  add('Last Transmission: ', val('rm-last'));
+  add('Active Alerts:     ', val('rm-active'));
+  secEnd(sPos);
+
+  // DEVICE TECHNICIAN
+  sPos = secStart('DEVICE TECHNICIAN');
+  add('Name: ', val('sig-name'));
+  add('Date: ', val('sig-date'));
+  secEnd(sPos);
+
+  lines.push('\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550');
+  return lines;
 }
 
 // ── INIT ──
