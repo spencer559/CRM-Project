@@ -3,1240 +3,161 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CRM Interrogation — Digital Form</title>
-
+<title>Cardiac CRM Toolkit — Grand Line Navigation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 <style>
-:root {
-  --navy: #1e3a5f;
-  --navy-lt: #e6eef6;
-  --navy-mid: #c8d8e8;
-  --bg: #d0d6df;
-  --card: #fff;
-  --text: #111;
-  --text-soft: #556;
-  --border: #cdd5df;
-  --input-bg: #f7f9fb;
-  --green: #2d7d46;
+:root{
+  --cream:#f5ead0;
+  --gold:#e8c059;
+  --gold-hi:#f8db7e;
+  --wax:#d9683f;
+  --ink:#0b2230;
 }
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 11px; }
-body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); line-height: 1.35; }
-
-/* APP BAR */
-.app-bar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 300;
-  background: #fff; border-bottom: 1px solid var(--border);
-  padding: 0 18px; height: 44px;
-  display: flex; align-items: center; gap: 14px;
-  box-shadow: 0 1px 5px rgba(0,0,0,.1);
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+html{background:#06141d;}
+body{
+  font-family:'Spectral',Georgia,serif;
+  color:var(--cream);
+  min-height:100%;
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:center;
+  padding:48px clamp(28px,8vw,118px);
+  position:relative;overflow-x:hidden;
+  background:url("wallpaperflare.com_wallpaper.jpg") center center / cover no-repeat fixed, #06141d;
 }
-.app-bar-title { font-family: Arial, Helvetica, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--navy); white-space: nowrap; }
-.divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
-.save-status { font-size: 10px; color: #999; white-space: nowrap; }
-.save-status.saved { color: var(--green); }
-.save-status.dirty { color: #c87000; }
-.app-bar-actions { margin-left: auto; display: flex; gap: 7px; align-items: center; }
-.btn { padding: 5px 12px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; border-radius: 3px; border: 1px solid var(--border); cursor: pointer; font-family: Arial, Helvetica, sans-serif; transition: background .1s, color .1s; display: flex; align-items: center; gap: 5px; }
-.btn-primary { background: var(--navy); color: #fff; border-color: var(--navy); }
-.btn-primary:hover { background: #162e4d; }
-.btn-ghost { background: #f3f5f8; color: var(--text-soft); }
-.btn-ghost:hover { background: #e5e9ef; }
-.btn-danger { background: #fff; color: #b03030; border-color: #dbb; }
-.btn-danger:hover { background: #fdf0f0; }
-
-/* SIDEBAR */
-.sidebar {
-  position: fixed; top: 44px; left: 0; bottom: 0; width: 186px;
-  background: #fff; border-right: 1px solid var(--border);
-  overflow-y: auto; z-index: 200; padding: 10px 0 20px;
+/* contrast scrim: dark on the left fading toward the ship on the right + bottom grounding */
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    linear-gradient(102deg, rgba(5,17,25,.90) 0%, rgba(5,17,25,.66) 32%, rgba(5,17,25,.20) 56%, rgba(5,17,25,0) 74%),
+    linear-gradient(0deg, rgba(5,17,25,.55) 0%, rgba(5,17,25,0) 30%);
 }
-.nav-group-lbl { padding: 8px 14px 3px; font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #aaa; }
-.nav-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 14px; font-size: 10.5px; font-weight: 500;
-  color: #445; cursor: pointer; border-left: 2px solid transparent;
-  transition: background .1s, border-color .1s, color .1s;
-  text-decoration: none;
+
+/* ===== HEADER ===== */
+.stage{position:relative;z-index:2;display:block;text-align:left;width:100%;max-width:560px;}
+
+.compass{position:relative;width:84px;height:84px;margin-bottom:22px;}
+.compass .ring{position:absolute;inset:0;border-radius:50%;border:2px solid var(--gold);
+  box-shadow:0 0 0 5px rgba(232,192,89,.16), inset 0 0 22px rgba(0,0,0,.5), 0 8px 22px rgba(0,0,0,.45);
+  background:radial-gradient(circle at 38% 32%, #1a4b5f, #06212c);}
+.compass .card-pt{position:absolute;top:50%;left:50%;font:600 10px 'Cinzel',serif;color:var(--gold-hi);transform:translate(-50%,-50%);letter-spacing:.5px;}
+.compass .n{top:8px;}.compass .s{top:auto;bottom:8px;}
+.compass .e{left:auto;right:8px;}.compass .w{left:8px;}
+.star4{position:absolute;top:50%;left:50%;width:50px;height:50px;transform:translate(-50%,-50%);
+  background:linear-gradient(135deg,var(--gold-hi),var(--gold));
+  clip-path:polygon(50% 0,59% 41%,100% 50%,59% 59%,50% 100%,41% 59%,0 50%,41% 41%);
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));animation:sway 6s ease-in-out infinite;transform-origin:center;}
+.star4::after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;transform:translate(-50%,-50%) rotate(45deg);
+  background:linear-gradient(135deg,#fff3cf,var(--gold-hi));
+  clip-path:polygon(50% 0,59% 41%,100% 50%,59% 59%,50% 100%,41% 59%,0 50%,41% 41%);opacity:.85;}
+@keyframes sway{0%,100%{transform:translate(-50%,-50%) rotate(-6deg)}50%{transform:translate(-50%,-50%) rotate(6deg)}}
+
+.eyebrow{display:flex;align-items:center;gap:14px;color:var(--gold);font:600 13px 'Cinzel',serif;letter-spacing:.32em;text-transform:uppercase;margin-bottom:16px;text-shadow:0 1px 6px rgba(0,0,0,.6);}
+.eyebrow::after{content:"";width:64px;height:3px;border-radius:2px;background:repeating-linear-gradient(45deg,var(--gold) 0 5px,#9a7320 5px 10px);box-shadow:0 1px 4px rgba(0,0,0,.5);}
+
+h1{font-family:'Pirata One',cursive;font-weight:400;line-height:1.12;letter-spacing:.5px;
+  font-size:clamp(46px,8.4vw,98px);
+  color:var(--cream);
+  text-shadow:0 2px 2px rgba(0,0,0,.55), 0 6px 26px rgba(0,0,0,.6);
+  margin-bottom:38px;}
+
+.rope{width:min(420px,90%);height:7px;border-radius:4px;margin-bottom:40px;
+  background:repeating-linear-gradient(60deg,#d8b865 0 8px,#9a7320 8px 16px);
+  box-shadow:0 2px 8px rgba(0,0,0,.5);position:relative;}
+.rope::before,.rope::after{content:"";position:absolute;top:50%;width:13px;height:13px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,var(--gold-hi),#7e5f2c);transform:translateY(-50%);box-shadow:0 1px 4px rgba(0,0,0,.55);}
+.rope::before{left:-7px;}.rope::after{right:-7px;}
+
+/* ===== BUTTONS (frosted glass over the painting) ===== */
+.actions{display:flex;flex-direction:column;gap:16px;width:100%;max-width:420px;}
+.btn-sail{
+  display:flex;align-items:center;gap:16px;
+  text-decoration:none;color:var(--cream);
+  background:rgba(7,26,36,.66);
+  -webkit-backdrop-filter:blur(9px) saturate(1.1);backdrop-filter:blur(9px) saturate(1.1);
+  border:1.5px solid rgba(232,192,89,.55);border-radius:11px;
+  padding:17px 22px;
+  box-shadow:0 12px 28px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.12);
+  transition:transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .22s, background .25s, color .25s, border-color .25s;
 }
-.nav-item:hover { background: var(--navy-lt); color: var(--navy); }
-.nav-item.active { border-left-color: var(--navy); background: var(--navy-lt); color: var(--navy); font-weight: 700; }
-.nav-dot { width: 6px; height: 6px; border-radius: 50%; background: #ddd; flex-shrink: 0; transition: background .15s; }
-.nav-item.active .nav-dot { background: var(--navy); }
-.nav-item.filled .nav-dot { background: var(--green); }
-.nav-item.hidden-nav { display: none; }
+.btn-sail:hover{transform:translateY(-5px);background:linear-gradient(180deg,var(--gold-hi),var(--gold));color:#1a1206;border-color:#fff4d6;
+  box-shadow:0 18px 34px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.4);}
+.btn-sail:active{transform:translateY(-1px);}
 
-/* MAIN */
-.main { margin-left: 186px; padding: 60px 26px 60px; }
-.form-body { max-width: 860px; }
+.b-icon{flex-shrink:0;position:relative;width:46px;height:46px;border-radius:50%;
+  background:radial-gradient(circle at 38% 32%,#19495c,#06212c);
+  border:1.5px solid var(--gold);box-shadow:inset 0 0 12px rgba(0,0,0,.5);}
+.btn-sail:hover .b-icon{border-color:#fff3cf;}
+.b-icon .star4{width:30px;height:30px;animation:none;}
+.b-icon .star4::after{width:17px;height:17px;}
+.anchor{position:absolute;top:50%;left:50%;width:22px;height:26px;transform:translate(-50%,-46%);}
+.anchor i{position:absolute;left:50%;top:0;width:3px;height:20px;background:var(--gold-hi);transform:translateX(-50%);border-radius:2px;}
+.anchor .ball{position:absolute;left:50%;top:-2px;width:8px;height:8px;border:2.5px solid var(--gold-hi);border-radius:50%;transform:translateX(-50%);}
+.anchor .bar{position:absolute;left:50%;top:6px;width:16px;height:3px;background:var(--gold-hi);transform:translateX(-50%);border-radius:2px;}
+.anchor .arc{position:absolute;left:50%;bottom:0;width:20px;height:12px;border:3px solid var(--gold-hi);border-top:none;border-radius:0 0 20px 20px;transform:translateX(-50%);}
 
-/* SECTION */
-.section { margin-bottom: 16px; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
-.section.hidden-section { display: none; }
-.sec-hdr {
-  background: var(--navy); color: #fff;
-  padding: 5px 11px;
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
-  display: flex; align-items: center; gap: 8px;
+.b-text{display:flex;flex-direction:column;align-items:flex-start;gap:2px;flex:1;text-align:left;}
+.b-kicker{font:600 10px 'Cinzel',serif;letter-spacing:.24em;text-transform:uppercase;opacity:.78;}
+.b-title{font:700 17px 'Cinzel',serif;letter-spacing:.02em;line-height:1.1;}
+.b-arrow{flex-shrink:0;font-size:17px;transition:transform .22s;}
+.btn-sail:hover .b-arrow{transform:translateX(4px);}
+
+@media (max-width:720px){
+  body{align-items:stretch;text-align:center;}
+  body::before{background:linear-gradient(0deg, rgba(5,17,25,.7), rgba(5,17,25,.45));}
+  .stage{margin-left:auto;margin-right:auto;text-align:center;}
+  .compass{margin-left:auto;margin-right:auto;}
+  .eyebrow{justify-content:center;}
+  .rope{margin-left:auto;margin-right:auto;}
+  .actions{margin-left:auto;margin-right:auto;}
+  .eyebrow::before{content:"";width:64px;height:3px;border-radius:2px;background:repeating-linear-gradient(45deg,var(--gold) 0 5px,#9a7320 5px 10px);box-shadow:0 1px 4px rgba(0,0,0,.5);}
 }
-.sec-hdr .badge { margin-left: auto; background: rgba(255,255,255,.18); padding: 1px 8px; font-size: 9px; border-radius: 10px; letter-spacing: .3px; }
-.sec-body { padding: 12px 14px; }
-
-/* SUB LABEL */
-.sub-lbl { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .35px; color: var(--navy); border-bottom: 1px solid var(--navy-mid); padding-bottom: 2px; margin: 11px 0 6px; }
-.sub-lbl:first-child { margin-top: 0; }
-.sub-note { font-size: 9px; font-weight: 400; text-transform: none; letter-spacing: 0; color: #888; }
-
-/* FIELD GRID */
-.fg { display: grid; gap: 8px; margin-bottom: 8px; }
-.fg-2 { grid-template-columns: 1fr 1fr; }
-.fg-3 { grid-template-columns: 1fr 1fr 1fr; }
-.fg-4 { grid-template-columns: repeat(4, 1fr); }
-.fg-5 { grid-template-columns: repeat(5, 1fr); }
-.fg-6 { grid-template-columns: repeat(6, 1fr); }
-.fg-7 { grid-template-columns: repeat(7, 1fr); }
-
-/* FIELD */
-.field { display: flex; flex-direction: column; gap: 2px; }
-.lbl { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--navy); }
-input[type=text], input[type=number], input[type=date], input[type=datetime-local], select {
-  border: 1px solid var(--border); border-radius: 2px;
-  background: var(--input-bg); padding: 3px 6px;
-  font-size: 10.5px; font-family: Arial, Helvetica, sans-serif;
-  color: var(--text); width: 100%; height: 24px;
-}
-input:focus, select:focus { border-color: var(--navy); background: #fff; outline: none; box-shadow: 0 0 0 2px rgba(30,58,95,.1); }
-textarea { border: 1px solid var(--border); border-radius: 2px; background: var(--input-bg); padding: 5px 7px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text); width: 100%; resize: vertical; min-height: 50px; }
-textarea:focus { border-color: var(--navy); background: #fff; outline: none; box-shadow: 0 0 0 2px rgba(30,58,95,.1); }
-
-/* CHECKBOX / RADIO GROUP */
-.cbg { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding: 3px 0; }
-.cbl { display: flex; align-items: center; gap: 4px; font-size: 10.5px; cursor: pointer; user-select: none; white-space: nowrap; }
-.cbl input[type=checkbox], .cbl input[type=radio] {
-  appearance: none; -webkit-appearance: none;
-  width: 11px; height: 11px; border: 1.5px solid var(--navy); background: #fff;
-  border-radius: 1px; cursor: pointer; flex-shrink: 0; position: relative;
-}
-.cbl input[type=radio] { border-radius: 50%; }
-.cbl input[type=checkbox]:checked { background: var(--navy); }
-.cbl input[type=checkbox]:checked::after { content: ''; position: absolute; left: 2px; top: 0; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(40deg); }
-.cbl input[type=radio]:checked { background: var(--navy); box-shadow: inset 0 0 0 2px #fff; }
-.cbg-lbl { font-size: 10px; font-weight: 600; color: var(--text-soft); margin-right: 4px; }
-
-/* DATA TABLE */
-.dt { width: 100%; border-collapse: collapse; font-size: 10px; border: 1px solid #b8ccdf; margin-bottom: 8px; }
-.dt th { background: var(--navy-lt); color: var(--navy); text-align: left; font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .25px; padding: 4px 6px; white-space: nowrap; border-bottom: 1px solid var(--navy-mid); border-right: 1px solid var(--navy-mid); }
-.dt th:last-child { border-right: none; }
-.dt td { padding: 2px 4px; border-bottom: 1px solid #e0e8f0; border-right: 1px solid #edf1f6; vertical-align: middle; }
-.dt td:last-child { border-right: none; }
-.dt tr:last-child td { border-bottom: none; }
-.dt input:not([type=checkbox]):not([type=radio]), .dt select { border: none; background: transparent; padding: 2px 3px; font-size: 10px; font-family: Arial, Helvetica, sans-serif; color: var(--text); width: 100%; min-width: 36px; height: 22px; }
-.dt input:not([type=checkbox]):not([type=radio]):focus, .dt select:focus { outline: none; background: #eef4fb; border-radius: 2px; box-shadow: none; }
-.dt .cbg { gap: 2px 6px; flex-wrap: nowrap; }
-.dt .cbl { font-size: 9.5px; }
-
-/* DYNAMIC ROWS */
-.add-btn { background: none; border: 1px dashed var(--navy-mid); color: var(--navy); font-size: 10px; font-weight: 600; padding: 4px 12px; cursor: pointer; border-radius: 2px; font-family: Arial, Helvetica, sans-serif; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .2px; transition: background .1s; }
-.add-btn:hover { background: var(--navy-lt); }
-.del-btn { background: none; border: none; color: #b03030; cursor: pointer; font-size: 14px; padding: 0 3px; line-height: 1; }
-
-/* SIG BLOCK */
-.sig-block { border-top: 1.5px solid var(--navy-mid); margin-top: 12px; padding-top: 10px; }
-
-/* EPISODE CHECKBOX GROUPS */
-.ep-cbg { gap: 2px 7px; padding: 1px 0; flex-wrap: nowrap; }
-.ep-grp-lbl { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--navy); opacity: .65; width: 22px; flex-shrink: 0; }
-
-/* PRINT */
-@media print {
-  @page { size: letter; margin: .45in .5in; }
-  body { background: #fff; }
-  .app-bar, .sidebar { display: none !important; }
-  .main { margin-left: 0 !important; padding: 0 !important; }
-  .section { box-shadow: none; margin-bottom: 14px; page-break-inside: avoid; }
-  .add-btn, .del-btn { display: none !important; }
-  .dt input:not([type=checkbox]):not([type=radio]), .dt select { font-size: 9px; }
-  input, select { background: #fff !important; }
-  textarea { background: #fff !important; height: auto !important; overflow: visible !important; }
-  .dt td textarea { height: auto !important; min-height: 0 !important; overflow: visible !important; }
-}
+@media (prefers-reduced-motion:reduce){.star4{animation:none !important;}}
 </style>
 </head>
 <body>
 
-<!-- APP BAR -->
-<header class="app-bar">
-  <svg width="34" height="20" viewBox="0 0 36 22" fill="none" aria-hidden="true" style="flex-shrink:0">
-    <polyline points="0,11 5,11 7,5 9,17 11,3 13,19 15,11 20,11 21,8 22,14 23,11 36,11" stroke="#1e3a5f" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
-  </svg>
-  <div class="app-bar-title">CRM Interrogation — Digital Form</div>
-  <div class="divider"></div>
-  <span class="save-status" id="save-status">No data saved</span>
-  <div class="app-bar-actions">
-    <button class="btn btn-danger" onclick="clearForm()">New Patient</button>
-    <button class="btn btn-ghost" onclick="copyToClipboard()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="1" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="4" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4" fill="white"/></svg>
-      Copy to Clipboard
-    </button>
-    <button class="btn btn-ghost" onclick="exportSummary()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0L5 7m3 3l3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="2" y="11" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
-      Export .txt
-    </button>
-    <button class="btn btn-ghost" onclick="window.print()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="1" y="6" width="14" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M4 6V2.5A.5.5 0 014.5 2h7a.5.5 0 01.5.5V6" stroke="currentColor" stroke-width="1.4"/><rect x="4" y="10" width="8" height="1.2" rx=".6" fill="currentColor"/><rect x="4" y="12" width="5" height="1.2" rx=".6" fill="currentColor"/></svg>
-      Print
-    </button>
-    <button class="btn btn-primary" onclick="exportPDF()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 1h6l3 3v10a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4"/><path d="M9 1v4h3" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5 9h6M5 11.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-      Save PDF
-    </button>
+<main class="stage">
+
+  <div class="compass" aria-hidden="true">
+    <div class="ring"></div>
+    <span class="card-pt n">N</span>
+    <span class="card-pt e">E</span>
+    <span class="card-pt s">S</span>
+    <span class="card-pt w">W</span>
+    <div class="star4"></div>
   </div>
-</header>
 
-<!-- SIDEBAR -->
-<nav class="sidebar">
-  <div class="nav-group-lbl">Patient</div>
-  <a class="nav-item" id="nav-patient" href="#s-patient" onclick="return navTo('s-patient')"><span class="nav-dot"></span>Patient &amp; Device</a>
-  <div class="nav-group-lbl">Interrogation</div>
-  <a class="nav-item" id="nav-battery" href="#s-battery" onclick="return navTo('s-battery')"><span class="nav-dot"></span>Battery Status</a>
-  <a class="nav-item" id="nav-params" href="#s-params" onclick="return navTo('s-params')"><span class="nav-dot"></span>Parameters</a>
-  <a class="nav-item" id="nav-leads" href="#s-leads" onclick="return navTo('s-leads')"><span class="nav-dot"></span>Lead Measurements</a>
-  <div class="nav-group-lbl">Review</div>
-  <a class="nav-item" id="nav-episodes" href="#s-episodes" onclick="return navTo('s-episodes')"><span class="nav-dot"></span>Episode Log</a>
-  <div class="nav-group-lbl">Documentation</div>
-  <a class="nav-item" id="nav-reprog" href="#s-reprog" onclick="return navTo('s-reprog')"><span class="nav-dot"></span>Reprogramming / Obs.</a>
-  <a class="nav-item" id="nav-remote" href="#s-remote" onclick="return navTo('s-remote')"><span class="nav-dot"></span>Remote Monitoring</a>
-  <a class="nav-item" id="nav-ap" href="#s-ap" onclick="return navTo('s-ap')"><span class="nav-dot"></span>Assessment &amp; Plan</a>
-</nav>
+  <div class="eyebrow">Grand Line Navigation</div>
 
-<main class="main">
-<div class="form-body">
+  <h1>Cardiac CRM<br>Toolkit</h1>
 
-<!-- §1 PATIENT & DEVICE -->
-<div class="section" id="s-patient">
-  <div class="sec-hdr">Patient &amp; Device Information</div>
-  <div class="sec-body">
-    <div class="fg fg-5">
-      <div class="field"><span class="lbl">Patient Name</span><input type="text" id="pt-name" placeholder="Last, First MI"></div>
-      <div class="field"><span class="lbl">Date of Birth</span><input type="date" id="pt-dob"></div>
-      <div class="field"><span class="lbl">MRN</span><input type="text" id="pt-mrn"></div>
-      <div class="field"><span class="lbl">Interrogation Date</span><input type="date" id="pt-date"></div>
-      <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-implant"></div>
-    </div>
-    <div class="fg fg-2" style="max-width:420px">
-      <div class="field"><span class="lbl">Provider / Clinic</span><input type="text" id="pt-provider"></div>
-    </div>
+  <div class="rope" aria-hidden="true"></div>
 
-    <div class="sub-lbl">Device Type <span class="sub-note">(select one — leads &amp; pacing % update automatically)</span></div>
-    <div class="cbg" id="dtype-group">
-      <label class="cbl"><input type="radio" name="dtype" value="PPM-SC" onchange="onDtypeChange()"> PPM (SC)</label>
-      <label class="cbl"><input type="radio" name="dtype" value="PPM-DC" onchange="onDtypeChange()"> PPM (DC)</label>
-      <label class="cbl"><input type="radio" name="dtype" value="CRT-P" onchange="onDtypeChange()"> CRT-P</label>
-      <label class="cbl"><input type="radio" name="dtype" value="ICD-SC" onchange="onDtypeChange()"> ICD (SC)</label>
-      <label class="cbl"><input type="radio" name="dtype" value="ICD-DC" onchange="onDtypeChange()"> ICD (DC)</label>
-      <label class="cbl"><input type="radio" name="dtype" value="CRT-D" onchange="onDtypeChange()"> CRT-D</label>
-      <label class="cbl"><input type="radio" name="dtype" value="S-ICD" onchange="onDtypeChange()"> S-ICD</label>
-      <label class="cbl"><input type="radio" name="dtype" value="Leadless" onchange="onDtypeChange()"> Leadless (Micra/AV)</label>
-      <label class="cbl"><input type="radio" name="dtype" value="Aveir" onchange="onDtypeChange()"> Aveir (Abbott)</label>
-    </div>
-    <div id="aveir-chambers" style="display:none; margin-top:5px; padding:6px 10px; background:#e6eef6; border-left:3px solid #1e3a5f; border-radius:2px;">
-      <span class="lbl" style="display:inline-block; margin-right:8px;">Aveir Chambers Implanted:</span>
-      <label class="cbl"><input type="checkbox" name="aveir-chamber" value="RA" onchange="updateConditionals()"> RA</label>
-      <label class="cbl"><input type="checkbox" name="aveir-chamber" value="RV" onchange="updateConditionals()"> RV</label>
-    </div>
+  <nav class="actions">
 
-    <div class="sub-lbl">Manufacturer</div>
-    <div class="cbg">
-      <label class="cbl"><input type="radio" name="mfr" value="Medtronic"> Medtronic</label>
-      <label class="cbl"><input type="radio" name="mfr" value="Abbott"> Abbott / SJM</label>
-      <label class="cbl"><input type="radio" name="mfr" value="BSc"> Boston Scientific</label>
-      <label class="cbl"><input type="radio" name="mfr" value="Biotronik"> Biotronik</label>
-    </div>
+    <a class="btn-sail" href="CRM_Report_Generator.html">
+      <span class="b-icon"><span class="star4"></span></span>
+      <span class="b-text">
+        <span class="b-kicker">The Flagship</span>
+        <span class="b-title">CRM Report Generator</span>
+      </span>
+      <span class="b-arrow">&#9658;</span>
+    </a>
 
-    <div class="fg fg-2" style="max-width:300px; margin-top:8px;">
-      <div class="field"><span class="lbl">Model</span><input type="text" id="dev-model"></div>
-      <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-serial"></div>
-    </div>
+    <a class="btn-sail" href="CRM_Report_Generator_Test.html">
+      <span class="b-icon"><span class="anchor"><i></i><span class="ball"></span><span class="bar"></span><span class="arc"></span></span></span>
+      <span class="b-text">
+        <span class="b-kicker">The Scout Ship</span>
+        <span class="b-title">CRM Report Generator Test</span>
+      </span>
+      <span class="b-arrow">&#9658;</span>
+    </a>
 
-    <div class="sub-lbl" style="margin-top:12px;">Lead Information</div>
-    <div class="cbg" style="margin-bottom:6px;">
-      <label class="cbl"><input type="radio" name="leadinfo-yn" value="Yes" onchange="updateLeadInfoTable()"> Yes</label>
-      <label class="cbl"><input type="radio" name="leadinfo-yn" value="No" onchange="updateLeadInfoTable()"> No</label>
-    </div>
-    <div id="leadinfo-wrap" style="display:none;">
-      <table class="dt">
-        <thead><tr><th style="width:20%">Lead Location</th><th>Lead Model</th><th>Lead Serial #</th><th style="width:18%">Implant Date</th></tr></thead>
-        <tbody id="leadinfo-tbody"></tbody>
-      </table>
-      <div class="field" style="margin-top:6px;"><span class="lbl">Notes</span><textarea id="leadinfo-notes" placeholder="Optional notes…" style="width:100%;min-height:48px;"></textarea></div>
-    </div>
-  </div>
-</div>
+  </nav>
 
-<!-- §2 BATTERY -->
-<div class="section" id="s-battery">
-  <div class="sec-hdr">Battery / Device Status</div>
-  <div class="sec-body">
-    <table class="dt">
-      <thead><tr>
-        <th style="width:26%">Parameter</th><th>Value</th><th style="width:20%">Units / Reference</th>
-      </tr></thead>
-      <tbody>
-        <tr>
-          <td>Longevity Estimate</td>
-          <td><input type="text" name="bat-lon-cur" placeholder="e.g. 4.2"></td>
-          <td><select name="bat-lon-unit"><option value="years" selected>years</option><option value="months">months</option><option value="percent">percent</option></select></td>
-        </tr>
-        <tr id="bat-cc-row" style="display:none;">
-          <td>Cap. Charge Time (ICD)</td>
-          <td><input type="text" name="bat-cc-cur" placeholder="sec"></td>
-          <td>sec &nbsp;<span style="font-size:8.5px;color:#888">(&lt;10s normal)</span></td>
-        </tr>
-        <tr>
-          <td>Battery Status</td>
-          <td colspan="2"><div class="cbg"><label class="cbl"><input type="radio" name="bat-status" value="BOL"> BOL</label><label class="cbl"><input type="radio" name="bat-status" value="Mid-Life"> Mid-Life</label><label class="cbl"><input type="radio" name="bat-status" value="ERI"> ERI / RRT</label><label class="cbl"><input type="radio" name="bat-status" value="EOL"> EOL</label></div></td>
-        </tr>
-      </tbody>
-    </table>
-    <div class="fg" style="grid-template-columns: 130px 130px 160px; margin-top:8px; margin-bottom:4px;">
-      <div class="field"><span class="lbl">Device Function</span><select id="ap-devfx"><option value="">—</option><option>Normal</option><option>Abnormal</option></select></div>
-      <div class="field"><span class="lbl">Pacing Dependency</span><select id="ap-dep"><option value="">—</option><option>Yes</option><option>No</option></select></div>
-      <div class="field"><span class="lbl">Intrinsic Rhythm</span><input type="text" id="ap-rhythm" placeholder="e.g. NSR, AF, CHB"></div>
-    </div>
-    <div class="sub-lbl" id="pct-lbl">Pacing Statistics <span class="sub-note" id="pct-note">— select device type above</span></div>
-    <div class="fg" style="grid-template-columns: repeat(4, 110px);" id="pct-grid">
-      <div class="field" id="pct-a-wrap"><span class="lbl">A Paced %</span><input type="number" id="pct-a" min="0" max="100" step="0.1"></div>
-      <div class="field" id="pct-v-wrap"><span class="lbl" id="pct-v-lbl">V Paced %</span><input type="number" id="pct-v" min="0" max="100" step="0.1"></div>
-      <div class="field" id="pct-lv-wrap"><span class="lbl">LV Paced %</span><input type="number" id="pct-lv" min="0" max="100" step="0.1"></div>
-      <div class="field" id="pct-biv-wrap"><span class="lbl">BiV Paced %</span><input type="number" id="pct-biv" min="0" max="100" step="0.1"></div>
-    </div>
-  </div>
-</div>
-
-<!-- §3 PARAMETERS -->
-<div class="section" id="s-params">
-  <div class="sec-hdr">Programmed Parameters</div>
-  <div class="sec-body">
-    <div class="sub-lbl">Pacing Mode &amp; Rates</div>
-    <div class="fg" style="grid-template-columns: 120px 90px 90px 90px;">
-      <div class="field"><span class="lbl">Mode</span>
-        <input type="text" id="p-mode" placeholder="e.g. DDD, VVIR…">
-      </div>
-      <div class="field"><span class="lbl">LRL (bpm)</span><input type="number" id="p-lrl" min="30" max="100"></div>
-      <div class="field"><span class="lbl">UTR (bpm)</span><input type="number" id="p-utr" min="80" max="220"></div>
-      <div class="field"><span class="lbl">USR (bpm)</span><input type="number" id="p-usr" min="80" max="220"></div>
-    </div>
-
-    <div class="sub-lbl">AV Timing / Intervals</div>
-    <div class="fg" style="grid-template-columns: 110px 110px 110px 110px;">
-      <div class="field"><span class="lbl">Sensed AV (ms)</span><input type="number" id="p-sav"></div>
-      <div class="field"><span class="lbl">Paced AV (ms)</span><input type="number" id="p-pav"></div>
-      <div class="field"><span class="lbl">Mode Switch</span>
-        <select id="p-ms"><option value="">—</option><option>On</option><option>Off</option></select>
-      </div>
-      <div class="field"><span class="lbl">MS Rate (bpm)</span><input type="number" id="p-msrate"></div>
-    </div>
-
-  </div>
-</div>
-
-<!-- §4 LEADS -->
-<div class="section" id="s-leads">
-  <div class="sec-hdr">Lead / Electrode Measurements</div>
-  <div class="sec-body">
-    <table class="dt">
-      <thead><tr>
-        <th>Lead</th><th>Impedance (Ω)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th>
-      </tr></thead>
-      <tbody id="leads-tbody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- §5 EPISODES -->
-<div class="section" id="s-episodes">
-  <div class="sec-hdr">Stored Episodes / Arrhythmia Log</div>
-  <div class="sec-body">
-    <div class="fg" style="grid-template-columns: 110px 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
-      <div class="field"><span class="lbl">Total Episodes</span><input type="number" id="ep-total" min="0"></div>
-      <div class="field"><span class="lbl">AF Burden (%)</span><input type="number" id="ep-af-burden" min="0" max="100" step="0.1" placeholder="0.0"></div>
-      <div class="field"><span class="lbl">AHR <span class="sub-note">(AT / AF / AFl)</span></span><input type="number" id="ep-ahr" min="0"></div>
-      <div class="field"><span class="lbl">HVR <span class="sub-note">(VT / VF / NS-VT)</span></span><input type="number" id="ep-hvr" min="0"></div>
-      <div class="field"><span class="lbl">PMT</span><input type="number" id="ep-pmt" min="0"></div>
-    </div>
-    <table class="dt">
-      <thead><tr><th style="width:18px">#</th><th style="min-width:128px">Date / Time</th><th>Episode Type</th><th>Duration</th><th>Max Rate</th><th>Therapy</th><th>Approp.?</th><th>Notes</th><th style="width:16px"></th></tr></thead>
-      <tbody id="ep-tbody"></tbody>
-    </table>
-    <button class="add-btn" onclick="addEpRow()">+ Add Episode</button>
-  </div>
-</div>
-
-<!-- §8 REPROGRAMMING / OBSERVATIONS -->
-<div class="section" id="s-reprog">
-  <div class="sec-hdr">Reprogramming / Observations</div>
-  <div class="sec-body">
-    <div class="cbg" style="margin-bottom:8px;">
-      <span class="cbg-lbl">Changes made this visit:</span>
-      <label class="cbl"><input type="radio" name="rp-chg" value="Yes" onchange="updateReprogTable()"> Yes</label>
-      <label class="cbl"><input type="radio" name="rp-chg" value="No" onchange="updateReprogTable()"> No changes made</label>
-    </div>
-    <div id="rp-table-wrap" style="display:none;">
-    <table class="dt">
-      <thead><tr><th style="width:30%">Parameter Changed</th><th style="width:18%">Previous Value</th><th style="width:18%">New Value</th><th>Clinical Reason / Indication</th><th style="width:18px"></th></tr></thead>
-      <tbody id="rp-tbody"></tbody>
-    </table>
-    <button class="add-btn" onclick="addRpRow()">+ Add Parameter Change</button>
-    </div>
-    <div class="sub-lbl" style="margin-top:10px;">Observations</div>
-    <div class="cbg" style="margin-bottom:6px;">
-      <label class="cbl"><input type="radio" name="obs-yn" value="Yes" onchange="updateObservations()"> Yes</label>
-      <label class="cbl"><input type="radio" name="obs-yn" value="N/A" onchange="updateObservations()"> N/A</label>
-    </div>
-    <div id="obs-text-wrap" style="display:none;">
-      <textarea id="obs-text" placeholder="Enter observations…" style="width:100%;min-height:64px;"></textarea>
-    </div>
-  </div>
-</div>
-
-<!-- §7 REMOTE MONITORING -->
-<div class="section" id="s-remote">
-  <div class="sec-hdr">Remote Monitoring</div>
-  <div class="sec-body">
-    <div class="fg" style="grid-template-columns: 80px 80px 130px;">
-      <div class="field"><span class="lbl">Enrolled</span><select id="rm-enrolled"><option value="">—</option><option>Yes</option><option>No</option></select></div>
-      <div class="field"><span class="lbl">Compliant</span><select id="rm-comply"><option value="">—</option><option>Yes</option><option>No</option></select></div>
-      <div class="field"><span class="lbl">Last Transmission</span><input type="date" id="rm-last"></div>
-    </div>
-    <div class="field" style="margin-top:4px;"><span class="lbl">Active Alerts Since Last Visit</span><input type="text" id="rm-active" placeholder="None — or describe"></div>
-  </div>
-</div>
-
-<!-- §9 ASSESSMENT & PLAN -->
-<div class="section" id="s-ap">
-  <div class="sec-hdr">Assessment &amp; Plan</div>
-  <div class="sec-body">
-
-    <div class="fg" style="grid-template-columns: 260px 160px;">
-      <div class="field"><span class="lbl">Device Technician</span><input type="text" id="sig-name"></div>
-      <div class="field"><span class="lbl">Date Completed</span><input type="date" id="sig-date"></div>
-    </div>
-  </div>
-</div>
-
-</div><!-- form-body -->
 </main>
 
-<script>
-// ── DTYPE CHANGE: clear measurements then update ──
-function onDtypeChange() {
-  // Clear pacing statistics
-  ['pct-a','pct-v','pct-lv','pct-biv'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  // Clear all lead/electrode measurement inputs
-  document.querySelectorAll('#leads-tbody input').forEach(function(el) {
-    if (el.type !== 'checkbox' && el.type !== 'radio') el.value = '';
-  });
-  updateConditionals();
-}
-
-// ── LEAD CONFIG ──
-var LEAD_CFG = {
-  'ra':      { label:'RA Lead',          pos:'RA',            pacing:true },
-  'rv':      { label:'RV Lead',          pos:'RV',            pacing:true },
-  'lv':      { label:'LV Lead',          pos:'LV',            pacing:true },
-  'rv-coil': { label:'RV Shock Coil',    pos:'RV Coil',       pacing:false },
-  'svc-coil':{ label:'SVC / Can Coil',   pos:'SVC',           pacing:false },
-  'sicd':    { label:'S-ICD Electrode',  pos:'Subcutaneous',  pacing:false },
-  'leadless':  { label:'Leadless (RV)',        pos:'RV Septum',  pacing:true  },
-  'aveir-ra':   { label:'Aveir RA (Leadless)',   pos:'RA Septum',  pacing:true  },
-  'aveir-rv':   { label:'Aveir RV (Leadless)',   pos:'RV Septum',  pacing:true  },
-};
-var DTYPE_LEADS = {
-  'PPM-SC':  ['rv'],
-  'PPM-DC':  ['ra','rv'],
-  'CRT-P':   ['ra','rv','lv'],
-  'ICD-SC':  ['rv','rv-coil','svc-coil'],
-  'ICD-DC':  ['ra','rv','rv-coil','svc-coil'],
-  'CRT-D':   ['ra','rv','lv','rv-coil','svc-coil'],
-  'S-ICD':   ['sicd'],
-  'Leadless':['leadless'],
-};
-var LEAD_ORDER = ['ra','rv','lv','rv-coil','svc-coil','sicd','leadless','aveir-ra','aveir-rv'];
-
-function rebuildLeads() {
-  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
-  var seen = {};
-  vals.forEach(function(d){ (DTYPE_LEADS[d]||[]).forEach(function(k){ seen[k]=true; }); });
-  // Aveir: add leads based on sub-chamber checkboxes
-  if (vals.indexOf('Aveir') > -1) {
-    var aChams = Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; });
-    if (aChams.indexOf('RA') > -1) seen['aveir-ra'] = true;
-    if (aChams.indexOf('RV') > -1) seen['aveir-rv'] = true;
-  }
-  var keys = LEAD_ORDER.filter(function(k){ return seen[k]; });
-
-  var tb = document.getElementById('leads-tbody');
-  tb.innerHTML = '';
-
-  if (!keys.length) {
-    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;font-style:italic;padding:10px 6px;font-size:10px;">Select a device type above to populate lead rows</td></tr>';
-    return;
-  }
-  keys.forEach(function(k) {
-    var c = LEAD_CFG[k];
-    var tr = document.createElement('tr');
-    var sensCell = c.pacing
-      ? '<input type="number" name="lead-'+k+'-sens" step="0.1" placeholder="mV">'
-      : '<span style="color:#bbb;font-size:10px;padding-left:4px;">\u2014</span>';
-    var thrCell = c.pacing
-      ? '<input type="number" name="lead-'+k+'-thr" step="0.1" placeholder="V">'
-      : '<span style="color:#bbb;font-size:10px;padding-left:4px;">\u2014</span>';
-    var pwCell = c.pacing
-      ? '<input type="number" name="lead-'+k+'-pw" step="0.05" placeholder="ms">'
-      : '<span style="color:#bbb;font-size:10px;padding-left:4px;">\u2014</span>';
-    tr.innerHTML =
-      '<td><strong>' + c.label + '</strong><br><span style="font-size:8.5px;color:#888;">' + c.pos + '</span></td>' +
-      '<td><input type="number" name="lead-'+k+'-imp" step="1" placeholder="\u03a9"></td>' +
-      '<td>' + sensCell + '</td>' +
-      '<td>' + thrCell + '</td>' +
-      '<td>' + pwCell + '</td>' +
-      '';
-    tb.appendChild(tr);
-  });
-}
-rebuildLeads();
-
-// ── AUTO-GROW TEXTAREAS ──
-function autoGrow(el) {
-  el.style.height = 'auto';
-  el.style.height = el.scrollHeight + 'px';
-}
-
-// ── SAVE STATUS (declared early so scheduleSave can reference it) ──
-var saveTimer;
-var ss = document.getElementById('save-status');
-
-// ── EPISODE ROWS ──
-var epN = 0;
-function addEpRow() {
-  epN++;
-  var n = epN;
-  var tr = document.createElement('tr');
-  tr.id = 'ep-' + n;
-  // Checkboxes grouped: HVR | AHR | other
-  var hvrTypes = ['VT','VF','NS-VT'];
-  var ahrTypes = ['AF/AHR','AT','SVT'];
-  var otherTypes = ['PMT','Other'];
-  function cbRow(types, grp) {
-    return types.map(function(t) {
-      return '<label class="cbl"><input type="checkbox" name="ep'+n+'-type" value="'+t+'"> '+t+'</label>';
-    }).join('');
-  }
-  var typeCell =
-    '<div style="display:flex;flex-direction:column;gap:1px;">' +
-    '<div class="cbg ep-cbg"><span class="ep-grp-lbl">HVR</span>' + cbRow(hvrTypes) + '</div>' +
-    '<div class="cbg ep-cbg"><span class="ep-grp-lbl">AHR</span>' + cbRow(ahrTypes) + '</div>' +
-    '<div class="cbg ep-cbg"><span class="ep-grp-lbl ep-grp-other">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>' + cbRow(otherTypes) + '</div>' +
-    '</div>';
-  var therapyChecks = ['ATP','Shock','None'].map(function(t) {
-    return '<label class="cbl"><input type="checkbox" name="ep'+n+'-therapy" value="'+t+'"> '+t+'</label>';
-  }).join('');
-  var appRadios = ['Y','N','N/A'].map(function(t) {
-    return '<label class="cbl"><input type="radio" name="ep'+n+'-app" value="'+t+'"> '+t+'</label>';
-  }).join('');
-  tr.innerHTML =
-    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '</td>' +
-    '<td><input type="datetime-local" name="ep'+n+'-dt" style="width:138px"></td>' +
-    '<td>' + typeCell + '</td>' +
-    '<td><input type="text" name="ep'+n+'-dur" placeholder="hh:mm:ss" style="width:72px"></td>' +
-    '<td><input type="number" name="ep'+n+'-rate" placeholder="bpm" style="width:52px"></td>' +
-    '<td><div class="cbg" style="flex-direction:column;gap:2px;">' + therapyChecks + '</div></td>' +
-    '<td><div class="cbg" style="flex-direction:column;gap:2px;">' + appRadios + '</div></td>' +
-    '<td><textarea name="ep'+n+'-notes" rows="1" style="width:100%;min-height:24px;resize:none;font-size:9.5px;padding:2px 4px;overflow:hidden;" oninput="autoGrow(this)"></textarea></td>' +
-    '<td><button class="del-btn" onclick="delRow(\'ep-'+n+'\')">×</button></td>';
-  document.getElementById('ep-tbody').appendChild(tr);
-  scheduleSave();
-}
-addEpRow(); addEpRow(); addEpRow();
-
-// ── REPROG ROWS ──
-var rpN = 0;
-function addRpRow() {
-  rpN++;
-  var n = rpN;
-  var tr = document.createElement('tr');
-  tr.id = 'rp-' + n;
-  tr.innerHTML =
-    '<td><input type="text" name="rp' + n + '-param" placeholder="e.g. LRL, Mode, Amplitude"></td>' +
-    '<td><input type="text" name="rp' + n + '-prev" placeholder="Old value"></td>' +
-    '<td><input type="text" name="rp' + n + '-new" placeholder="New value"></td>' +
-    '<td><input type="text" name="rp' + n + '-reason" placeholder="Clinical rationale"></td>' +
-    '<td><button class="del-btn" onclick="delRow(\'rp-' + n + '\')">×</button></td>';
-  document.getElementById('rp-tbody').appendChild(tr);
-  scheduleSave();
-}
-addRpRow(); addRpRow(); addRpRow();
-
-function delRow(id) {
-  var el = document.getElementById(id);
-  if (el) el.remove();
-  scheduleSave();
-}
-
-// ── OBSERVATIONS TOGGLE ──
-function updateObservations() {
-  var yes = document.querySelector('input[name="obs-yn"][value="Yes"]');
-  var wrap = document.getElementById('obs-text-wrap');
-  if (wrap) wrap.style.display = (yes && yes.checked) ? '' : 'none';
-}
-
-// ── REPROG TABLE TOGGLE ──
-function updateReprogTable() {
-  var yes = document.querySelector('input[name="rp-chg"][value="Yes"]');
-  var wrap = document.getElementById('rp-table-wrap');
-  if (wrap) wrap.style.display = (yes && yes.checked) ? '' : 'none';
-}
-
-// ── PACING % VISIBILITY ──
-function updatePacingPct() {
-  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
-  var has2C  = vals.some(function(v){ return ['PPM-DC','ICD-DC','CRT-P','CRT-D'].indexOf(v)>-1; });
-  // Aveir with RA chamber selected also needs A Paced %
-  if (vals.indexOf('Aveir') > -1) {
-    var aChams = Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; });
-    if (aChams.indexOf('RA') > -1) has2C = true;
-  }
-  var hasCRT = vals.some(function(v){ return v==='CRT-P'||v==='CRT-D'; });
-  var hasV   = vals.some(function(v){ return v!=='S-ICD'; }) && vals.length>0;
-  document.getElementById('pct-a-wrap').style.display   = has2C  ? '' : 'none';
-  document.getElementById('pct-v-wrap').style.display   = hasV   ? '' : 'none';
-  document.getElementById('pct-lv-wrap').style.display  = hasCRT ? '' : 'none';
-  document.getElementById('pct-biv-wrap').style.display = hasCRT ? '' : 'none';
-  var lbl = document.getElementById('pct-v-lbl');
-  if (lbl) lbl.textContent = hasCRT ? 'RV Paced %' : 'V Paced %';
-  var note = document.getElementById('pct-note');
-  if (note) {
-    if (!vals.length) note.textContent = '— select device type above';
-    else if (hasCRT) note.textContent = 'A / RV / LV / BiV';
-    else if (has2C)  note.textContent = 'A / V';
-    else             note.textContent = 'V';
-  }
-}
-
-// ── CONDITIONALS ──
-function updateConditionals() {
-  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
-  var hasAveir = vals.indexOf('Aveir') > -1;
-  var aDiv = document.getElementById('aveir-chambers');
-  if (aDiv) aDiv.style.display = hasAveir ? '' : 'none';
-  if (!hasAveir) {
-    document.querySelectorAll('input[name="aveir-chamber"]').forEach(function(el){ el.checked = false; });
-  }
-  rebuildLeads();
-  updatePacingPct();
-  updateLeadInfoTable();
-  var hasICD = vals.some(function(v){ return ['ICD-SC','ICD-DC','CRT-D','S-ICD'].indexOf(v)>-1; });
-  var ccRow = document.getElementById('bat-cc-row');
-  if (ccRow) ccRow.style.display = hasICD ? '' : 'none';
-}
-
-// ── LEAD INFO TABLE ──
-var LEAD_INFO_LOCS = {
-  'PPM-SC':   ['RV'],
-  'PPM-DC':   ['RA','RV'],
-  'CRT-P':    ['RA','RV','LV'],
-  'ICD-SC':   ['RV'],
-  'ICD-DC':   ['RA','RV'],
-  'CRT-D':    ['RA','RV','LV'],
-  'S-ICD':    ['Subcutaneous'],
-  'Leadless': ['RV (Leadless)'],
-  'Aveir':    ['RA (Aveir)','RV (Aveir)']
-};
-function updateLeadInfoTable() {
-  var yn = document.querySelector('input[name="leadinfo-yn"]:checked');
-  var wrap = document.getElementById('leadinfo-wrap');
-  if (!wrap) return;
-  if (!yn || yn.value !== 'Yes') { wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
-  var dtypes = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
-  var locs = [];
-  dtypes.forEach(function(d) {
-    if (LEAD_INFO_LOCS[d]) LEAD_INFO_LOCS[d].forEach(function(l){ if (locs.indexOf(l)===-1) locs.push(l); });
-  });
-  if (!locs.length) locs = ['Lead 1'];
-  var tb = document.getElementById('leadinfo-tbody');
-  var existing = {};
-  tb.querySelectorAll('tr').forEach(function(tr) {
-    var loc = tr.getAttribute('data-loc');
-    if (loc) existing[loc] = {
-      model:  (tr.querySelector('.li-model') ||{value:''}).value,
-      serial: (tr.querySelector('.li-serial')||{value:''}).value,
-      date:   (tr.querySelector('.li-date')  ||{value:''}).value
-    };
-  });
-  tb.innerHTML = '';
-  locs.forEach(function(loc) {
-    var p = existing[loc] || {};
-    var tr = document.createElement('tr');
-    tr.setAttribute('data-loc', loc);
-    tr.innerHTML =
-      '<td style="font-weight:600;font-size:10px;">'+loc+'</td>'
-      +'<td><input type="text" class="li-model" value="'+(p.model||'')+'" placeholder="Model"></td>'
-      +'<td><input type="text" class="li-serial" value="'+(p.serial||'')+'" placeholder="Serial #"></td>'
-      +'<td><input type="date" class="li-date" value="'+(p.date||'')+'" ></td>';
-    tb.appendChild(tr);
-  });
-}
-
-// ── SIDEBAR NAV ──
-function navTo(id) {
-  var el = document.getElementById(id);
-  if (!el) return false;
-  var top = el.getBoundingClientRect().top + window.pageYOffset - 56;
-  window.scrollTo({ top: top, behavior: 'smooth' });
-  return false;
-}
-
-var sectionIds = ['s-patient','s-battery','s-params','s-leads','s-episodes','s-remote','s-reprog','s-ap'];
-var io = new IntersectionObserver(function(entries) {
-  entries.forEach(function(e) {
-    if (e.isIntersecting) {
-      var id = 'nav-' + e.target.id.replace('s-','');
-      document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
-      var active = document.getElementById(id);
-      if (active) active.classList.add('active');
-    }
-  });
-}, { rootMargin: '-15% 0px -75% 0px' });
-sectionIds.forEach(function(id) { var el = document.getElementById(id); if (el) io.observe(el); });
-
-// ── AUTO-SAVE ──
-
-function scheduleSave() {
-  clearTimeout(saveTimer);
-  ss.textContent = 'Unsaved changes…';
-  ss.className = 'save-status dirty';
-  saveTimer = setTimeout(doSave, 900);
-}
-
-function doSave() {
-  var d = { __ep: epN, __rp: rpN };
-  document.querySelectorAll('input, select, textarea').forEach(function(el) {
-    if (el.type === 'radio') { if (el.checked) d['r:' + el.name] = el.value; }
-    else if (el.type === 'checkbox') {
-      var key = el.id ? 'c:' + el.id : 'cx:' + el.name + ':' + el.value;
-      d[key] = el.checked;
-    } else {
-      var key = el.id ? el.id : 'n:' + el.name;
-      d[key] = el.value;
-    }
-  });
-  try {
-    localStorage.setItem('crm-digital', JSON.stringify(d));
-    var t = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    ss.textContent = 'Saved ' + t;
-    ss.className = 'save-status saved';
-  } catch(e) {
-    ss.textContent = 'Save failed';
-    ss.className = 'save-status';
-  }
-}
-
-function loadSaved() {
-  var raw = localStorage.getItem('crm-digital');
-  if (!raw) return;
-  var d;
-  try { d = JSON.parse(raw); } catch(e) { return; }
-
-  // rebuild dynamic rows first
-  var ep = Math.max(d.__ep || 3, 0);
-  var rp = Math.max(d.__rp || 3, 0);
-  document.getElementById('ep-tbody').innerHTML = '';
-  document.getElementById('rp-tbody').innerHTML = '';
-  epN = 0; rpN = 0;
-  for (var i = 0; i < ep; i++) addEpRow();
-  for (var i = 0; i < rp; i++) addRpRow();
-
-  // restore dtype radio first so leads can be rebuilt correctly
-  if (d['r:dtype']) {
-    document.querySelectorAll('input[name="dtype"][value="'+d['r:dtype']+'"]').forEach(function(el){ el.checked = true; });
-  }
-  // also handle legacy cx: keys from old checkbox saves
-  Object.keys(d).forEach(function(key) {
-    if (!key.startsWith('cx:')) return;
-    var parts = key.slice(3).split(':');
-    if (parts[0] !== 'dtype') return;
-    document.querySelectorAll('input[name="dtype"][value="'+parts[1]+'"]').forEach(function(el){ el.checked = d[key]; });
-  });
-  updateConditionals(); // rebuilds leads & pacing % with correct device types
-
-  function applyValues(d) {
-    Object.keys(d).forEach(function(key) {
-      if (key === '__ep' || key === '__rp') return;
-      var val = d[key];
-      if (key.startsWith('r:')) {
-        document.querySelectorAll('input[name="' + key.slice(2) + '"]').forEach(function(el) {
-          if (el.value === val) el.checked = true;
-        });
-      } else if (key.startsWith('c:')) {
-        var el = document.getElementById(key.slice(2));
-        if (el) el.checked = val;
-      } else if (key.startsWith('cx:')) {
-        var parts = key.slice(3).split(':');
-        document.querySelectorAll('input[name="'+parts[0]+'"][value="'+parts[1]+'"]').forEach(function(el){ el.checked = val; });
-      } else if (key.startsWith('n:')) {
-        var el = document.querySelector('[name="' + key.slice(2) + '"]:not([type=radio]):not([type=checkbox])');
-        if (el) el.value = val;
-      } else {
-        var el = document.getElementById(key);
-        if (el && el.type !== 'radio' && el.type !== 'checkbox') el.value = val;
-      }
-    });
-  }
-
-  applyValues(d); // first pass: everything except dynamic lead inputs (not yet in DOM)
-  updateConditionals(); // leads now in DOM with correct types
-  applyValues(d); // second pass: picks up newly created lead inputs
-
-  ss.textContent = 'Form restored';
-  ss.className = 'save-status saved';
-}
-
-function clearForm() {
-  if (!confirm('Clear all data and start a new patient record?\n\nThis cannot be undone.')) return;
-  localStorage.removeItem('crm-digital');
-  location.reload();
-}
-
-// ── EXPORT ──
-function copyToClipboard() {
-  var lines = buildSummaryLines();
-  var text = lines.join('\n');
-  navigator.clipboard.writeText(text).then(function() {
-    var btn = document.querySelector('.btn-ghost[onclick="copyToClipboard()"]');
-    if (btn) { var orig = btn.innerHTML; btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Copied!'; setTimeout(function(){ btn.innerHTML = orig; }, 2000); }
-  }).catch(function() {
-    alert('Copy failed — please use Export .txt instead.');
-  });
-}
-
-function exportPDF() {
-  function v(id) { var e = document.getElementById(id); return e ? (e.value || '') : ''; }
-  function r(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
-  function fmtDT(val) {
-    if (!val) return '—';
-    try {
-      var d = new Date(val);
-      return d.toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-    } catch(e) { return val; }
-  }
-  // pf(label, val) — only renders a field div if val is non-empty
-  function pf(label, val) {
-    if (!val || !val.trim()) return '';
-    return '<div class="f"><span class="lbl">'+label+'</span><span class="val">'+val+'</span></div>';
-  }
-  // psec(title, content) — only renders section if content is non-empty
-  function psec(title, content) {
-    var c = (content||'').trim();
-    if (!c) return '';
-    return '<h2>'+title+'</h2>'+c;
-  }
-
-  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ');
-  var lonUnit = (document.querySelector('[name="bat-lon-unit"]')||{value:'years'}).value;
-  var lonVal  = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
-
-  // Build lead rows HTML
-  var leadRows = '';
-  document.querySelectorAll('#leads-tbody tr').forEach(function(tr) {
-    var cells = tr.querySelectorAll('td');
-    if (!cells.length) return;
-    var label = cells[0] ? (cells[0].querySelector('strong') ? cells[0].querySelector('strong').innerText.trim() : cells[0].innerText.split('\n')[0].trim()) : '';
-    var imp  = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
-    var sens = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
-    var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
-    var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
-    if (!imp && !sens && !thr && !pw) return;
-    leadRows += '<tr><td>'+label+'</td><td>'+(imp||'')+'</td><td>'+(sens||'')+'</td><td>'+(thr||'')+'</td><td>'+(pw||'')+'</td></tr>';
-  });
-
-  // Build episode rows HTML
-  var epRows = '';
-  document.querySelectorAll('#ep-tbody tr').forEach(function(tr) {
-    var cells = tr.querySelectorAll('td');
-    if (!cells.length) return;
-    var num   = cells[0] ? cells[0].innerText.trim() : '';
-    var dt    = cells[1] ? fmtDT((cells[1].querySelector('input')||{value:''}).value) : '';
-    var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
-    var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
-    var rate  = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
-    var ther  = cells[5] ? Array.from(cells[5].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join('+') : '';
-    var app   = cells[6] ? (function(){ var c=cells[6].querySelector('input:checked'); return c?c.value:''; })() : '';
-    var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
-    if (!dt && !types && !dur) return;
-    epRows += '<tr><td>'+num+'</td><td>'+(dt||'')+'</td><td>'+(types||'')+'</td><td>'+(dur||'')+'</td><td>'+(rate||'')+'</td><td>'+(ther||'')+'</td><td>'+(app||'')+'</td><td style="white-space:pre-wrap">'+(notes||'')+'</td></tr>';
-  });
-
-  // Build reprog rows HTML
-  var rpRows = '';
-  var rpChg = r('rp-chg');
-  if (rpChg === 'Yes') {
-    document.querySelectorAll('#rp-tbody tr').forEach(function(tr) {
-      var cells = tr.querySelectorAll('td');
-      if (!cells.length) return;
-      var param  = cells[0] ? (cells[0].querySelector('input')||{value:''}).value : '';
-      var prev   = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
-      var nval   = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
-      var reason = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
-      if (!param) return;
-      rpRows += '<tr><td>'+param+'</td><td>'+prev+'</td><td>'+nval+'</td><td>'+reason+'</td></tr>';
-    });
-  }
-
-  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-    + '<title>CRM Record \u2014 ' + (v('pt-name')||'Unknown') + '</title>'
-    + '<style>'
-    + 'body{font-family:system-ui,sans-serif;font-size:11px;color:#111;margin:0;padding:24px 32px;}'
-    + 'h1{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:6px;margin-bottom:14px;}'
-    + 'h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#1e3a5f;color:#fff;padding:3px 8px;margin:12px 0 6px;}'
-    + '.row{display:flex;flex-wrap:wrap;gap:4px 20px;margin-bottom:5px;}'
-    + '.f{display:flex;flex-direction:column;gap:1px;min-width:100px;}'
-    + '.lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#1e3a5f;}'
-    + '.val{font-size:11px;border-bottom:1px solid #c8d8e8;min-width:80px;padding-bottom:1px;}'
-    + 'table{width:100%;border-collapse:collapse;font-size:9.5px;border:1px solid #b8ccdf;margin-bottom:8px;}'
-    + 'th{background:#e6eef6;color:#1e3a5f;text-align:left;font-size:8px;font-weight:700;text-transform:uppercase;padding:3px 5px;border-bottom:1px solid #b8ccdf;border-right:1px solid #b8ccdf;}'
-    + 'th:last-child{border-right:none;}'
-    + 'td{padding:3px 5px;border-bottom:1px solid #e0e8f0;border-right:1px solid #edf1f6;vertical-align:top;}'
-    + 'td:last-child{border-right:none;}'
-    + 'tr:last-child td{border-bottom:none;}'
-    + '.gen{font-size:8.5px;color:#888;margin-bottom:10px;}'
-    + '@media print{@page{size:letter;margin:.45in .5in;}body{padding:0;}}'
-    + '</style></head><body>'
-    + '<h1>Cardiac CRM Interrogation &amp; Reprogramming Record</h1>'
-    + '<div class="gen">Generated: ' + new Date().toLocaleString() + '</div>'
-
-    + psec('Patient &amp; Device',
-        '<div class="row">'
-        + pf('Patient Name', v('pt-name'))
-        + pf('DOB', v('pt-dob'))
-        + pf('MRN', v('pt-mrn'))
-        + pf('Date', v('pt-date'))
-        + '</div>'
-        + '<div class="row">'
-        + pf('Device Type', dtype)
-        + pf('Manufacturer', r('mfr'))
-        + pf('Model', v('dev-model'))
-        + pf('Serial #', v('dev-serial'))
-        + pf('Implant Date', v('dev-implant'))
-        + pf('Provider', v('pt-provider'))
-        + '</div>'
-      )
-
-    + (function(){
-        var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
-        if (!liYN || liYN.value !== 'Yes') return '';
-        var liRows = '';
-        document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
-          var loc    = tr.getAttribute('data-loc') || '';
-          var model  = (tr.querySelector('.li-model') ||{value:''}).value;
-          var serial = (tr.querySelector('.li-serial')||{value:''}).value;
-          var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
-          liRows += '<tr><td>'+loc+'</td><td>'+model+'</td><td>'+serial+'</td><td>'+date+'</td></tr>';
-        });
-        var liNotes = v('leadinfo-notes');
-        return '<h2>Lead Information</h2>'
-          + '<table><thead><tr><th>Location</th><th>Lead Model</th><th>Lead Serial #</th><th>Implant Date</th></tr></thead><tbody>'
-          + liRows + '</tbody></table>'
-          + (liNotes ? '<p style="font-size:10px;margin:4px 0"><strong>Notes:</strong> '+liNotes+'</p>' : '');
-      })()
-
-    + psec('Battery / Device Status',
-        '<div class="row">'
-        + pf('Longevity', lonVal ? lonVal+' '+lonUnit : '')
-        + pf('Battery Status', r('bat-status'))
-        + pf('Device Function', v('ap-devfx'))
-        + pf('Pacing Dependency', v('ap-dep'))
-        + pf('Intrinsic Rhythm', v('ap-rhythm'))
-        + pf('A Paced %', document.getElementById('pct-a') ? document.getElementById('pct-a').value : '')
-        + pf('V Paced %', document.getElementById('pct-v') ? document.getElementById('pct-v').value : '')
-        + pf('LV Paced %', document.getElementById('pct-lv') ? document.getElementById('pct-lv').value : '')
-        + pf('BiV Paced %', document.getElementById('pct-biv') ? document.getElementById('pct-biv').value : '')
-        + '</div>'
-      )
-
-    + psec('Programmed Parameters',
-        '<div class="row">'
-        + pf('Mode', v('p-mode'))
-        + pf('LRL (bpm)', v('p-lrl'))
-        + pf('UTR (bpm)', v('p-utr'))
-        + pf('USR (bpm)', v('p-usr'))
-        + pf('Sensed AV (ms)', v('p-sav'))
-        + pf('Paced AV (ms)', v('p-pav'))
-        + pf('Mode Switch', v('p-ms'))
-        + pf('MS Rate (bpm)', v('p-msrate'))
-        + '</div>'
-      )
-
-    + (leadRows ? '<h2>Lead / Electrode Measurements</h2>'
-        + '<table><thead><tr><th>Lead</th><th>Impedance (\u03a9)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th></tr></thead><tbody>'
-        + leadRows + '</tbody></table>' : '')
-
-    + '<h2>Stored Episodes</h2>'
-    + '<div class="row" style="margin-bottom:8px;">'
-    + pf('Total', v('ep-total'))
-    + '<div class="f"><span class="lbl">AF Burden (%)</span><span class="val">'+(v('ep-af-burden')||'&nbsp;')+'</span></div>'
-    + pf('AHR', v('ep-ahr'))
-    + pf('HVR', v('ep-hvr'))
-    + pf('PMT', v('ep-pmt'))
-    + '</div>'
-    + (epRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Therapy</th><th>Approp.</th><th>Notes</th></tr></thead><tbody>'+epRows+'</tbody></table>' : '')
-
-    + psec('Reprogramming / Observations',
-        (rpChg === 'Yes' && rpRows ? '<table><thead><tr><th>Parameter</th><th>Previous</th><th>New Value</th><th>Reason</th></tr></thead><tbody>'+rpRows+'</tbody></table>' : (rpChg === 'No' ? '<p style="font-size:10px;color:#555;margin:4px 0">No changes made this visit.</p>' : ''))
-        + (r('obs-yn') ? '<div class="row" style="margin-top:6px;"><div class="f"><span class="lbl">Observations</span><span class="val">'+r('obs-yn')+'</span></div></div>' : '')
-        + (r('obs-yn')==='Yes' && v('obs-text') ? '<div class="row"><div class="f" style="min-width:400px"><span class="lbl">Notes</span><span class="val" style="white-space:pre-wrap">'+v('obs-text')+'</span></div></div>' : '')
-      )
-
-    + psec('Remote Monitoring',
-        '<div class="row">'
-        + pf('Enrolled', v('rm-enrolled'))
-        + pf('Compliant', v('rm-comply'))
-        + pf('Last Transmission', v('rm-last'))
-        + pf('Active Alerts', v('rm-active'))
-        + '</div>'
-      )
-
-    + psec('Device Technician',
-        '<div class="row">'
-        + pf('Name', v('sig-name'))
-        + pf('Date Completed', v('sig-date'))
-        + '</div>'
-      )
-
-    + '<script>window.onload=function(){window.print();}<\/script>'
-    + '</body></html>';
-
-  var blob = new Blob([html], {type: 'text/html'});
-  var url  = URL.createObjectURL(blob);
-  var win  = window.open(url, '_blank');
-  if (!win) {
-    // Fallback for WebViews that block window.open
-    var a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.click();
-  }
-}
-
-function exportSummary() {
-  var lines = buildSummaryLines();
-  var blob = new Blob([lines.join('\n')], {type:'text/plain'});
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  var ptName = (document.getElementById('pt-name')||{value:''}).value.replace(/[^a-zA-Z]/g,'_') || 'Record';
-  a.download = 'CRM_' + ptName + '_' + new Date().toISOString().slice(0,10) + '.txt';
-  a.click();
-}
-
-function buildSummaryLines() {
-  function val(id) { var e = document.getElementById(id); return e ? (e.value || '').trim() : ''; }
-  function radio(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
-  function lonUnit() { var e = document.querySelector('[name="bat-lon-unit"]'); return e ? e.value : 'years'; }
-
-  var lines = [];
-
-  // add(label, value) — only pushes if value is non-empty
-  // trimEnd() strips alignment padding so output reads cleanly in proportional fonts (Cerner/Arial)
-  function add(label, value) {
-    if (value && value.trim()) lines.push('  ' + label.trimEnd() + ' ' + value);
-  }
-  // secStart / secEnd — removes header if section ends up empty
-  function secStart(title) { lines.push(title); return lines.length; }
-  function secEnd(pos) {
-    if (lines.length === pos) lines.pop();
-    else lines.push('');
-  }
-
-  // DEVICE
-  var sPos = secStart('DEVICE');
-  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ');
-  add('Type:         ', dtype);
-  add('Manufacturer: ', radio('mfr'));
-  add('Model:        ', val('dev-model'));
-  add('Serial:       ', val('dev-serial'));
-  add('Implant Date: ', val('dev-implant'));
-  add('Provider:     ', val('pt-provider'));
-  secEnd(sPos);
-
-  // LEAD INFORMATION (only if Yes)
-  var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
-  if (liYN && liYN.value === 'Yes') {
-    lines.push('LEAD INFORMATION');
-    document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
-      var loc    = tr.getAttribute('data-loc') || '';
-      var model  = (tr.querySelector('.li-model') ||{value:''}).value;
-      var serial = (tr.querySelector('.li-serial')||{value:''}).value;
-      var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
-      var parts  = [loc];
-      if (model)  parts.push('Model: ' + model);
-      if (serial) parts.push('Serial: ' + serial);
-      if (date)   parts.push('Implant: ' + date);
-      lines.push('  ' + parts.join('  |  '));
-    });
-    var liNotes = val('leadinfo-notes');
-    if (liNotes) lines.push('  Notes: ' + liNotes);
-    lines.push('');
-  }
-
-  // BATTERY / DEVICE STATUS
-  sPos = secStart('BATTERY / DEVICE STATUS');
-  var lonCur = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
-  add('Longevity:         ', lonCur ? lonCur + ' ' + lonUnit() : '');
-  add('Battery Status:    ', radio('bat-status'));
-  add('Device Function:   ', val('ap-devfx'));
-  add('Pacing Dependency: ', val('ap-dep'));
-  add('Intrinsic Rhythm:  ', val('ap-rhythm'));
-  var pctA = document.getElementById('pct-a') ? document.getElementById('pct-a').value : '';
-  var pctV = document.getElementById('pct-v') ? document.getElementById('pct-v').value : '';
-  add('A Paced %:         ', pctA);
-  add('V Paced %:         ', pctV);
-  var pctLV  = document.getElementById('pct-lv')  ? document.getElementById('pct-lv').value  : '';
-  var pctBiV = document.getElementById('pct-biv') ? document.getElementById('pct-biv').value : '';
-  add('LV Paced %:        ', pctLV);
-  add('BiV Paced %:       ', pctBiV);
-  secEnd(sPos);
-
-  // LEAD / ELECTRODE MEASUREMENTS
-  var leadLines = [];
-  document.querySelectorAll('#leads-tbody tr').forEach(function(tr) {
-    var cells = tr.querySelectorAll('td');
-    if (!cells.length || cells.length < 5) return;
-    var label = cells[0] ? (cells[0].querySelector('strong') ? cells[0].querySelector('strong').innerText.trim() : cells[0].innerText.split('\n')[0].trim()) : '';
-    var imp  = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
-    var sens = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
-    var thr  = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
-    var pw   = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
-    if (!label) return;
-    if (!imp && !sens && !thr && !pw) return;
-    var parts = [label];
-    if (imp)  parts.push('Imp: ' + imp + ' \u03a9');
-    if (sens) parts.push('Sens: ' + sens + ' mV');
-    if (thr)  parts.push('Thr: ' + thr + ' V');
-    if (pw)   parts.push('PW: ' + pw + ' ms');
-    leadLines.push('  ' + parts.join('  |  '));
-  });
-  if (leadLines.length) {
-    lines.push('LEAD / ELECTRODE MEASUREMENTS');
-    leadLines.forEach(function(l){ lines.push(l); });
-    lines.push('');
-  }
-
-  // STORED EPISODES
-  lines.push('STORED EPISODES');
-  var epTotal    = val('ep-total');
-  var epAFBurden = val('ep-af-burden');
-  var epAHR      = val('ep-ahr');
-  var epHVR      = val('ep-hvr');
-  var epPMT      = val('ep-pmt');
-  var epSum = [];
-  if (epTotal)  epSum.push('Total: ' + epTotal);
-  epSum.push('AF Burden: ' + (epAFBurden || '\u2014') + '%'); // always included
-  if (epAHR)    epSum.push('AHR: ' + epAHR);
-  if (epHVR)    epSum.push('HVR: ' + epHVR);
-  if (epPMT)    epSum.push('PMT: ' + epPMT);
-  lines.push('  ' + epSum.join('    '));
-  lines.push('');
-
-  // Episode rows
-  var hasEpData = false;
-  document.querySelectorAll('#ep-tbody tr').forEach(function(tr) {
-    var cells = tr.querySelectorAll('td');
-    if (!cells.length) return;
-    var num   = cells[0] ? cells[0].innerText.trim() : '';
-    var dtRaw = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
-    var dt    = dtRaw ? (function(){ try { return new Date(dtRaw).toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){ return dtRaw; } })() : '';
-    var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
-    var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
-    var rate  = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
-    var ther  = cells[5] ? Array.from(cells[5].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join('+') : '';
-    var app   = cells[6] ? (function(){ var c=cells[6].querySelector('input:checked'); return c?c.value:''; })() : '';
-    var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
-    if (!dt && !types && !dur) return;
-    hasEpData = true;
-    var ep = ['  [' + num + '] ' + (dt||'\u2014')];
-    if (types) ep.push('Type: ' + types);
-    if (dur)   ep.push('Dur: ' + dur);
-    if (rate)  ep.push('Rate: ' + rate + ' bpm');
-    if (ther)  ep.push('Therapy: ' + ther);
-    if (app)   ep.push('Approp: ' + app);
-    lines.push(ep.join('  |  '));
-    if (notes) lines.push('       Notes: ' + notes);
-  });
-  if (!hasEpData) lines.push('  No episodes recorded.');
-  lines.push('');
-
-  // REPROGRAMMING / OBSERVATIONS
-  var obsYN    = radio('obs-yn');
-  var obsText  = val('obs-text');
-  var rpChgTxt = radio('rp-chg');
-  sPos = secStart('REPROGRAMMING / OBSERVATIONS');
-  add('Changes this visit: ', rpChgTxt);
-  if (rpChgTxt === 'Yes') {
-    document.querySelectorAll('#rp-tbody tr').forEach(function(tr) {
-      var cells = tr.querySelectorAll('td');
-      if (!cells.length) return;
-      var param  = cells[0] ? (cells[0].querySelector('input')||{value:''}).value : '';
-      var prev   = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
-      var nval   = cells[2] ? (cells[2].querySelector('input')||{value:''}).value : '';
-      var reason = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
-      if (!param) return;
-      var rp = [param];
-      if (prev || nval) rp.push((prev||'\u2014') + ' \u2192 ' + (nval||'\u2014'));
-      if (reason) rp.push(reason);
-      lines.push('    ' + rp.join('  '));
-    });
-  }
-  add('Observations: ', obsYN);
-  if (obsYN === 'Yes' && obsText) lines.push('    ' + obsText);
-  secEnd(sPos);
-
-  // PROGRAMMED PARAMETERS
-  sPos = secStart('PROGRAMMED PARAMETERS');
-  add('Mode:         ', val('p-mode'));
-  add('LRL:          ', val('p-lrl') ? val('p-lrl') + ' bpm' : '');
-  add('UTR:          ', val('p-utr') ? val('p-utr') + ' bpm' : '');
-  add('USR:          ', val('p-usr') ? val('p-usr') + ' bpm' : '');
-  add('Sensed AV:    ', val('p-sav') ? val('p-sav') + ' ms' : '');
-  add('Paced AV:     ', val('p-pav') ? val('p-pav') + ' ms' : '');
-  add('Mode Switch:  ', val('p-ms'));
-  add('MS Rate:      ', val('p-msrate') ? val('p-msrate') + ' bpm' : '');
-  secEnd(sPos);
-
-  // REMOTE MONITORING
-  sPos = secStart('REMOTE MONITORING');
-  add('Enrolled:          ', val('rm-enrolled'));
-  add('Compliant:         ', val('rm-comply'));
-  add('Last Transmission: ', val('rm-last'));
-  add('Active Alerts:     ', val('rm-active'));
-  secEnd(sPos);
-
-  // DEVICE TECHNICIAN
-  sPos = secStart('DEVICE TECHNICIAN');
-  add('Name: ', val('sig-name'));
-  add('Date: ', val('sig-date'));
-  secEnd(sPos);
-
-  return lines;
-}
-
-// ── INIT ──
-updatePacingPct();
-document.addEventListener('input', scheduleSave);
-document.addEventListener('change', scheduleSave);
-loadSaved();
-</script>
 </body>
 </html>
