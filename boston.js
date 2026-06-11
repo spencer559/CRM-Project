@@ -246,23 +246,29 @@
       if (/Left Ventric|Coronary Sinus|\bLV\b/i.test(posStr)) return 'LV';
       return null;
     }
+    // Verbatim: capture EVERY lead row from the Patient Data "Leads" table exactly as printed —
+    // location, model, serial and implant date — with no chamber dedup or re-labeling, so the
+    // form's lead table mirrors the report (including quirks like two "Right Ventricle" rows or
+    // a mislabeled position). A row is real iff it carries the "Boston Scientific" manufacturer
+    // cell; "N/R" filler rows have none and are skipped.
     function mapLeadInventory() {
       LEADS = [];
       LINES.forEach(function (l) {
-        var mi = l.items.findIndex(function (it) { return /Boston Scientific/.test(it.str); });
+        // Manufacturer cell is EXACTLY "Boston Scientific". (The page footer says "Boston
+        // Scientific Corporation" — substring-matching that pulled the footer in as a lead.)
+        var mi = l.items.findIndex(function (it) { return /^Boston Scientific$/.test(it.str); });
         if (mi < 0) return;
-        var rest = l.items.slice(mi + 1);
-        // Position is the right-most cell of the lead row.
-        var pos = (l.items[l.items.length - 1] || {}).str || '';
-        var chamber = chamberOf(pos);
-        if (!chamber) return;
-        var model = (rest[0] || {}).str || '';
-        var serial = (rest[1] || {}).str || '';
-        var dcell = (l.items[0] || {}).str || '';                 // "Apr 2026" (month/yr only)
-        var iso = bToISO(dcell) || (RESULT['dev-implant'] && RESULT['dev-implant'].v) || '';
-        LEADS.push({ chamber: chamber, model: model, serial: serial, date: iso });
+        var rest = l.items.slice(mi + 1);                         // [model, serial, polarity, position]
+        if (!rest.length) return;                                 // need at least a model after it
+        var pos = (l.items[l.items.length - 1] || {}).str || '';  // right-most cell = Position
+        LEADS.push({
+          location: pos,                                          // raw, e.g. "Right Ventricle" / "LV Mid (lateral)"
+          model:    (rest[0] || {}).str || '',
+          serial:   (rest[1] || {}).str || '',
+          date:     (l.items[0] || {}).str || '',                 // raw, e.g. "Mar 2025" (verbatim)
+          chamber:  chamberOf(pos)                                // best-effort tag (not used by the table)
+        });
       });
-      var seen = {}; LEADS = LEADS.filter(function (x) { if (seen[x.chamber]) return false; seen[x.chamber] = 1; return true; });
     }
 
     /* ---------- observations (My Alerts) + changes ---------- */

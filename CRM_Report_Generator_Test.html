@@ -671,6 +671,33 @@ function updateConditionals() {
 }
 
 // ── LEAD INFO TABLE ──
+function liEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// One <td> set for a lead row. Location/Model/Serial/Implant-date are all free-text so scraped
+// values (e.g. "Right Ventricle", "Mar 2025") paste in verbatim.
+function liRowHTML(locVal, p){
+  p = p || {};
+  return '<td><input type="text" class="li-loc" value="'+liEsc(locVal)+'" placeholder="Location"></td>'
+    +'<td><input type="text" class="li-model" value="'+liEsc(p.model||'')+'" placeholder="Model"></td>'
+    +'<td><input type="text" class="li-serial" value="'+liEsc(p.serial||'')+'" placeholder="Serial #"></td>'
+    +'<td><input type="text" class="li-date" value="'+liEsc(p.date||'')+'" placeholder="Implant date"></td>';
+}
+// Replace the lead table with one row per scraped lead, verbatim. Used by the PDF importer so
+// the table reads exactly like the report (no chamber slotting; duplicates/typos preserved).
+function setLeadInfoRows(leads){
+  var yes = document.querySelector('input[name="leadinfo-yn"][value="Yes"]');
+  if (yes) yes.checked = true;
+  var wrap = document.getElementById('leadinfo-wrap'); if (wrap) wrap.style.display = '';
+  var tb = document.getElementById('leadinfo-tbody'); if (!tb) return;
+  var locMap = { Atrial:'RA', RA:'RA', RV:'RV', LV:'LV' };
+  tb.innerHTML = '';
+  (leads||[]).forEach(function(l, i){
+    var loc = l.location || l.pos || locMap[l.chamber] || l.chamber || ('Lead '+(i+1));
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-loc', (loc||'lead')+'#'+i);   // unique key per scraped row
+    tr.innerHTML = liRowHTML(loc, l);
+    tb.appendChild(tr);
+  });
+}
 var LEAD_INFO_LOCS = {
   'PPM-SC':   ['RV'],
   'PPM-DC':   ['RA','RV'],
@@ -697,8 +724,9 @@ function updateLeadInfoTable() {
   var tb = document.getElementById('leadinfo-tbody');
   var existing = {};
   tb.querySelectorAll('tr').forEach(function(tr) {
-    var loc = tr.getAttribute('data-loc');
-    if (loc) existing[loc] = {
+    var key = tr.getAttribute('data-loc');
+    if (key) existing[key] = {
+      loc:    (tr.querySelector('.li-loc')   ||{value:''}).value,
       model:  (tr.querySelector('.li-model') ||{value:''}).value,
       serial: (tr.querySelector('.li-serial')||{value:''}).value,
       date:   (tr.querySelector('.li-date')  ||{value:''}).value
@@ -707,13 +735,13 @@ function updateLeadInfoTable() {
   tb.innerHTML = '';
   locs.forEach(function(loc) {
     var p = existing[loc] || {};
+    // data-loc stays the canonical chamber key (stable across edits, used by prefill); the
+    // Location itself is an editable field so a scraped/verbatim location can replace the
+    // default label without breaking row identity.
+    var locVal = (p.loc != null && p.loc !== '') ? p.loc : loc;
     var tr = document.createElement('tr');
     tr.setAttribute('data-loc', loc);
-    tr.innerHTML =
-      '<td style="font-weight:600;font-size:10px;">'+loc+'</td>'
-      +'<td><input type="text" class="li-model" value="'+(p.model||'')+'" placeholder="Model"></td>'
-      +'<td><input type="text" class="li-serial" value="'+(p.serial||'')+'" placeholder="Serial #"></td>'
-      +'<td><input type="date" class="li-date" value="'+(p.date||'')+'" ></td>';
+    tr.innerHTML = liRowHTML(locVal, p);
     tb.appendChild(tr);
   });
 }
@@ -967,7 +995,7 @@ function exportPDF() {
         if (!liYN || liYN.value !== 'Yes') return '';
         var liRows = '';
         document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
-          var loc    = tr.getAttribute('data-loc') || '';
+          var loc    = (tr.querySelector('.li-loc')||{value:''}).value || tr.getAttribute('data-loc') || '';
           var model  = (tr.querySelector('.li-model') ||{value:''}).value;
           var serial = (tr.querySelector('.li-serial')||{value:''}).value;
           var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
@@ -1103,7 +1131,7 @@ function buildSummaryLines() {
   if (liYN && liYN.value === 'Yes') {
     lines.push('LEAD INFORMATION');
     document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
-      var loc    = tr.getAttribute('data-loc') || '';
+      var loc    = (tr.querySelector('.li-loc')||{value:''}).value || tr.getAttribute('data-loc') || '';
       var model  = (tr.querySelector('.li-model') ||{value:''}).value;
       var serial = (tr.querySelector('.li-serial')||{value:''}).value;
       var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
@@ -1345,20 +1373,10 @@ loadSaved();
     if (typeof updateReprogTable  === 'function') updateReprogTable();
     if (typeof updateDynamicAV    === 'function') updateDynamicAV();
 
-    // 4) lead inventory table (chamber → form Lead Location)
-    if (LEADS && LEADS.length){
-      var yes = document.querySelector('input[name="leadinfo-yn"][value="Yes"]');
-      if (yes){ yes.checked = true; if (typeof updateLeadInfoTable==='function') updateLeadInfoTable(); }
-      var locMap = { Atrial:'RA', RA:'RA', RV:'RV', LV:'LV' };
-      LEADS.forEach(function(l){
-        var loc = locMap[l.chamber] || l.chamber;
-        var tr = document.querySelector('#leadinfo-tbody tr[data-loc="'+loc+'"]');
-        if (!tr) return;
-        var m=tr.querySelector('.li-model'), s=tr.querySelector('.li-serial'), dt=tr.querySelector('.li-date');
-        if (m && l.model)  m.value  = l.model;
-        if (s && l.serial) s.value  = l.serial;
-        if (dt && l.date)  dt.value = l.date;   // already ISO yyyy-mm-dd
-      });
+    // 4) lead inventory table — one row per scraped lead, verbatim (location/model/serial/
+    //    implant date exactly as in the report; no chamber slotting, duplicates preserved).
+    if (LEADS && LEADS.length && typeof setLeadInfoRows === 'function'){
+      setLeadInfoRows(LEADS);
     }
 
     if (typeof updatePacingPct === 'function') updatePacingPct();

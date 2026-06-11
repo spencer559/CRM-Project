@@ -145,23 +145,28 @@
       RESULT['sig-date'] = { label: 'Date Completed', field: 'sig-date', v: RESULT['pt-date'].v, src: 'visit date', status: RESULT['pt-date'].v ? 'auto' : 'empty', note: '' };
     }
 
-    /* ---------- lead inventory (dual/single transvenous) ---------- */
+    /* ---------- lead inventory (verbatim) ----------
+       The "Device Information" rows (Session Summary + Parameters pages) list each lead as
+       <chamber> | Medtronic | <model> | <serial> | Implanted: | <date>. Capture them exactly
+       as printed: location = the chamber label as shown ("Atrial" / "RV" / "CS"), with model,
+       serial and implant date verbatim. These rows REPEAT across report sections, so de-dup by
+       SERIAL (a physical lead) rather than by chamber — that collapses page-to-page repeats
+       while still keeping two distinct leads that happen to share a chamber. */
     function mapLeadInventory() {
       LEADS = [];
+      var seen = {};
       LINES.forEach(function (l) {
         var c = l.items[0]; if (!c) return;
-        // Device-info rows label the defib lead "RV/SVC" (one lead, RV pace/sense + RV & SVC
-        // shock coils). The old /^RV$/ match skipped it, so the RV lead never imported.
-        // Normalize Atrial/RV/SVC, RV/LV variants to the chamber the lead-info table expects.
-        var chamber = /^Atrial$/.test(c.str) ? 'Atrial'
-          : /^RV(\/SVC)?$/.test(c.str) ? 'RV'
-          : /^(LV|CS)$/.test(c.str) ? 'LV' : null;  // CS = coronary sinus = the LV lead
-        if (!chamber) return;
-        var mi = l.items.findIndex(function (i) { return /Medtronic/.test(i.str); }); if (mi < 0) return;
-        LEADS.push({ chamber: chamber, model: (l.items[mi + 1] || {}).str || '', serial: (l.items[mi + 2] || {}).str || '', date: toISO((l.items[l.items.length - 1] || {}).str || '') });
+        if (!/^(Atrial|RV(\/SVC)?|LV|CS)$/.test(c.str)) return;            // a lead row, not "Device"
+        var mi = l.items.findIndex(function (i) { return /^Medtronic$/.test(i.str); }); if (mi < 0) return;
+        var model = (l.items[mi + 1] || {}).str || '';
+        var serial = (l.items[mi + 2] || {}).str || '';
+        var date = (l.items[l.items.length - 1] || {}).str || '';          // raw, e.g. "Aug/08/2005"
+        if (serial && seen[serial]) return;                                 // collapse repeated rows
+        if (serial) seen[serial] = 1;
+        LEADS.push({ location: c.str, model: model, serial: serial, date: date,
+          chamber: /^Atrial$/.test(c.str) ? 'Atrial' : /^RV/.test(c.str) ? 'RV' : 'LV' });
       });
-      // de-dup by chamber (device-info rows repeat on summary + parameters pages)
-      var seen = {}; LEADS = LEADS.filter(function (x) { if (seen[x.chamber]) return false; seen[x.chamber] = 1; return true; });
     }
 
     function flagMode() {
