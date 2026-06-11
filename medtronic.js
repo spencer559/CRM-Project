@@ -59,6 +59,48 @@
       RESULT[field] = { label: label, field: field, v: (val == null ? '' : String(val)), src: src || '', status: val ? (status || 'auto') : 'empty', note: note || '' };
     }
 
+    /* ---------- generator implant date resolver ----------
+       The report carries the generator (device) implant date in several places, all
+       distinct from the per-lead implant dates. In priority order:
+         1. Device row in Session Summary / Parameters: item[0]="Device" + "Implanted:" <date>.
+         2. "Device Status (Implanted: <date>)" on Quick Look / Session Summary.
+         3. The "Implant Date" row under the Patient Information "Implant" block — i.e. an
+            "Implant Date" whose nearest preceding section label is NOT "Lead N".
+       Each step is device-scoped, so a lead's "Implant Date" can never win. */
+    function deviceImplantDate() {
+      // 1) "Device" row with an "Implanted:" date cell.
+      var row = LINES.find(function (l) {
+        var c0 = l.items[0];
+        return c0 && /^Device$/.test(c0.str) && l.items.some(function (i) { return /^Implanted:?$/i.test(i.str); });
+      });
+      if (row) {
+        var di = row.items.findIndex(function (i) { return /^Implanted:?$/i.test(i.str); });
+        var iso = toISO(((row.items[di + 1] || {}).str) || '') || toISO(text(row));
+        if (iso) return { iso: iso, src: 'p' + row.page + ' · ' + row.section.replace(/:.*/, '') };
+      }
+      // 2) "Device Status (Implanted: <date>)" — label and value may be one item or two.
+      var ds = lineWith(/Device Status/);
+      if (ds) { var iso2 = toISO(text(ds)); if (iso2) return { iso: iso2, src: 'p' + ds.page + ' · ' + ds.section.replace(/:.*/, '') }; }
+      // 3) The device-section "Implant Date" (not a lead's). Walk lines; track the most recent
+      //    section sub-header; only accept an "Implant Date" when that header isn't "Lead N".
+      var lastHdr = '';
+      for (var k = 0; k < LINES.length; k++) {
+        var its = LINES[k].items;
+        // Section sub-headers ("Implant", "Lead 1", "Leads"...) are value-less — a single item
+        // on the line — while data rows carry a value cell. Tracking headers this way keeps a
+        // Lead's "Implant Date  Aug/08/2005" row from masking its own "Lead N" header, so the
+        // lead guard below still fires. (Exclude "Implant Date" itself: it is a label, not a header.)
+        if (its.length === 1 && !/^Implant Date$/.test(its[0].str)) lastHdr = its[0].str;
+        var li = its.findIndex(function (i) { return /^Implant Date$/.test(i.str); });
+        if (li >= 0 && !/^Lead\s*\d+/i.test(lastHdr)) {
+          var rv = its.slice(li + 1).find(function (n) { return n.x > its[li].x + 2; });
+          var iso3 = rv ? toISO(rv.str) : '';
+          if (iso3) return { iso: iso3, src: 'p' + LINES[k].page + ' · ' + LINES[k].section.replace(/:.*/, '') };
+        }
+      }
+      return { iso: '', src: '' };
+    }
+
     /* ---------- shared identity block ---------- */
     function mapHeader() {
       var s = function (h) { return h ? ('p' + h.page + ' · ' + h.section.replace(/:.*/, '')) : ''; };
@@ -71,7 +113,13 @@
       h = findRight(/^ID:?$/, { notLabel: /:$|^(Physician|Serial|Date|Device|Patient)/i });
                                                set('pt-mrn', 'MRN / ID', h && h.v, s(h), null, 'Blank in export — pull from EHR.');
       h = findRight(/^Date of Birth$/);        set('pt-dob', 'Date of Birth', h && toISO(h.v), s(h));
-      h = findRight(/^Implant Date$/);         set('dev-implant', 'Implant Date', h && toISO(h.v), s(h));
+      // Generator (device) implant date — NOT a lead implant date. The Patient Information
+      // page lists each lead's own "Implant Date" (e.g. Aug/08/2005) BEFORE the device's, so a
+      // bare findRight(/^Implant Date$/) grabs the first lead's date. Prefer device-scoped
+      // anchors that carry the generator implant date, and only fall back to a device-section
+      // "Implant Date" — never a "Lead N" one.
+      var imp = deviceImplantDate();
+      set('dev-implant', 'Implant Date', imp.iso, imp.src);
       RESULT['mfr'] = { label: 'Manufacturer', field: 'mfr', v: 'Medtronic', src: 'vendor', status: 'auto', note: '' };
       RESULT['dtype'] = { label: 'Device Type', field: 'dtype', v: ROUTE.dtype, src: 'from model', status: ROUTE.dtype ? 'auto' : 'review', note: ROUTE.dtype ? '' : 'Set device type manually.' };
       h = findRight(/Remaining Longevity/);    set('bat-lon-cur', 'Battery Longevity', h && num(h.v), s(h));
