@@ -179,6 +179,16 @@
     return mo ? (m[3] + '-' + mo + '-' + m[2].padStart(2, '0')) : '';
   }
   function num(s) { var m = String(s).match(/-?\d+\.?\d*/); return m ? m[0] : ''; }
+  /* Like num(), but preserves a comparator-qualified value ("<1", ">99", "< 0.1 %").
+     Returns { v, cmp, raw }: when the source carries a < or > the comparator and number
+     are kept together ("<1") so a TEXT field can show it verbatim; otherwise v is the
+     plain cleaned number. cmp flags that the value was approximate (worth a review tag). */
+  function cmpNum(s) {
+    var raw = String(s == null ? '' : s).trim();
+    var m = raw.match(/[<>]=?\s*\d[\d.]*/);
+    if (m) return { v: m[0].replace(/\s+/g, ''), cmp: true, raw: raw };
+    return { v: num(raw), cmp: false, raw: raw };
+  }
   var MODES = /^(AAI|AAIR|VVI|VVIR|DDD|DDDR|DDI|DDIR|VDI|VDIR|VDD|VDDR|AOO|VOO|DOO|OOO)$/i;
 
   /* ---------- vendor signatures (substring match, case-insensitive) ---------- */
@@ -233,6 +243,7 @@
     MONTHS: MONTHS,
     toISO: toISO,
     num: num,
+    cmpNum: cmpNum,
     MODES: MODES,
     VENDORS: VENDORS,
     guessVendor: guessVendor,

@@ -305,8 +305,8 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     </div>
     <div class="sub-lbl" id="pct-lbl">Pacing Statistics <span class="sub-note" id="pct-note">— select device type above</span></div>
     <div class="fg" style="grid-template-columns: repeat(4, 110px);" id="pct-grid">
-      <div class="field" id="pct-a-wrap"><span class="lbl">A Paced %</span><input type="number" id="pct-a" min="0" max="100" step="0.1"></div>
-      <div class="field" id="pct-v-wrap"><span class="lbl" id="pct-v-lbl">V Paced %</span><input type="number" id="pct-v" min="0" max="100" step="0.1"></div>
+      <div class="field" id="pct-a-wrap"><span class="lbl">A Paced %</span><input type="text" id="pct-a" inputmode="decimal" placeholder="0.0 or <1"></div>
+      <div class="field" id="pct-v-wrap"><span class="lbl" id="pct-v-lbl">V Paced %</span><input type="text" id="pct-v" inputmode="decimal" placeholder="0.0 or <1"></div>
       <div class="field" id="pct-lv-wrap"><span class="lbl">LV Paced %</span><input type="number" id="pct-lv" min="0" max="100" step="0.1"></div>
       <div class="field" id="pct-biv-wrap"><span class="lbl">BiV Paced %</span><input type="number" id="pct-biv" min="0" max="100" step="0.1"></div>
     </div>
@@ -328,9 +328,16 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     </div>
 
     <div class="sub-lbl">AV Timing / Intervals</div>
-    <div class="fg" style="grid-template-columns: 110px 110px 110px 110px;">
-      <div class="field"><span class="lbl">Sensed AV (ms)</span><input type="number" id="p-sav"></div>
-      <div class="field"><span class="lbl">Paced AV (ms)</span><input type="number" id="p-pav"></div>
+    <div class="cbg" style="margin-bottom:6px;">
+      <span class="lbl" style="display:inline-block; margin-right:8px;">Dynamic AV Delay?</span>
+      <label class="cbl"><input type="radio" name="dyn-av" value="Yes" onchange="updateDynamicAV()"> Yes</label>
+      <label class="cbl"><input type="radio" name="dyn-av" value="No" checked onchange="updateDynamicAV()"> No</label>
+    </div>
+    <div class="fg" style="grid-template-columns: repeat(6, 110px);">
+      <div class="field"><span class="lbl" id="p-sav-lbl">Sensed AV (ms)</span><input type="number" id="p-sav"></div>
+      <div class="field" id="p-sav-hi-wrap" style="display:none;"><span class="lbl">Sensed AV max (ms)</span><input type="number" id="p-sav-hi"></div>
+      <div class="field"><span class="lbl" id="p-pav-lbl">Paced AV (ms)</span><input type="number" id="p-pav"></div>
+      <div class="field" id="p-pav-hi-wrap" style="display:none;"><span class="lbl">Paced AV max (ms)</span><input type="number" id="p-pav-hi"></div>
       <div class="field"><span class="lbl">Mode Switch</span>
         <select id="p-ms"><option value="">—</option><option>On</option><option>Off</option></select>
       </div>
@@ -359,7 +366,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="sec-body">
     <div class="fg" style="grid-template-columns: 110px 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">Total Episodes</span><input type="number" id="ep-total" min="0"></div>
-      <div class="field"><span class="lbl">AF Burden (%)</span><input type="number" id="ep-af-burden" min="0" max="100" step="0.1" placeholder="0.0"></div>
+      <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="ep-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
       <div class="field"><span class="lbl">AHR <span class="sub-note">(AT / AF / AFl)</span></span><input type="number" id="ep-ahr" min="0"></div>
       <div class="field"><span class="lbl">HVR <span class="sub-note">(VT / VF / NS-VT)</span></span><input type="number" id="ep-hvr" min="0"></div>
       <div class="field"><span class="lbl">PMT</span><input type="number" id="ep-pmt" min="0"></div>
@@ -593,6 +600,25 @@ function updateObservations() {
   if (wrap) wrap.style.display = (yes && yes.checked) ? '' : 'none';
 }
 
+// ── DYNAMIC AV TOGGLE ──
+// "No" (default): single Sensed/Paced AV values. "Yes": reveal the max fields so a
+// dynamic AV delay (e.g. Boston's "260 - 300 ms") shows both bounds. Auto-selected to
+// "Yes" by the PDF importer when it parses a range; otherwise stays "No".
+function updateDynamicAV() {
+  var yes = document.querySelector('input[name="dyn-av"][value="Yes"]');
+  var on = !!(yes && yes.checked);
+  var sh = document.getElementById('p-sav-hi-wrap');
+  var ph = document.getElementById('p-pav-hi-wrap');
+  if (sh) sh.style.display = on ? '' : 'none';
+  if (ph) ph.style.display = on ? '' : 'none';
+  var sl = document.getElementById('p-sav-lbl'); if (sl) sl.textContent = on ? 'Sensed AV min (ms)' : 'Sensed AV (ms)';
+  var pl = document.getElementById('p-pav-lbl'); if (pl) pl.textContent = on ? 'Paced AV min (ms)' : 'Paced AV (ms)';
+  if (!on) {
+    var a = document.getElementById('p-sav-hi'); if (a) a.value = '';
+    var b = document.getElementById('p-pav-hi'); if (b) b.value = '';
+  }
+}
+
 // ── REPROG TABLE TOGGLE ──
 function updateReprogTable() {
   var yes = document.querySelector('input[name="rp-chg"][value="Yes"]');
@@ -638,6 +664,7 @@ function updateConditionals() {
   rebuildLeads();
   updatePacingPct();
   updateLeadInfoTable();
+  updateDynamicAV();
   var hasICD = vals.some(function(v){ return ['ICD-SC','ICD-DC','CRT-D','S-ICD'].indexOf(v)>-1; });
   var ccRow = document.getElementById('bat-cc-row');
   if (ccRow) ccRow.style.display = hasICD ? '' : 'none';
@@ -973,8 +1000,8 @@ function exportPDF() {
         + pf('LRL (bpm)', v('p-lrl'))
         + pf('UTR (bpm)', v('p-utr'))
         + pf('USR (bpm)', v('p-usr'))
-        + pf('Sensed AV (ms)', v('p-sav'))
-        + pf('Paced AV (ms)', v('p-pav'))
+        + pf('Sensed AV (ms)', v('p-sav-hi') ? (v('p-sav') + ' - ' + v('p-sav-hi')) : v('p-sav'))
+        + pf('Paced AV (ms)',  v('p-pav-hi') ? (v('p-pav') + ' - ' + v('p-pav-hi')) : v('p-pav'))
         + pf('Mode Switch', v('p-ms'))
         + pf('MS Rate (bpm)', v('p-msrate'))
         + '</div>'
@@ -1209,8 +1236,8 @@ function buildSummaryLines() {
   add('LRL:          ', val('p-lrl') ? val('p-lrl') + ' bpm' : '');
   add('UTR:          ', val('p-utr') ? val('p-utr') + ' bpm' : '');
   add('USR:          ', val('p-usr') ? val('p-usr') + ' bpm' : '');
-  add('Sensed AV:    ', val('p-sav') ? val('p-sav') + ' ms' : '');
-  add('Paced AV:     ', val('p-pav') ? val('p-pav') + ' ms' : '');
+  add('Sensed AV:    ', val('p-sav') ? (val('p-sav-hi') ? val('p-sav')+' - '+val('p-sav-hi')+' ms' : val('p-sav')+' ms') : '');
+  add('Paced AV:     ', val('p-pav') ? (val('p-pav-hi') ? val('p-pav')+' - '+val('p-pav-hi')+' ms' : val('p-pav')+' ms') : '');
   add('Mode Switch:  ', val('p-ms'));
   add('MS Rate:      ', val('p-msrate') ? val('p-msrate') + ' bpm' : '');
   secEnd(sPos);
@@ -1275,6 +1302,7 @@ loadSaved();
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="engine.js"></script>
 <script src="medtronic.js"></script>
+<script src="boston.js"></script>
 <script>
 /* PDF → CRM form auto-fill. Reuses the form's own update functions so toggles,
    lead rows and pacing-% visibility behave exactly as for manual entry. */
@@ -1315,6 +1343,7 @@ loadSaved();
     // 3) toggles that depend on the radios we just set
     if (typeof updateObservations === 'function') updateObservations();
     if (typeof updateReprogTable  === 'function') updateReprogTable();
+    if (typeof updateDynamicAV    === 'function') updateDynamicAV();
 
     // 4) lead inventory table (chamber → form Lead Location)
     if (LEADS && LEADS.length){
@@ -1338,10 +1367,13 @@ loadSaved();
   }
   window.prefillForm = prefillForm;   // exposed for testing
 
+  // vendor name (from Engine.guessVendor) -> parser module
+  var PARSERS = { 'Medtronic': window.MEDTRONIC, 'Boston Scientific': window.BOSTON };
+
   async function handleFile(file){
     if (!file) return;
-    if (typeof pdfjsLib === 'undefined' || !window.Engine || !window.MEDTRONIC){
-      setStatus('Parser scripts did not load (need engine.js + medtronic.js beside this page).', 'err'); return;
+    if (typeof pdfjsLib === 'undefined' || !window.Engine){
+      setStatus('Parser scripts did not load (need engine.js + a vendor file beside this page).', 'err'); return;
     }
     setStatus('Reading ' + file.name + ' …');
     try {
@@ -1349,11 +1381,12 @@ loadSaved();
       var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       var items = await Engine.extractItems(pdf);
       var vendor = Engine.guessVendor(items);
-      if (vendor !== 'Medtronic'){
-        setStatus('Detected <b>'+vendor+'</b>. Only Medtronic reports are supported right now.', 'err'); return;
+      var parser = PARSERS[vendor];
+      if (!parser){
+        setStatus('Detected <b>'+vendor+'</b>. Supported vendors: '+ Object.keys(PARSERS).join(', ') +'.', 'err'); return;
       }
       var LINES = Engine.tagSections(Engine.normalize(items));
-      var out = window.MEDTRONIC.runMap(LINES, {});
+      var out = parser.runMap(LINES, {});
       var res = prefillForm(out.RESULT, out.LEADS);
       var dev = (out.RESULT['dev-model']||{}).v || '';
       var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'

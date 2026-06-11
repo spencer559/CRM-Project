@@ -51,7 +51,7 @@
     var colsRightOf = function (re, opts) { return E.colsRightOf(LINES, re, opts); };
     var twoCol = function (re, opts) { return E.twoCol(LINES, re, opts); };
     var lineWith = function (re) { return E.lineWith(LINES, re); };
-    var text = E.text, toISO = E.toISO, num = E.num, MODES = E.MODES;
+    var text = E.text, toISO = E.toISO, num = E.num, cmpNum = E.cmpNum, MODES = E.MODES;
 
     var RESULT = {}, LEADS = [], GOTCHAS = [], ROUTE = {};
 
@@ -175,7 +175,7 @@
     /* ---------- MAP: leadless (Micra) ----------
        Keys target the form's 'leadless' lead row: lead-leadless-{imp,sens,thr,pw}. */
     function mapLeadless() {
-      set('pct-v', 'V Paced %', (function () { var h = findRight(/^Paced$/); return h && num(h.v); })(), 'p (V histogram)', 'auto');
+      (function () { var h = findRight(/^Paced$/); var c = h ? cmpNum(h.v) : null; set('pct-v', 'V Paced %', c ? c.v : '', 'p (V histogram)', c && c.cmp ? 'review' : 'auto', c && c.cmp ? ('Reported "' + c.raw + '".') : ''); })();
       var h;
       h = findRight(/^Mode$/, { prefer: 'final', match: MODES }); set('p-mode', 'Mode', h && h.v, h ? 'p' + h.page : '');
       h = findRight(/^Lower Rate$|^Lower$/, { prefer: 'final', match: /\d/ }); set('p-lrl', 'Lower Rate (LRL)', h && num(h.v), h ? 'p' + h.page : '');
@@ -213,8 +213,10 @@
       // AP and VP avoids the stray "VP" (% of AT/AF) on the histogram pages.
       var hAP = findRight(/^AP$/, { match: /%/ }), hVP = findRight(/^VP$/, { match: /%/ });
       if (hAP && hVP) {
-        set('pct-a', 'A Paced %', num(hAP.v), 'p' + hAP.page, 'auto', '');
-        set('pct-v', 'V Paced %', num(hVP.v), 'p' + hVP.page, 'auto', '');
+        // pacing % may be a comparator ("<0.1 %"); cmpNum keeps it for the text field.
+        var ca = cmpNum(hAP.v), cv = cmpNum(hVP.v);
+        set('pct-a', 'A Paced %', ca.v, 'p' + hAP.page, ca.cmp ? 'review' : 'auto', ca.cmp ? ('Reported "' + ca.raw + '".') : '');
+        set('pct-v', 'V Paced %', cv.v, 'p' + hVP.page, cv.cmp ? 'review' : 'auto', cv.cmp ? ('Reported "' + cv.raw + '".') : '');
       } else {
         var pH = function (re) { return findRight(re, { match: /%/ }); };
         var hApvp = pH(/^AP-VP$/), hApvs = pH(/^AP-VS$/), hAsvp = pH(/^AS-VP$/), hTotVP = pH(/^Total VP\*?$/);
@@ -293,7 +295,9 @@
 
       // episodes (the clean ones only; counts left for review)
       var af = LINES.find(function (l) { return /Time in AT\/AF/.test(text(l)); });
-      set('ep-af-burden', 'AF Burden (%)', af ? num((af.items.find(function (i) { return /%/.test(i.str); }) || { str: '' }).str) : '', af ? 'p' + af.page : '', 'auto');
+      var afItem = af ? (af.items.find(function (i) { return /%/.test(i.str); }) || { str: '' }).str : '';
+      var afc = cmpNum(afItem);   // keep "<0.1" style values verbatim
+      set('ep-af-burden', 'AF Burden (%)', afc.v, af ? 'p' + af.page : '', afc.cmp ? 'review' : 'auto', afc.cmp ? ('Reported "' + afItem.trim() + '".') : '');
       h = findRight(/VT-NS/); set('ep-hvr', 'HVR (VT/VF/NS-VT)', h && num(h.v), h ? 'p' + h.page : '', 'review', 'Non-sustained VT count this session. Confirm episode counts in the device log.');
 
       mapLeadInventory();
