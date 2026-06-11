@@ -137,6 +137,8 @@
       cand.push({ l: l, rights: rights });
     });
     if (opts.prefer) { var f = cand.filter(function (c) { return c.l.secType === opts.prefer; }); if (f.length) cand = f; }
+    // skip header-only lines (label with no value cells to its right) when a real row exists
+    var withR = cand.filter(function (c) { return c.rights.length; }); if (withR.length) cand = withR;
     return cand.length ? { rights: cand[0].rights, page: cand[0].l.page, section: cand[0].l.section } : null;
   }
 
@@ -147,14 +149,23 @@
     opts = opts || {};
     var split = opts.split == null ? COL_SPLIT : opts.split;
     var r = colsRightOf(LINES, re, opts);
-    if (!r) return { a: '', v: '', src: '' };
+    if (!r) return { a: '', v: '', lv: '', src: '' };
     var pick = function (cells) {
       if (opts.valRe) { var m = cells.find(function (c) { return opts.valRe.test(c.str); }); return m ? m.str : ''; }
       return cells.length ? cells[0].str : '';
     };
+    var ge = r.rights.filter(function (c) { return c.x >= split; });
+    var lv = '';
+    // Three-column (CRT) layouts add an LV column to the right of RV. Split it off only
+    // when a caller passes opts.lvSplit, so two-column reports keep their a/v behavior.
+    if (opts.lvSplit != null) {
+      lv = pick(ge.filter(function (c) { return c.x >= opts.lvSplit; }));
+      ge = ge.filter(function (c) { return c.x < opts.lvSplit; });
+    }
     return {
       a: pick(r.rights.filter(function (c) { return c.x < split; })),
-      v: pick(r.rights.filter(function (c) { return c.x >= split; })),
+      v: pick(ge),
+      lv: lv,
       src: 'p' + r.page
     };
   }
