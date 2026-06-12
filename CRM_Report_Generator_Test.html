@@ -265,7 +265,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     </div>
     <div id="leadinfo-wrap" style="display:none;">
       <table class="dt">
-        <thead><tr><th style="width:20%">Lead Location</th><th>Lead Model</th><th>Lead Serial #</th><th style="width:18%">Implant Date</th></tr></thead>
+        <thead><tr><th style="width:18%">Lead Location</th><th style="width:16%">Lead Manufacturer</th><th>Lead Model</th><th>Lead Serial #</th><th style="width:16%">Implant Date</th></tr></thead>
         <tbody id="leadinfo-tbody"></tbody>
       </table>
       <div class="field" style="margin-top:6px;"><span class="lbl">Notes</span><textarea id="leadinfo-notes" placeholder="Optional notes…" style="width:100%;min-height:48px;"></textarea></div>
@@ -567,7 +567,7 @@ function addEpRow() {
   document.getElementById('ep-tbody').appendChild(tr);
   scheduleSave();
 }
-addEpRow(); addEpRow(); addEpRow();
+addEpRow();   // default to a single episode row; use "+ Add Episode" for more
 
 // ── REPROG ROWS ──
 var rpN = 0;
@@ -676,7 +676,9 @@ function liEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/
 // values (e.g. "Right Ventricle", "Mar 2025") paste in verbatim.
 function liRowHTML(locVal, p){
   p = p || {};
+  var mfr = (p.mfr != null ? p.mfr : p.manufacturer) || '';   // parser uses .manufacturer; preserved edits use .mfr
   return '<td><input type="text" class="li-loc" value="'+liEsc(locVal)+'" placeholder="Location"></td>'
+    +'<td><input type="text" class="li-mfr" value="'+liEsc(mfr)+'" placeholder="Manufacturer"></td>'
     +'<td><input type="text" class="li-model" value="'+liEsc(p.model||'')+'" placeholder="Model"></td>'
     +'<td><input type="text" class="li-serial" value="'+liEsc(p.serial||'')+'" placeholder="Serial #"></td>'
     +'<td><input type="text" class="li-date" value="'+liEsc(p.date||'')+'" placeholder="Implant date"></td>';
@@ -727,6 +729,7 @@ function updateLeadInfoTable() {
     var key = tr.getAttribute('data-loc');
     if (key) existing[key] = {
       loc:    (tr.querySelector('.li-loc')   ||{value:''}).value,
+      mfr:    (tr.querySelector('.li-mfr')   ||{value:''}).value,
       model:  (tr.querySelector('.li-model') ||{value:''}).value,
       serial: (tr.querySelector('.li-serial')||{value:''}).value,
       date:   (tr.querySelector('.li-date')  ||{value:''}).value
@@ -807,7 +810,7 @@ function loadSaved() {
   try { d = JSON.parse(raw); } catch(e) { return; }
 
   // rebuild dynamic rows first
-  var ep = Math.max(d.__ep || 3, 0);
+  var ep = Math.max(d.__ep || 1, 0);
   var rp = Math.max(d.__rp || 3, 0);
   document.getElementById('ep-tbody').innerHTML = '';
   document.getElementById('rp-tbody').innerHTML = '';
@@ -954,21 +957,21 @@ function exportPDF() {
   var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
     + '<title>CRM Record \u2014 ' + (v('pt-name')||'Unknown') + '</title>'
     + '<style>'
-    + 'body{font-family:system-ui,sans-serif;font-size:11px;color:#111;margin:0;padding:24px 32px;}'
-    + 'h1{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:6px;margin-bottom:14px;}'
-    + 'h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#1e3a5f;color:#fff;padding:3px 8px;margin:12px 0 6px;}'
-    + '.row{display:flex;flex-wrap:wrap;gap:4px 20px;margin-bottom:5px;}'
-    + '.f{display:flex;flex-direction:column;gap:1px;min-width:100px;}'
+    + 'body{font-family:system-ui,sans-serif;font-size:11px;color:#111;margin:0;padding:14px 20px;}'
+    + 'h1{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:3px;margin-bottom:7px;}'
+    + 'h2{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:#1e3a5f;color:#fff;padding:2px 8px;margin:6px 0 3px;}'
+    + '.row{display:flex;flex-wrap:wrap;gap:1px 16px;margin-bottom:2px;}'
+    + '.f{display:flex;flex-direction:column;gap:0;min-width:90px;}'
     + '.lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#1e3a5f;}'
     + '.val{font-size:11px;border-bottom:1px solid #c8d8e8;min-width:80px;padding-bottom:1px;}'
-    + 'table{width:100%;border-collapse:collapse;font-size:9.5px;border:1px solid #b8ccdf;margin-bottom:8px;}'
-    + 'th{background:#e6eef6;color:#1e3a5f;text-align:left;font-size:8px;font-weight:700;text-transform:uppercase;padding:3px 5px;border-bottom:1px solid #b8ccdf;border-right:1px solid #b8ccdf;}'
+    + 'table{width:100%;border-collapse:collapse;font-size:9.5px;border:1px solid #b8ccdf;margin-bottom:4px;}'
+    + 'th{background:#e6eef6;color:#1e3a5f;text-align:left;font-size:8px;font-weight:700;text-transform:uppercase;padding:2px 5px;border-bottom:1px solid #b8ccdf;border-right:1px solid #b8ccdf;}'
     + 'th:last-child{border-right:none;}'
-    + 'td{padding:3px 5px;border-bottom:1px solid #e0e8f0;border-right:1px solid #edf1f6;vertical-align:top;}'
+    + 'td{padding:1px 5px;border-bottom:1px solid #e0e8f0;border-right:1px solid #edf1f6;vertical-align:top;}'
     + 'td:last-child{border-right:none;}'
     + 'tr:last-child td{border-bottom:none;}'
-    + '.gen{font-size:8.5px;color:#888;margin-bottom:10px;}'
-    + '@media print{@page{size:letter;margin:.45in .5in;}body{padding:0;}}'
+    + '.gen{font-size:8.5px;color:#888;margin-bottom:5px;}'
+    + '@media print{@page{size:letter;margin:.4in .5in;}body{padding:0;}}'
     + '</style></head><body>'
     + '<h1>Cardiac CRM Interrogation &amp; Reprogramming Record</h1>'
     + '<div class="gen">Generated: ' + new Date().toLocaleString() + '</div>'
@@ -979,6 +982,7 @@ function exportPDF() {
         + pf('DOB', v('pt-dob'))
         + pf('MRN', v('pt-mrn'))
         + pf('Date', v('pt-date'))
+        + pf('Provider', v('pt-provider'))
         + '</div>'
         + '<div class="row">'
         + pf('Device Type', dtype)
@@ -986,7 +990,6 @@ function exportPDF() {
         + pf('Model', v('dev-model'))
         + pf('Serial #', v('dev-serial'))
         + pf('Implant Date', v('dev-implant'))
-        + pf('Provider', v('pt-provider'))
         + '</div>'
       )
 
@@ -996,14 +999,15 @@ function exportPDF() {
         var liRows = '';
         document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
           var loc    = (tr.querySelector('.li-loc')||{value:''}).value || tr.getAttribute('data-loc') || '';
+          var mfr    = (tr.querySelector('.li-mfr')  ||{value:''}).value;
           var model  = (tr.querySelector('.li-model') ||{value:''}).value;
           var serial = (tr.querySelector('.li-serial')||{value:''}).value;
           var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
-          liRows += '<tr><td>'+loc+'</td><td>'+model+'</td><td>'+serial+'</td><td>'+date+'</td></tr>';
+          liRows += '<tr><td>'+loc+'</td><td>'+mfr+'</td><td>'+model+'</td><td>'+serial+'</td><td>'+date+'</td></tr>';
         });
         var liNotes = v('leadinfo-notes');
         return '<h2>Lead Information</h2>'
-          + '<table><thead><tr><th>Location</th><th>Lead Model</th><th>Lead Serial #</th><th>Implant Date</th></tr></thead><tbody>'
+          + '<table><thead><tr><th>Location</th><th>Manufacturer</th><th>Lead Model</th><th>Lead Serial #</th><th>Implant Date</th></tr></thead><tbody>'
           + liRows + '</tbody></table>'
           + (liNotes ? '<p style="font-size:10px;margin:4px 0"><strong>Notes:</strong> '+liNotes+'</p>' : '');
       })()
@@ -1039,15 +1043,20 @@ function exportPDF() {
         + '<table><thead><tr><th>Lead</th><th>Impedance (\u03a9)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th></tr></thead><tbody>'
         + leadRows + '</tbody></table>' : '')
 
-    + '<h2>Stored Episodes</h2>'
-    + '<div class="row" style="margin-bottom:8px;">'
-    + pf('Total', v('ep-total'))
-    + '<div class="f"><span class="lbl">AF Burden (%)</span><span class="val">'+(v('ep-af-burden')||'&nbsp;')+'</span></div>'
-    + pf('AHR', v('ep-ahr'))
-    + pf('HVR', v('ep-hvr'))
-    + pf('PMT', v('ep-pmt'))
-    + '</div>'
-    + (epRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Therapy</th><th>Approp.</th><th>Notes</th></tr></thead><tbody>'+epRows+'</tbody></table>' : '')
+    + (function(){
+        var epTotal=v('ep-total'), epAF=v('ep-af-burden'), epAhr=v('ep-ahr'), epHvr=v('ep-hvr'), epPmt=v('ep-pmt');
+        var hasSummary = !!(epTotal||epAF||epAhr||epHvr||epPmt);
+        if (!epRows && !hasSummary) return '';   // omit the whole section when there is no episode data
+        return '<h2>Stored Episodes</h2>'
+          + (hasSummary ? '<div class="row" style="margin-bottom:3px;">'
+              + pf('Total', epTotal)
+              + (epAF ? '<div class="f"><span class="lbl">AF Burden (%)</span><span class="val">'+epAF+'</span></div>' : '')
+              + pf('AHR', epAhr)
+              + pf('HVR', epHvr)
+              + pf('PMT', epPmt)
+              + '</div>' : '')
+          + (epRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Therapy</th><th>Approp.</th><th>Notes</th></tr></thead><tbody>'+epRows+'</tbody></table>' : '');
+      })()
 
     + psec('Reprogramming / Observations',
         (rpChg === 'Yes' && rpRows ? '<table><thead><tr><th>Parameter</th><th>Previous</th><th>New Value</th><th>Reason</th></tr></thead><tbody>'+rpRows+'</tbody></table>' : (rpChg === 'No' ? '<p style="font-size:10px;color:#555;margin:4px 0">No changes made this visit.</p>' : ''))
@@ -1132,10 +1141,12 @@ function buildSummaryLines() {
     lines.push('LEAD INFORMATION');
     document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
       var loc    = (tr.querySelector('.li-loc')||{value:''}).value || tr.getAttribute('data-loc') || '';
+      var mfr    = (tr.querySelector('.li-mfr')  ||{value:''}).value;
       var model  = (tr.querySelector('.li-model') ||{value:''}).value;
       var serial = (tr.querySelector('.li-serial')||{value:''}).value;
       var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
       var parts  = [loc];
+      if (mfr)    parts.push('Mfr: ' + mfr);
       if (model)  parts.push('Model: ' + model);
       if (serial) parts.push('Serial: ' + serial);
       if (date)   parts.push('Implant: ' + date);
@@ -1278,11 +1289,10 @@ function buildSummaryLines() {
   add('Active Alerts:     ', val('rm-active'));
   secEnd(sPos);
 
-  // DEVICE TECHNICIAN
-  sPos = secStart('DEVICE TECHNICIAN');
-  add('Name: ', val('sig-name'));
-  add('Date: ', val('sig-date'));
-  secEnd(sPos);
+  // DEVICE TECHNICIAN is intentionally omitted from the TEXT output (copy-to-clipboard /
+  // export .txt): that report is pasted into Cerner, which stamps the date and the performing
+  // technician's signature itself. The Device Technician block is still rendered in the PDF
+  // (exportPDF), since that copy is printed.
 
   return lines;
 }

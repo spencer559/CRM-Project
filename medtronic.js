@@ -164,7 +164,7 @@
         var date = (l.items[l.items.length - 1] || {}).str || '';          // raw, e.g. "Aug/08/2005"
         if (serial && seen[serial]) return;                                 // collapse repeated rows
         if (serial) seen[serial] = 1;
-        LEADS.push({ location: c.str, model: model, serial: serial, date: date,
+        LEADS.push({ location: c.str, manufacturer: (l.items[mi] || {}).str || '', model: model, serial: serial, date: date,
           chamber: /^Atrial$/.test(c.str) ? 'Atrial' : /^RV/.test(c.str) ? 'RV' : 'LV' });
       });
     }

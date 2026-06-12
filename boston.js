@@ -262,7 +262,8 @@
         if (!rest.length) return;                                 // need at least a model after it
         var pos = (l.items[l.items.length - 1] || {}).str || '';  // right-most cell = Position
         LEADS.push({
-          location: pos,                                          // raw, e.g. "Right Ventricle" / "LV Mid (lateral)"
+          location:     pos,                                      // raw, e.g. "Right Ventricle" / "LV Mid (lateral)"
+          manufacturer: (l.items[mi] || {}).str || '',            // the matched "Boston Scientific" cell
           model:    (rest[0] || {}).str || '',
           serial:   (rest[1] || {}).str || '',
           date:     (l.items[0] || {}).str || '',                 // raw, e.g. "Mar 2025" (verbatim)
