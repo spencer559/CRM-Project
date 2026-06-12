@@ -171,6 +171,7 @@
 
     function flagMode() {
       var m = RESULT['p-mode']; if (!m || !m.v) return;
+      if (m.v.indexOf('/') >= 0) return;   // MVP combo (e.g. AAIR/DDDR) — intentional pair, not a single mode
       if (DROPDOWN_MODES.indexOf(m.v.toUpperCase()) < 0) {
         m.status = 'review';
         m.note = (m.note ? m.note + ' ' : '') + '"' + m.v + '" is not in the form’s Mode <select> — add it or it won’t display.';
@@ -238,11 +239,13 @@
         }
       }
 
-      // mode: collect all mode-tokens right of "Mode" -> MVP shows AAI + DDD
+      // mode: collect all mode-tokens right of "Mode". Managed Ventricular Pacing (MVP) prints
+      // BOTH modes (e.g. "AAIR  DDDR") because the device runs the first and switches to the
+      // second when needed. Record the pair verbatim ("AAIR/DDDR") rather than collapsing to one.
       var mr = colsRightOf(/^Mode$/, { prefer: 'final' });
       var toks = mr ? mr.rights.filter(function (c) { return MODES.test(c.str); }).map(function (c) { return c.str; }) : [];
       var mvp = toks.length > 1;
-      set('p-mode', 'Mode', mvp ? 'DDD' : (toks[0] || ''), mr ? 'p' + mr.page : '', mvp ? 'review' : 'auto', mvp ? ('Programmed ' + toks.join('⇔') + ' (MVP) — recorded as DDD.') : '');
+      set('p-mode', 'Mode', mvp ? toks.join('/') : (toks[0] || ''), mr ? 'p' + mr.page : '', 'auto', mvp ? ('Managed Ventricular Pacing (MVP): runs ' + toks[0] + ', switches to ' + toks.slice(1).join('/') + ' when needed.') : '');
 
       h = findRight(/^Lower Rate$|^Lower$/, { prefer: 'final', match: /\d/ }); set('p-lrl', 'Lower Rate (LRL)', h && num(h.v), h ? 'p' + h.page : '');
       h = findRight(/Upper Track/, { prefer: 'final', match: /\d/ }); set('p-utr', 'Upper Track (UTR)', h && num(h.v), h ? 'p' + h.page : '');
