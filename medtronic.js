@@ -256,18 +256,36 @@
       RESULT['p-ms'] = { label: 'Mode Switch', field: 'p-ms', v: h ? 'On' : '', src: h ? 'p' + h.page : '', status: h ? 'auto' : 'empty', note: '' };
       set('p-msrate', 'Mode Switch Rate', h && num(h.v), h ? 'p' + h.page : '');
 
-      // two-column lead measurements (atrial | RV)
+      // Column split is layout-dependent: the chamber header ("Atrial(5076)  RV(6949)  [LV]")
+      // sits at different x on the Quick Look vs the more-compressed Session Summary, so a FIXED
+      // x split drops a column on the tighter layout (e.g. RV at x281 falls left of a 310 split,
+      // leaving RV empty). Derive the split from that header row instead — prefer the final one,
+      // since twoCol pulls the final-section data.
+      var cs = (function () {
+        var hdr = null;
+        LINES.forEach(function (l) {
+          var a = l.items.find(function (i) { return /^Atrial\(/.test(i.str); });
+          var rv = l.items.find(function (i) { return /^RV\(/.test(i.str); });
+          if (!a || !rv) return;
+          var lv = l.items.find(function (i) { return /^LV(\(|$)/.test(i.str); });
+          if (!hdr || (l.secType === 'final' && hdr.secType !== 'final')) hdr = { a: a.x, rv: rv.x, lv: lv ? lv.x : null, secType: l.secType };
+        });
+        if (!hdr) return { split: COL_SPLIT, lvSplit: isCRT ? LV_SPLIT : undefined };   // fallback to fixed
+        return { split: Math.round((hdr.a + hdr.rv) / 2), lvSplit: (isCRT && hdr.lv) ? Math.round((hdr.rv + hdr.lv) / 2) : undefined };
+      })();
+
+      // two-column lead measurements (atrial | RV [| LV])
       // Label varies by report: "Pacing Impedance" (Quick Look / Session Summary, two-col row)
       // or "Lead Impedance" (header on the Battery & Lead Measurements page). Match either; the
       // hardened colsRightOf skips the value-less header so RV no longer comes back empty.
-      var imp = twoCol(/^(?:Lead|Pacing) Impedance$/, { prefer: 'final', valRe: /^\d/, split: COL_SPLIT, lvSplit: isCRT ? LV_SPLIT : undefined });
+      var imp = twoCol(/^(?:Lead|Pacing) Impedance$/, { prefer: 'final', valRe: /^\d/, split: cs.split, lvSplit: cs.lvSplit });
       set('lead-ra-imp', 'RA Impedance (Ω)', num(imp.a), imp.src, 'review', 'Atrial column. Verify.');
       set('lead-rv-imp', 'RV Impedance (Ω)', num(imp.v), imp.src, 'review', 'RV column. Verify.');
       if (isCRT) set('lead-lv-imp', 'LV Impedance (Ω)', num(imp.lv), imp.src, 'review', 'LV column. Verify.');
       // Prefer the clinician's in-office reading; fall back per-column to the device's
       // auto value ("Measured P/R Wave" / "Capture Threshold") only where no in-office value exists.
       function preferIO(ioRe, autoRe, valRe) {
-        var o = { prefer: 'final', valRe: valRe, split: COL_SPLIT, lvSplit: isCRT ? LV_SPLIT : undefined };
+        var o = { prefer: 'final', valRe: valRe, split: cs.split, lvSplit: cs.lvSplit };
         var io = twoCol(ioRe, o);
         var au = twoCol(autoRe, o);
         var any = io.a || io.v || io.lv;
