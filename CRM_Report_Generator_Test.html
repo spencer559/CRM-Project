@@ -869,6 +869,28 @@ function clearForm() {
   location.reload();
 }
 
+// In-memory "New Patient" reset — same end state as a fresh load, but WITHOUT reloading the
+// page (the PDF import is mid-flight and a reload would abort it). Used by the auto-fill so no
+// data from a previous patient lingers in fields the new report doesn't overwrite.
+function resetFormState() {
+  document.querySelectorAll('input, select, textarea').forEach(function(el){
+    if (el.type === 'radio' || el.type === 'checkbox') el.checked = false;
+    else el.value = '';
+  });
+  // rebuild dynamic tables to their fresh defaults
+  var ep = document.getElementById('ep-tbody'); if (ep) ep.innerHTML = ''; epN = 0; addEpRow();
+  var rp = document.getElementById('rp-tbody'); if (rp) rp.innerHTML = ''; rpN = 0; addRpRow(); addRpRow(); addRpRow();
+  var li = document.getElementById('leadinfo-tbody'); if (li) li.innerHTML = '';
+  // re-run the dependent visibility/UI updaters
+  if (typeof updateConditionals  === 'function') updateConditionals();
+  if (typeof updatePacingPct      === 'function') updatePacingPct();
+  if (typeof updateObservations   === 'function') updateObservations();
+  if (typeof updateReprogTable    === 'function') updateReprogTable();
+  if (typeof updateLeadInfoTable  === 'function') updateLeadInfoTable();
+  if (typeof updateDynamicAV      === 'function') updateDynamicAV();
+  try { localStorage.removeItem('crm-digital'); } catch(e){}
+}
+
 // ── EXPORT ──
 function copyToClipboard() {
   var lines = buildSummaryLines();
@@ -1415,6 +1437,9 @@ loadSaved();
       }
       var LINES = Engine.tagSections(Engine.normalize(items));
       var out = parser.runMap(LINES, {});
+      // force a clean "New Patient" slate before filling, so nothing from a prior patient
+      // lingers in fields this report doesn't set.
+      if (typeof resetFormState === 'function') resetFormState();
       var res = prefillForm(out.RESULT, out.LEADS);
       var dev = (out.RESULT['dev-model']||{}).v || '';
       var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'
