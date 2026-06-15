@@ -1350,12 +1350,12 @@ loadSaved();
 </style>
 
 <div id="pdf-drop-panel">
-  <div class="pdp-title">⬇ Auto-fill from PDF</div>
+  <div class="pdp-title">⬇ Auto-fill from PDF / .log</div>
   <div id="pdp-drop">
-    <div class="pdp-big">Drop SmartSync PDF</div>
-    <div class="pdp-small">or click to browse · runs locally</div>
+    <div class="pdp-big">Drop PDF or Abbott .log</div>
+    <div class="pdp-small">Medtronic / Boston PDF · Abbott .log · runs locally</div>
   </div>
-  <input type="file" id="pdp-file" accept="application/pdf" style="display:none">
+  <input type="file" id="pdp-file" accept="application/pdf,.log,.txt" style="display:none">
   <div id="pdp-status"></div>
 </div>
 
@@ -1363,6 +1363,7 @@ loadSaved();
 <script src="engine.js"></script>
 <script src="medtronic.js"></script>
 <script src="boston.js"></script>
+<script src="abbott.js"></script>
 <script>
 /* PDF → CRM form auto-fill. Reuses the form's own update functions so toggles,
    lead rows and pacing-% visibility behave exactly as for manual entry. */
@@ -1422,6 +1423,33 @@ loadSaved();
 
   async function handleFile(file){
     if (!file) return;
+
+    // Abbott / SJM Merlin ".log" (flat key/value text) — not a PDF, so it takes a separate path.
+    var fname = (file.name || '').toLowerCase();
+    if (fname.endsWith('.log') || fname.endsWith('.txt')) {
+      if (!window.ABBOTT) { setStatus('Abbott parser (abbott.js) did not load.', 'err'); return; }
+      setStatus('Reading ' + file.name + ' …');
+      try {
+        // Merlin .log can be UTF-16 (file.text() assumes UTF-8 → null bytes everywhere and
+        // nothing parses). Sniff the BOM and decode with the right encoding.
+        var abuf = await file.arrayBuffer();
+        var abytes = new Uint8Array(abuf);
+        var enc = (abytes[0] === 0xFF && abytes[1] === 0xFE) ? 'utf-16le'
+                : (abytes[0] === 0xFE && abytes[1] === 0xFF) ? 'utf-16be' : 'utf-8';
+        var txt = new TextDecoder(enc).decode(abuf);
+        var aout = window.ABBOTT.runLog(txt);
+        if (typeof resetFormState === 'function') resetFormState();
+        var ares = prefillForm(aout.RESULT, aout.LEADS);
+        var adev = (aout.RESULT['dev-model']||{}).v || '';
+        var amsg = '<b>'+ (aout.ROUTE.label || aout.ROUTE.dtype || 'Abbott device') +'</b>'
+          + (adev ? '<br><span class="pdp-dev">'+adev+'</span>' : '')
+          + '<br>'+ ares.filled +' fields filled — review highlighted ones.';
+        if (ares.review.length) amsg += '<br><span class="pdp-rev">Verify: '+ ares.review.join(', ') +'</span>';
+        setStatus(amsg, 'ok');
+      } catch(e){ console.error(e); setStatus('Could not parse .log: '+ e.message, 'err'); }
+      return;
+    }
+
     if (typeof pdfjsLib === 'undefined' || !window.Engine){
       setStatus('Parser scripts did not load (need engine.js + a vendor file beside this page).', 'err'); return;
     }
