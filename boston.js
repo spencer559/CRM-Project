@@ -416,7 +416,8 @@
             dt: dtToLocal(dtRaw),
             dur: dur,
             rate: rate,
-            types: ['AF/AHR']
+            types: ['AF/AHR'],
+            notes: 'Longest'
           });
           break;
         }
