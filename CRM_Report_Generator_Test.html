@@ -700,6 +700,24 @@ function setLeadInfoRows(leads){
     tb.appendChild(tr);
   });
 }
+// Fill the arrhythmia logbook from parsed episodes. Each ep = {dt,dur,rate,types[],app,notes}.
+// Uses the existing empty row(s) and appends more as needed; matches the ep<N>-* input naming.
+function setEpisodeRows(eps){
+  if (!eps || !eps.length) return;
+  var tb = document.getElementById('ep-tbody'); if (!tb) return;
+  eps.forEach(function(e, idx){
+    if (idx >= tb.querySelectorAll('tr').length && typeof addEpRow === 'function') addEpRow();
+    var tr = tb.querySelectorAll('tr')[idx]; if (!tr) return;
+    var n = (tr.id || '').replace('ep-', '');
+    function q(sel){ return tr.querySelector(sel); }
+    if (e.dt)   { var d = q('[name="ep'+n+'-dt"]');   if (d) d.value = e.dt; }
+    if (e.dur)  { var u = q('[name="ep'+n+'-dur"]');  if (u) u.value = e.dur; }
+    if (e.rate) { var r = q('[name="ep'+n+'-rate"]'); if (r) r.value = e.rate; }
+    if (e.notes){ var nt = q('[name="ep'+n+'-notes"]'); if (nt){ nt.value = e.notes; if (typeof autoGrow==='function') autoGrow(nt); } }
+    (e.types||[]).forEach(function(t){ var cb = tr.querySelector('input[name="ep'+n+'-type"][value="'+t+'"]'); if (cb) cb.checked = true; });
+    if (e.app){ var ar = tr.querySelector('input[name="ep'+n+'-app"][value="'+e.app+'"]'); if (ar) ar.checked = true; }
+  });
+}
 var LEAD_INFO_LOCS = {
   'PPM-SC':   ['RV'],
   'PPM-DC':   ['RA','RV'],
@@ -1387,7 +1405,7 @@ loadSaved();
     return false;
   }
 
-  function prefillForm(RESULT, LEADS){
+  function prefillForm(RESULT, LEADS, EPISODES){
     // 1) manufacturer + device type FIRST — device type rebuilds the lead rows & toggles
     if (RESULT['mfr'])  setField('mfr',  RESULT['mfr'].v);
     if (RESULT['dtype'] && RESULT['dtype'].v) setField('dtype', RESULT['dtype'].v);
@@ -1410,6 +1428,11 @@ loadSaved();
     //    implant date exactly as in the report; no chamber slotting, duplicates preserved).
     if (LEADS && LEADS.length && typeof setLeadInfoRows === 'function'){
       setLeadInfoRows(LEADS);
+    }
+
+    // 5) arrhythmia logbook rows (e.g. the Longest AT/AF episode)
+    if (EPISODES && EPISODES.length && typeof setEpisodeRows === 'function'){
+      setEpisodeRows(EPISODES);
     }
 
     if (typeof updatePacingPct === 'function') updatePacingPct();
@@ -1468,7 +1491,7 @@ loadSaved();
       // force a clean "New Patient" slate before filling, so nothing from a prior patient
       // lingers in fields this report doesn't set.
       if (typeof resetFormState === 'function') resetFormState();
-      var res = prefillForm(out.RESULT, out.LEADS);
+      var res = prefillForm(out.RESULT, out.LEADS, out.EPISODES);
       var dev = (out.RESULT['dev-model']||{}).v || '';
       var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'
         + (dev ? '<br><span class="pdp-dev">'+dev+'</span>' : '')

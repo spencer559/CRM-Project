@@ -34,7 +34,7 @@
   var MR_X = 470;
   var DROPDOWN_MODES = ['AAI', 'AAIR', 'VVI', 'VVIR', 'DDD', 'DDDR', 'DDI', 'DDIR', 'VDI', 'VDIR', 'AOO', 'VOO', 'DOO', 'OOO'];
 
-  var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'pct-lv', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'dyn-av', 'p-sav', 'p-sav-hi', 'p-pav', 'p-pav-hi', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-lv-imp', 'lead-lv-sens', 'lead-lv-thr', 'lead-lv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-af-burden', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
+  var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'pct-lv', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'dyn-av', 'p-sav', 'p-sav-hi', 'p-pav', 'p-pav-hi', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-lv-imp', 'lead-lv-sens', 'lead-lv-thr', 'lead-lv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-total', 'ep-af-burden', 'ep-ahr', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
 
   /* ---------- Boston date: "8 Apr 2026" / "13 Jun 1947" -> ISO ---------- */
   var BMONTHS = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };
@@ -338,9 +338,91 @@
     var af = findRight(/^% AT\/AF$/);
     var afc = af ? E.cmpNum(af.v) : null;
     set('ep-af-burden', 'AF Burden (%)', afc ? afc.v : '', af ? 'p' + af.page : '', afc && afc.cmp ? 'review' : 'auto', afc && afc.cmp ? ('Reported "' + afc.raw + '".') : '');
-    var ns = findRight(/Nonsustained Episodes/);      set('ep-hvr', 'HVR (VT/VF/NS-VT)', ns && num(ns.v), ns ? 'p' + ns.page : '', 'review', 'Nonsustained ventricular episodes (Since Last Reset). Confirm in the logbook.');
+    // HVR field = the "Total Episodes" row, Since Last Reset column (the first value to the right
+    // of the label; Device Totals is the second). Per the clinic's workflow this Since-Last-Reset
+    // total drives HVR, not the Nonsustained row.
+    var te = findRight(/^Total Episodes$/);
+    var teVal = te ? num(te.v) : '';
+    set('ep-hvr', 'HVR (VT/VF/NS-VT)', teVal, te ? 'p' + te.page : '', 'review', 'Total episodes (Since Last Reset). Confirm in the logbook.');
+    // AHR count = sum of the AT/AF "Episodes by Duration" buckets (Since Last Reset column):
+    // <1 min + 1m-1h + 1h-24h + 24h-48h + >48h. The Total PACs row that follows is excluded.
+    var ahr = sumByDuration();
+    if (ahr != null) set('ep-ahr', 'AHR (AT/AF/AFl)', String(ahr), 'p (Episodes by Duration)', 'review', 'Sum of AT/AF Episodes by Duration (Since Last Reset); excludes Total PACs. Confirm in the logbook.');
+    // Total Episodes form field = HVR (Since-Last-Reset total) + AHR (Episodes-by-Duration sum).
+    if (teVal !== '' || ahr != null) {
+      var epSum = (parseFloat(teVal) || 0) + (ahr != null ? ahr : 0);
+      set('ep-total', 'Total Episodes', String(epSum), 'computed (HVR + AHR)', 'review', 'HVR total episodes (Since Last Reset) + AHR Episodes-by-Duration sum.');
+    }
     mapObsAndChanges();
     flagMode();
+
+    // ---- episode / arrhythmia-log helpers ----
+    // "1.2K" / "150" -> number (the duration buckets are small ints, but be K/M tolerant).
+    function valK(s) {
+      var m = String(s).replace(/,/g, '').match(/([\d.]+)\s*([KkMm]?)/);
+      if (!m) return 0;
+      var x = parseFloat(m[1]) || 0;
+      if (/k/i.test(m[2])) x *= 1000;
+      if (/m/i.test(m[2])) x *= 1e6;
+      return x;
+    }
+    // Sum the "Episodes by Duration" rows (Since Last Reset = first value cell on each row),
+    // walking from that header to the "Total PACs" row (exclusive). null if the block is absent.
+    function sumByDuration() {
+      var start = -1;
+      for (var i = 0; i < LINES.length; i++) {
+        var l0 = LINES[i].items[0];
+        if (l0 && /^Episodes by Duration$/.test(l0.str)) { start = i; break; }
+      }
+      if (start < 0) return null;
+      var sum = 0, any = false;
+      for (var j = start + 1; j < LINES.length; j++) {
+        var lbl = (LINES[j].items[0] || {}).str || '';
+        if (/^Total\b/i.test(lbl)) break;                 // "Total PACs" — excluded, stop
+        if (/Counters$|Arrhythmia$|^Ventricular\b/i.test(lbl)) break;  // ran past the block
+        var cell = LINES[j].items.slice(1).find(function (n) { return /\d/.test(n.str); });
+        if (cell) { sum += valK(cell.str); any = true; }
+      }
+      return any ? Math.round(sum) : null;
+    }
+    // "17 May 2026 00:12" -> "2026-05-17T00:12" for the datetime-local input.
+    function dtToLocal(s) {
+      var m = String(s).match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})\s+(\d{1,2}):(\d{2})/);
+      if (!m) return '';
+      var mo = BMONTHS[m[2].toLowerCase()];
+      return mo ? (m[3] + '-' + mo + '-' + m[1].padStart(2, '0') + 'T' + m[4].padStart(2, '0') + ':' + m[5]) : '';
+    }
+    // The "Longest:" episode under "AT/AF Overview: Since Last Reset" (NOT "Reset Before Last").
+    function buildEpisodes() {
+      var out = [];
+      var start = -1;
+      for (var i = 0; i < LINES.length; i++) {
+        var l0 = LINES[i].items[0];
+        if (l0 && /^AT\/AF Overview: Since Last Reset/.test(l0.str)) { start = i; break; }
+      }
+      if (start < 0) return out;
+      for (var j = start + 1; j < LINES.length; j++) {
+        var lbl = (LINES[j].items[0] || {}).str || '';
+        if (/^AT\/AF Overview:/.test(lbl)) break;          // reached the next overview block
+        if (/^Longest:?$/.test(lbl)) {
+          var its = LINES[j].items;
+          var dtRaw = (its[1] || {}).str || '';
+          var rate = '', dur = '';
+          its.forEach(function (it) {
+            var mr = it.str.match(/Avg V Rate:\s*(\d+)/); if (mr) rate = mr[1];
+            var md = it.str.match(/Duration:\s*([\d:]+)/); if (md) dur = md[1];
+          });
+          out.push({
+            dt: dtToLocal(dtRaw),
+            dur: dur,
+            rate: rate,
+            types: ['AF/AHR']
+          });
+          break;
+        }
+      }
+      return out;
+    }
 
     GOTCHAS = [
       { tag: 'BELOW', body: '<b>Stacked header fields.</b> "Last Office Interrogation" and "Implant Date" print the value on the line <i>below</i> the label, so a right-of-label search misses them. <code>valueBelow()</code> reads the cell underneath.' },
@@ -350,7 +432,7 @@
       { tag: 'DEVICE', body: '<b>Model + serial share one cell</b> ("ACCOLADE MRI EL L331/ 254979"). Split on "/"; serial is flagged to verify.' }
     ];
 
-    return { RESULT: RESULT, GOTCHAS: GOTCHAS, LEADS: LEADS, ROUTE: ROUTE, ORDER: ORDER_DUAL };
+    return { RESULT: RESULT, GOTCHAS: GOTCHAS, LEADS: LEADS, ROUTE: ROUTE, ORDER: ORDER_DUAL, EPISODES: buildEpisodes() };
   }
 
   global.BOSTON = {
