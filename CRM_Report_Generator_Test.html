@@ -265,7 +265,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     </div>
     <div id="leadinfo-wrap" style="display:none;">
       <table class="dt">
-        <thead><tr><th style="width:18%">Lead Location</th><th style="width:16%">Lead Manufacturer</th><th>Lead Model</th><th>Lead Serial #</th><th style="width:16%">Implant Date</th></tr></thead>
+        <thead><tr><th id="li-loc-hdr" style="width:18%">Lead Location</th><th style="width:16%">Lead Manufacturer</th><th>Lead Model</th><th>Lead Serial #</th><th style="width:16%">Implant Date</th></tr></thead>
         <tbody id="leadinfo-tbody"></tbody>
       </table>
       <div class="field" style="margin-top:6px;"><span class="lbl">Notes</span><textarea id="leadinfo-notes" placeholder="Optional notes…" style="width:100%;min-height:48px;"></textarea></div>
@@ -282,10 +282,20 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
         <th style="width:26%">Parameter</th><th>Value</th><th style="width:20%">Units / Reference</th>
       </tr></thead>
       <tbody>
-        <tr>
+        <tr id="bat-lon-row">
           <td>Longevity Estimate</td>
           <td><input type="text" name="bat-lon-cur" placeholder="e.g. 4.2"></td>
           <td><select name="bat-lon-unit"><option value="years" selected>years</option><option value="months">months</option><option value="percent">percent</option></select></td>
+        </tr>
+        <tr id="bat-lon-ra-row" style="display:none;">
+          <td>RA Module Longevity</td>
+          <td><input type="text" name="bat-lon-ra-cur" placeholder="e.g. 4.2"></td>
+          <td><select name="bat-lon-ra-unit"><option value="years" selected>years</option><option value="months">months</option><option value="percent">percent</option></select></td>
+        </tr>
+        <tr id="bat-lon-rv-row" style="display:none;">
+          <td>RV Module Longevity</td>
+          <td><input type="text" name="bat-lon-rv-cur" placeholder="e.g. 4.2"></td>
+          <td><select name="bat-lon-rv-unit"><option value="years" selected>years</option><option value="months">months</option><option value="percent">percent</option></select></td>
         </tr>
         <tr id="bat-cc-row" style="display:none;">
           <td>Cap. Charge Time (ICD)</td>
@@ -629,27 +639,56 @@ function updateReprogTable() {
 // ── PACING % VISIBILITY ──
 function updatePacingPct() {
   var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
-  var has2C  = vals.some(function(v){ return ['PPM-DC','ICD-DC','CRT-P','CRT-D'].indexOf(v)>-1; });
-  // Aveir with RA chamber selected also needs A Paced %
-  if (vals.indexOf('Aveir') > -1) {
-    var aChams = Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; });
-    if (aChams.indexOf('RA') > -1) has2C = true;
+  var isAveir = vals.indexOf('Aveir') > -1;
+  var aChams = isAveir ? Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; }) : [];
+  var raSel = aChams.indexOf('RA') > -1, rvSel = aChams.indexOf('RV') > -1;
+
+  var has2C, hasCRT, hasV;
+  if (isAveir) {
+    // Aveir is leadless per-chamber: A Paced % only with an RA module, V Paced % only with an RV
+    // module. (Previously V Paced % showed even with RA-only, which was wrong.)
+    has2C  = raSel;
+    hasV   = rvSel;
+    hasCRT = false;
+  } else {
+    has2C  = vals.some(function(v){ return ['PPM-DC','ICD-DC','CRT-P','CRT-D'].indexOf(v)>-1; });
+    hasCRT = vals.some(function(v){ return v==='CRT-P'||v==='CRT-D'; });
+    hasV   = vals.some(function(v){ return v!=='S-ICD'; }) && vals.length>0;
   }
-  var hasCRT = vals.some(function(v){ return v==='CRT-P'||v==='CRT-D'; });
-  var hasV   = vals.some(function(v){ return v!=='S-ICD'; }) && vals.length>0;
   document.getElementById('pct-a-wrap').style.display   = has2C  ? '' : 'none';
   document.getElementById('pct-v-wrap').style.display   = hasV   ? '' : 'none';
   document.getElementById('pct-lv-wrap').style.display  = hasCRT ? '' : 'none';
   document.getElementById('pct-biv-wrap').style.display = hasCRT ? '' : 'none';
+  // Aveir: clear a hidden chamber's % so a stale value can't leak into the report.
+  if (isAveir) {
+    if (!has2C) { var aEl = document.getElementById('pct-a'); if (aEl) aEl.value = ''; }
+    if (!hasV)  { var vEl = document.getElementById('pct-v'); if (vEl) vEl.value = ''; }
+  }
   var lbl = document.getElementById('pct-v-lbl');
   if (lbl) lbl.textContent = hasCRT ? 'RV Paced %' : 'V Paced %';
   var note = document.getElementById('pct-note');
   if (note) {
     if (!vals.length) note.textContent = '— select device type above';
+    else if (isAveir) note.textContent = (has2C || hasV) ? [has2C?'A':null, hasV?'V':null].filter(Boolean).join(' / ') : '— select chamber(s) above';
     else if (hasCRT) note.textContent = 'A / RV / LV / BiV';
     else if (has2C)  note.textContent = 'A / V';
     else             note.textContent = 'V';
   }
+}
+
+// Aveir modules each have their own battery, so swap the single Longevity row for per-module
+// (RA/RV) rows when Aveir is selected, showing only the implanted chambers.
+function updateAveirBattery() {
+  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  var isAveir = vals.indexOf('Aveir') > -1;
+  var aChams = isAveir ? Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; }) : [];
+  var raSel = aChams.indexOf('RA') > -1, rvSel = aChams.indexOf('RV') > -1;
+  var lonRow = document.getElementById('bat-lon-row');
+  var raRow  = document.getElementById('bat-lon-ra-row');
+  var rvRow  = document.getElementById('bat-lon-rv-row');
+  if (lonRow) lonRow.style.display = isAveir ? 'none' : '';
+  if (raRow)  raRow.style.display  = (isAveir && raSel) ? '' : 'none';
+  if (rvRow)  rvRow.style.display  = (isAveir && rvSel) ? '' : 'none';
 }
 
 // ── CONDITIONALS ──
@@ -664,6 +703,7 @@ function updateConditionals() {
   rebuildLeads();
   updatePacingPct();
   updateLeadInfoTable();
+  updateAveirBattery();
   updateDynamicAV();
   var hasICD = vals.some(function(v){ return ['ICD-SC','ICD-DC','CRT-D','S-ICD'].indexOf(v)>-1; });
   var ccRow = document.getElementById('bat-cc-row');
@@ -736,10 +776,21 @@ function updateLeadInfoTable() {
   if (!yn || yn.value !== 'Yes') { wrap.style.display = 'none'; return; }
   wrap.style.display = '';
   var dtypes = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  var isAveir = dtypes.indexOf('Aveir') > -1;
+  // Aveir is leadless — the "Lead Location" column becomes "Module Location".
+  var hdr = document.getElementById('li-loc-hdr');
+  if (hdr) hdr.textContent = isAveir ? 'Module Location' : 'Lead Location';
   var locs = [];
-  dtypes.forEach(function(d) {
-    if (LEAD_INFO_LOCS[d]) LEAD_INFO_LOCS[d].forEach(function(l){ if (locs.indexOf(l)===-1) locs.push(l); });
-  });
+  if (isAveir) {
+    // One row per implanted module, driven by the RA/RV chamber checkboxes.
+    var aChams = Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; });
+    if (aChams.indexOf('RA') > -1) locs.push('RA');
+    if (aChams.indexOf('RV') > -1) locs.push('RV');
+  } else {
+    dtypes.forEach(function(d) {
+      if (LEAD_INFO_LOCS[d]) LEAD_INFO_LOCS[d].forEach(function(l){ if (locs.indexOf(l)===-1) locs.push(l); });
+    });
+  }
   if (!locs.length) locs = ['Lead 1'];
   var tb = document.getElementById('leadinfo-tbody');
   var existing = {};
@@ -946,6 +997,19 @@ function exportPDF() {
   var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ');
   var lonUnit = (document.querySelector('[name="bat-lon-unit"]')||{value:'years'}).value;
   var lonVal  = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
+  // Aveir uses per-module longevity (RA/RV) instead of the single Longevity value.
+  var isAveirDev = dtype.indexOf('Aveir') > -1;
+  function lonField(prefix, label) {
+    var cur = (document.querySelector('[name="bat-lon-'+prefix+'-cur"]')||{value:''}).value;
+    var unit = (document.querySelector('[name="bat-lon-'+prefix+'-unit"]')||{value:'years'}).value;
+    return cur ? pf(label, cur+' '+unit) : '';
+  }
+  var lonFieldsHTML = isAveirDev
+    ? (function(){
+        var ra = lonField('ra', 'RA Module Longevity'), rv = lonField('rv', 'RV Module Longevity');
+        return (ra || rv) ? (ra + rv) : pf('Longevity', '');
+      })()
+    : pf('Longevity', lonVal ? lonVal+' '+lonUnit : '');
 
   // Build lead rows HTML
   var leadRows = '';
@@ -1054,7 +1118,7 @@ function exportPDF() {
 
     + psec('Battery / Device Status',
         '<div class="row">'
-        + pf('Longevity', lonVal ? lonVal+' '+lonUnit : '')
+        + lonFieldsHTML
         + pf('Battery Status', r('bat-status'))
         + pf('Device Function', v('ap-devfx'))
         + pf('Pacing Dependency', v('ap-dep'))
@@ -1199,8 +1263,19 @@ function buildSummaryLines() {
 
   // BATTERY / DEVICE STATUS
   sPos = secStart('BATTERY / DEVICE STATUS');
-  var lonCur = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
-  add('Longevity:         ', lonCur ? lonCur + ' ' + lonUnit() : '');
+  var sumDtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  if (sumDtype.indexOf('Aveir') > -1) {
+    // Aveir: per-module longevity instead of a single value.
+    var raLonCur = (document.querySelector('[name="bat-lon-ra-cur"]')||{value:''}).value;
+    var raLonU   = (document.querySelector('[name="bat-lon-ra-unit"]')||{value:'years'}).value;
+    var rvLonCur = (document.querySelector('[name="bat-lon-rv-cur"]')||{value:''}).value;
+    var rvLonU   = (document.querySelector('[name="bat-lon-rv-unit"]')||{value:'years'}).value;
+    add('RA Module Longevity: ', raLonCur ? raLonCur + ' ' + raLonU : '');
+    add('RV Module Longevity: ', rvLonCur ? rvLonCur + ' ' + rvLonU : '');
+  } else {
+    var lonCur = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
+    add('Longevity:         ', lonCur ? lonCur + ' ' + lonUnit() : '');
+  }
   add('Battery Status:    ', radio('bat-status'));
   add('Device Function:   ', val('ap-devfx'));
   add('Pacing Dependency: ', val('ap-dep'));
