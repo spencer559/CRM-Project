@@ -1494,7 +1494,8 @@ function buildSummaryLines() {
   if (obsYN) {
     lines.push('');
     add('Observations: ', obsYN);
-    if (obsYN === 'Yes' && obsText) lines.push('    ' + obsText);
+    // indent EVERY line of multi-line text (not just the first) so wrapped notes stay aligned
+    if (obsYN === 'Yes' && obsText) obsText.split(/\r?\n/).forEach(function(t){ lines.push('    ' + t); });
   }
   lines.push('');
 
