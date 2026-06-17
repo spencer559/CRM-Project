@@ -303,7 +303,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     </div>
     <div id="leadinfo-wrap" style="display:none;">
       <table class="dt">
-        <thead><tr><th id="li-loc-hdr" style="width:18%">Lead Location</th><th style="width:16%">Lead Manufacturer</th><th>Lead Model</th><th>Lead Serial #</th><th style="width:16%">Implant Date</th></tr></thead>
+        <thead><tr><th id="li-loc-hdr" style="width:18%">Lead Location</th><th id="li-mfr-hdr" style="width:16%">Lead Manufacturer</th><th id="li-model-hdr">Lead Model</th><th id="li-serial-hdr">Lead Serial #</th><th style="width:16%">Implant Date</th></tr></thead>
         <tbody id="leadinfo-tbody"></tbody>
       </table>
       <div class="field" style="margin-top:6px;"><span class="lbl">Notes</span><textarea id="leadinfo-notes" placeholder="Optional notes…" style="width:100%;min-height:48px;"></textarea></div>
@@ -815,9 +815,17 @@ function updateLeadInfoTable() {
   wrap.style.display = '';
   var dtypes = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
   var isAveir = dtypes.indexOf('Aveir') > -1;
-  // Aveir is leadless — the "Lead Location" column becomes "Module Location".
-  var hdr = document.getElementById('li-loc-hdr');
-  if (hdr) hdr.textContent = isAveir ? 'Module Location' : 'Lead Location';
+  // Aveir is leadless — relabel the "Lead …" columns as "Module …".
+  var liHdrs = [
+    ['li-loc-hdr',    'Module Location',    'Lead Location'],
+    ['li-mfr-hdr',    'Module Manufacturer','Lead Manufacturer'],
+    ['li-model-hdr',  'Module Model',       'Lead Model'],
+    ['li-serial-hdr', 'Module Serial #',    'Lead Serial #']
+  ];
+  liHdrs.forEach(function(h){
+    var el = document.getElementById(h[0]);
+    if (el) el.textContent = isAveir ? h[1] : h[2];
+  });
   var locs = [];
   if (isAveir) {
     // One row per implanted module, driven by the RA/RV chamber checkboxes.
