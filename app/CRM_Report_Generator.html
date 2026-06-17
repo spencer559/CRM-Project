@@ -2,6 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<!-- Content-Security-Policy: PHI cannot leave the browser. connect-src 'none' blocks every
+     network request (fetch/XHR/beacon/WebSocket), so no script — ours or a dependency — can
+     exfiltrate patient data. All scripts/styles are same-origin (pdf.js is vendored locally);
+     'unsafe-inline' is required only because the form uses inline event handlers + <script>
+     blocks, and it does not permit any network egress. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CRM Interrogation — Digital Form</title>
 
@@ -1555,11 +1561,14 @@ loadSaved();
 </style>
 
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="engine.js"></script>
-<script src="medtronic.js"></script>
-<script src="boston.js"></script>
-<script src="abbott.js"></script>
+<!-- pdf.js is vendored locally (not pulled from a CDN at runtime) so no third-party script ever
+     runs in the same context as PHI, and the page makes no external network requests. -->
+<script src="../vendor/pdf.min.js"></script>
+<script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '../vendor/pdf.worker.min.js';</script>
+<script src="../src/engine.js"></script>
+<script src="../src/parsers/medtronic.js"></script>
+<script src="../src/parsers/boston.js"></script>
+<script src="../src/parsers/abbott.js"></script>
 <script>
 /* PDF → CRM form auto-fill. Reuses the form's own update functions so toggles,
    lead rows and pacing-% visibility behave exactly as for manual entry. */
@@ -1656,6 +1665,10 @@ loadSaved();
     }
     setStatus('Reading ' + file.name + ' …');
     try {
+      // Force the locally-vendored worker (never the CDN). Set here, at point of use, so it can't
+      // be missed by script load-order — otherwise pdf.js falls back to a default/CDN worker URL
+      // which the Content-Security-Policy (correctly) blocks.
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '../vendor/pdf.worker.min.js';
       var buf = await file.arrayBuffer();
       var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       var items = await Engine.extractItems(pdf);

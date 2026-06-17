@@ -21,17 +21,16 @@
 
   var TOL = 3; // y-tolerance (pt) for grouping items into one line
 
-  /* ---------- pdf.js worker: blob-from-CDN so it also survives a
-       sandbox iframe; falls back to direct workerSrc (file:// / https). ---------- */
+  /* ---------- pdf.js worker (self-hosted, no CDN) ----------
+       Point the worker at the locally-vendored pdf.worker.min.js. We derive its URL from the
+       page's own <script src=".../pdf.min.js"> tag, so it resolves correctly no matter what
+       folder the host page lives in (app/, tools/, …). If the page already set workerSrc
+       explicitly, we leave it alone. No network fetch — works under a strict CSP. */
   function initWorker() {
     if (typeof pdfjsLib === 'undefined') return;
-    var url = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    fetch(url).then(function (r) { return r.text(); }).then(function (code) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
-    }).catch(function () {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = url; // direct works for file:// and https
-    });
+    if (pdfjsLib.GlobalWorkerOptions.workerSrc) return; // page set it explicitly — respect that
+    var s = document.querySelector('script[src$="pdf.min.js"]');
+    if (s) pdfjsLib.GlobalWorkerOptions.workerSrc = s.src.replace(/pdf\.min\.js(\?|$)/, 'pdf.worker.min.js$1');
   }
 
   /* ---------- pdf -> flat text items ---------- */

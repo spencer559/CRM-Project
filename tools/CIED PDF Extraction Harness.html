@@ -167,10 +167,10 @@ td.pg{color:#aaa;width:44px}
 
 <div class="toast" id="toast"></div>
 
-<!-- pdf.js (UMD). Loaded from cdnjs at runtime in YOUR browser — no data leaves the machine. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- pdf.js (UMD), vendored locally at ../vendor — no CDN, no data leaves the machine. -->
+<script src="../vendor/pdf.min.js"></script>
 <!-- shared engine (worker loader, normalize, probe primitive, vendor sigs, utils) -->
-<script src="engine.js"></script>
+<script src="../src/engine.js"></script>
 <script>
 /* =====================================================================
    CIED PDF EXTRACTION HARNESS — page glue.

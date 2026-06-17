@@ -27,24 +27,47 @@ Supported inputs:
 
 ## Project layout
 
-| File | Role |
+```
+index.html                          Landing page (links to the app + archive)
+app/
+  CRM_Report_Generator.html         THE ACTIVE APP — edit this one
+src/
+  engine.js                         Shared PDF extraction engine + anchor helpers + cleaners
+  parsers/
+    medtronic.js                    Medtronic PDF parser  → window.MEDTRONIC.runMap(LINES, META)
+    boston.js                       Boston Scientific PDF  → window.BOSTON.runMap(LINES, META)
+    abbott.js                       Abbott Merlin .log     → window.ABBOTT.runLog(text)
+vendor/
+  pdf.min.js  pdf.worker.min.js     Vendored pdf.js 3.11.174 (self-hosted, not a CDN)
+assets/
+  wallpaperflare.com_wallpaper.jpg  Landing-page background
+tools/
+  CIED PDF Extraction Harness.html  Dump a PDF's text items (parser authoring/debugging)
+  CIED_Medtronic_Parser_Preview_v2.html   Older preview harness
+archive/
+  CRM_Report_Generator.html         Older variant, not maintained
+```
+
+**Path conventions:** the app lives in `app/`, so its includes are relative — `../src/engine.js`,
+`../src/parsers/*.js`, `../vendor/pdf.min.js`, and `pdfjsLib.GlobalWorkerOptions.workerSrc =
+'../vendor/pdf.worker.min.js'`. The two dev tools in `tools/` use the same `../src` / `../vendor`
+prefixes. Test fixtures (`Abbott Test Cases/`) stay local and are git-ignored.
+
+| Component | Role |
 |---|---|
-| `CRM_Report_Generator_Test.html` | **The active app.** The whole form UI, auto-fill drop panel, `prefillForm`, lead tables, report builders, save/restore. Edit this one. |
-| `CRM_Report_Generator.html` | Older variant, not actively maintained. |
-| `engine.js` | Shared **PDF extraction engine** (pdf.js based) + anchor helpers + cleaners. Used by the PDF vendors. |
-| `medtronic.js` | Medtronic PDF parser → `window.MEDTRONIC.runMap(LINES, META)` |
-| `boston.js` | Boston Scientific PDF parser → `window.BOSTON.runMap(LINES, META)` |
-| `abbott.js` | Abbott Merlin **.log** parser → `window.ABBOTT.runLog(text)` |
-| `CIED PDF Extraction Harness.html` | Standalone tool to dump a PDF's text items (useful for authoring/adjusting parsers). |
-| `CIED_Medtronic_Parser_Preview_v2.html` | Older preview harness. |
-| `index.html` | Landing page. |
+| `app/CRM_Report_Generator.html` | **The active app.** Form UI, auto-fill drop panel, `prefillForm`, lead tables, report builders, save/restore, JSON import/export. |
+| `src/engine.js` | Shared **PDF extraction engine** (pdf.js based) + anchor helpers + cleaners. |
+| `src/parsers/medtronic.js` | Medtronic PDF parser → `window.MEDTRONIC.runMap(LINES, META)` |
+| `src/parsers/boston.js` | Boston Scientific PDF parser → `window.BOSTON.runMap(LINES, META)` |
+| `src/parsers/abbott.js` | Abbott Merlin **.log** parser → `window.ABBOTT.runLog(text)` |
+| `vendor/` | Self-hosted pdf.js (no runtime CDN dependency). |
 
 ---
 
 ## How it works (data flow)
 
 ```
-file dropped → handleFile(file)               [in CRM_Report_Generator_Test.html]
+file dropped → handleFile(file)               [in app/CRM_Report_Generator.html]
    ├─ .log / .txt  → ABBOTT.runLog(text)       (read as text, BOM/encoding-aware)
    └─ .pdf         → pdf.js → Engine.extractItems → Engine.normalize → Engine.tagSections
                      → Engine.guessVendor → PARSERS[vendor].runMap(LINES)
@@ -133,7 +156,7 @@ lead-rv-coil-imp, lead-svc-coil-imp, ep-af-burden, ep-hvr, obs-yn, obs-text, rp-
 
 ---
 
-## Form / UI features (in `CRM_Report_Generator_Test.html`)
+## Form / UI features (in `CRM_Report_Generator.html` (in `app/`))
 
 - **Auto-fill drop panel** accepts PDF (Medtronic/Boston) and `.log` (Abbott).
 - **Force "New Patient" on every import** — `resetFormState()` clears the form in-memory (no page reload, which would abort the file read) so nothing from a prior patient lingers.
@@ -167,19 +190,5 @@ lead-rv-coil-imp, lead-svc-coil-imp, ep-af-burden, ep-hvr, obs-yn, obs-text, rp-
 
 ## Testing / continuing the work
 
-- **Manual:** open `CRM_Report_Generator_Test.html` locally (or on the Pages site) and drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
-- **PDF authoring:** use `CIED PDF Extraction Harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor `.js`.
-- **Headless checks:** the parser logic is plain JS and can be exercised in Node by `eval`-ing the vendor file (with `globalThis.window = globalThis`) and feeding it a reconstructed `LINES` array (PDF) or raw `.log` text. Since the browser can't be driven in a quick dev loop, that's the fastest way to verify a change against a sample before clicking through the form.
-
-### To add a new vendor
-1. Add a parser file exposing `runMap(LINES)` (PDF) or a text entry point (like Abbott's `runLog`), returning the `{RESULT, LEADS, ROUTE, ORDER, GOTCHAS}` bundle with the field keys above.
-2. Register it: PDF vendors go in `Engine.VENDORS` + the `PARSERS` map in the HTML; a text format gets its own branch in `handleFile`.
-3. Add the `<script src>` include in `CRM_Report_Generator_Test.html`.
-
----
-
-## Privacy note
-
-This repo is a **public** GitHub Pages site.
-- Keep patient data (names, DOBs, device serial numbers, raw vendor exports) out of anything committed. Sample/scratch files used for testing should stay local or be `.gitignore`d.
-- The app itself never transmits data — all parsing happens in the browser.
+- **Manual:** open `app/CRM_Report_Generator.html` locally (or on the Pages site) and drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
+- **PDF authoring:** use `tools/CIED PDF Extraction Harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parse

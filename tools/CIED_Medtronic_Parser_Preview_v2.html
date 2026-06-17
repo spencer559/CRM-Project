@@ -108,10 +108,10 @@ tbody tr:last-child td{border-bottom:none}
 <div class="toast" id="toast"></div>
 
 <!-- pdf.js (UMD) loaded at runtime in YOUR browser — no data leaves the machine. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="../vendor/pdf.min.js"></script>
 <!-- shared engine + the Medtronic vendor map (classic scripts; work over file:// and http) -->
-<script src="engine.js"></script>
-<script src="medtronic.js"></script>
+<script src="../src/engine.js"></script>
+<script src="../src/parsers/medtronic.js"></script>
 <script>
 /* =====================================================================
    PAGE GLUE — Medtronic SmartSync preview v2 (device-class routing).

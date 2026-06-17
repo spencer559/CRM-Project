@@ -23,7 +23,7 @@
 
    FIELD KEYS match medtronic.js exactly (the form input names):
      dual-chamber -> lead-ra-* / lead-rv-*  (lowercase chamber)
-   so prefillForm() in CRM_Report_Generator_Test.html fills them with no
+   so prefillForm() in CRM_Report_Generator.html fills them with no
    vendor-specific code. The manufacturer radio value is "BSc".
    ===================================================================== */
 (function (global) {
