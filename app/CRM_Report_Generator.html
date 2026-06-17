@@ -246,7 +246,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="nav-group-lbl">Review</div>
   <a class="nav-item" id="nav-episodes" href="#s-episodes" onclick="return navTo('s-episodes')"><span class="nav-dot"></span>Episode Log</a>
   <div class="nav-group-lbl">Documentation</div>
-  <a class="nav-item" id="nav-reprog" href="#s-reprog" onclick="return navTo('s-reprog')"><span class="nav-dot"></span>Reprogramming / Obs.</a>
+  <a class="nav-item" id="nav-reprog" href="#s-reprog" onclick="return navTo('s-reprog')"><span class="nav-dot"></span>Reprogramming</a>
   <a class="nav-item" id="nav-remote" href="#s-remote" onclick="return navTo('s-remote')"><span class="nav-dot"></span>Remote Monitoring</a>
   <a class="nav-item" id="nav-ap" href="#s-ap" onclick="return navTo('s-ap')"><span class="nav-dot"></span>Assessment &amp; Plan</a>
 </nav>
@@ -440,12 +440,20 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <tbody id="ep-tbody"></tbody>
     </table>
     <button class="add-btn" onclick="addEpRow()">+ Add Episode</button>
+    <div class="sub-lbl" style="margin-top:12px;">Observations</div>
+    <div class="cbg" style="margin-bottom:6px;">
+      <label class="cbl"><input type="radio" name="obs-yn" value="Yes" onchange="updateObservations()"> Yes</label>
+      <label class="cbl"><input type="radio" name="obs-yn" value="N/A" onchange="updateObservations()"> N/A</label>
+    </div>
+    <div id="obs-text-wrap" style="display:none;">
+      <textarea id="obs-text" placeholder="Enter observations…" style="width:100%;min-height:64px;"></textarea>
+    </div>
   </div>
 </div>
 
 <!-- §8 REPROGRAMMING / OBSERVATIONS -->
 <div class="section" id="s-reprog">
-  <div class="sec-hdr">Reprogramming / Observations</div>
+  <div class="sec-hdr">Reprogramming</div>
   <div class="sec-body">
     <div class="cbg" style="margin-bottom:8px;">
       <span class="cbg-lbl">Changes made this visit:</span>
@@ -458,14 +466,6 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <tbody id="rp-tbody"></tbody>
     </table>
     <button class="add-btn" onclick="addRpRow()">+ Add Parameter Change</button>
-    </div>
-    <div class="sub-lbl" style="margin-top:10px;">Observations</div>
-    <div class="cbg" style="margin-bottom:6px;">
-      <label class="cbl"><input type="radio" name="obs-yn" value="Yes" onchange="updateObservations()"> Yes</label>
-      <label class="cbl"><input type="radio" name="obs-yn" value="N/A" onchange="updateObservations()"> N/A</label>
-    </div>
-    <div id="obs-text-wrap" style="display:none;">
-      <textarea id="obs-text" placeholder="Enter observations…" style="width:100%;min-height:64px;"></textarea>
     </div>
   </div>
 </div>
@@ -1346,15 +1346,16 @@ function buildSummaryLines() {
     else lines.push('');
   }
 
-  // DEVICE
+  // DEVICE — compact, pipe-separated like the lead-info lines (Provider now lives under REPROGRAMMING)
   var sPos = secStart('DEVICE');
   var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ');
-  add('Type:         ', dtype);
-  add('Manufacturer: ', radio('mfr'));
-  add('Model:        ', val('dev-model'));
-  add('Serial:       ', val('dev-serial'));
-  add('Implant Date: ', val('dev-implant'));
-  add('Provider:     ', val('pt-provider'));
+  var devParts = [];
+  if (dtype)            devParts.push(dtype);
+  if (radio('mfr'))     devParts.push('Mfr: ' + radio('mfr'));
+  if (val('dev-model')) devParts.push('Model: ' + val('dev-model'));
+  if (val('dev-serial'))devParts.push('Serial: ' + val('dev-serial'));
+  if (val('dev-implant'))devParts.push('Implant: ' + val('dev-implant'));
+  if (devParts.length) lines.push('  ' + devParts.join('  |  '));
   secEnd(sPos);
 
   // LEAD INFORMATION (only if Yes)
@@ -1394,18 +1395,30 @@ function buildSummaryLines() {
     var lonCur = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
     add('Longevity:         ', lonCur ? lonCur + ' ' + lonUnit() : '');
   }
+  // Programmed mode + rates now live in this section (the standalone PROGRAMMED PARAMETERS
+  // section was folded into BATTERY for the text/clipboard report).
+  add('Mode:              ', val('p-mode'));
+  // LRL / UTR / USR on one pipe-separated line (only the values that are present)
+  var rateParts = [];
+  if (val('p-lrl')) rateParts.push('LRL: ' + val('p-lrl') + ' bpm');
+  if (val('p-utr')) rateParts.push('UTR: ' + val('p-utr') + ' bpm');
+  if (val('p-usr')) rateParts.push('USR: ' + val('p-usr') + ' bpm');
+  if (rateParts.length) lines.push('  ' + rateParts.join('  |  '));
   add('Battery Status:    ', radio('bat-status'));
   add('Device Function:   ', val('ap-devfx'));
   add('Pacing Dependency: ', val('ap-dep'));
   add('Intrinsic Rhythm:  ', val('ap-rhythm'));
-  var pctA = document.getElementById('pct-a') ? document.getElementById('pct-a').value : '';
-  var pctV = document.getElementById('pct-v') ? document.getElementById('pct-v').value : '';
-  add('A Paced %:         ', pctA);
-  add('V Paced %:         ', pctV);
+  // A / V / LV / BiV Paced % on one pipe-separated line (BiV included only when present)
+  var pctA   = document.getElementById('pct-a')   ? document.getElementById('pct-a').value   : '';
+  var pctV   = document.getElementById('pct-v')   ? document.getElementById('pct-v').value   : '';
   var pctLV  = document.getElementById('pct-lv')  ? document.getElementById('pct-lv').value  : '';
   var pctBiV = document.getElementById('pct-biv') ? document.getElementById('pct-biv').value : '';
-  add('LV Paced %:        ', pctLV);
-  add('BiV Paced %:       ', pctBiV);
+  var pctParts = [];
+  if (pctA)   pctParts.push('A Paced %: ' + pctA);
+  if (pctV)   pctParts.push('V Paced %: ' + pctV);
+  if (pctLV)  pctParts.push('LV Paced %: ' + pctLV);
+  if (pctBiV) pctParts.push('BiV Paced %: ' + pctBiV);
+  if (pctParts.length) lines.push('  ' + pctParts.join('  |  '));
   secEnd(sPos);
 
   // LEAD / ELECTRODE MEASUREMENTS
@@ -1433,8 +1446,8 @@ function buildSummaryLines() {
     lines.push('');
   }
 
-  // STORED EPISODES
-  lines.push('STORED EPISODES');
+  // STORED EPISODES / OBSERVATIONS
+  lines.push('STORED EPISODES / OBSERVATIONS');
   var epTotal    = val('ep-total');
   var epAFBurden = val('ep-af-burden');
   var epAHR      = val('ep-ahr');
@@ -1475,13 +1488,19 @@ function buildSummaryLines() {
     if (notes) lines.push('       Notes: ' + notes);
   });
   if (!hasEpData) lines.push('  No episodes recorded.');
+  // Observations (moved here from the Reprogramming section) — one blank line separates it from the log
+  var obsYN   = radio('obs-yn');
+  var obsText = val('obs-text');
+  if (obsYN) {
+    lines.push('');
+    add('Observations: ', obsYN);
+    if (obsYN === 'Yes' && obsText) lines.push('    ' + obsText);
+  }
   lines.push('');
 
-  // REPROGRAMMING / OBSERVATIONS
-  var obsYN    = radio('obs-yn');
-  var obsText  = val('obs-text');
+  // REPROGRAMMING
   var rpChgTxt = radio('rp-chg');
-  sPos = secStart('REPROGRAMMING / OBSERVATIONS');
+  sPos = secStart('REPROGRAMMING');
   add('Changes this visit: ', rpChgTxt);
   if (rpChgTxt === 'Yes') {
     document.querySelectorAll('#rp-tbody tr').forEach(function(tr) {
@@ -1498,20 +1517,7 @@ function buildSummaryLines() {
       lines.push('    ' + rp.join('  '));
     });
   }
-  add('Observations: ', obsYN);
-  if (obsYN === 'Yes' && obsText) lines.push('    ' + obsText);
-  secEnd(sPos);
-
-  // PROGRAMMED PARAMETERS
-  sPos = secStart('PROGRAMMED PARAMETERS');
-  add('Mode:         ', val('p-mode'));
-  add('LRL:          ', val('p-lrl') ? val('p-lrl') + ' bpm' : '');
-  add('UTR:          ', val('p-utr') ? val('p-utr') + ' bpm' : '');
-  add('USR:          ', val('p-usr') ? val('p-usr') + ' bpm' : '');
-  add('Sensed AV:    ', val('p-sav') ? (val('p-sav-hi') ? val('p-sav')+' - '+val('p-sav-hi')+' ms' : val('p-sav')+' ms') : '');
-  add('Paced AV:     ', val('p-pav') ? (val('p-pav-hi') ? val('p-pav')+' - '+val('p-pav-hi')+' ms' : val('p-pav')+' ms') : '');
-  add('Mode Switch:  ', val('p-ms'));
-  add('MS Rate:      ', val('p-msrate') ? val('p-msrate') + ' bpm' : '');
+  add('Provider:           ', val('pt-provider'));
   secEnd(sPos);
 
   // REMOTE MONITORING
