@@ -147,6 +147,32 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 .ep-cbg { gap: 2px 7px; padding: 1px 0; flex-wrap: nowrap; }
 .ep-grp-lbl { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--navy); opacity: .65; width: 22px; flex-shrink: 0; }
 
+/* RESPONSIVE / MOBILE (phones + tablets) */
+@media (max-width: 820px) {
+  html { font-size: 12px; -webkit-text-size-adjust: 100%; }
+  /* drop the fixed sidebar and reclaim the full width for the form */
+  .sidebar { display: none; }
+  .main { margin-left: 0; padding: 54px 10px 40px; }
+  .form-body { max-width: none; }
+  /* dense multi-column field grids reflow to whatever fits the screen */
+  .sec-body .fg { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important; }
+  /* wide data tables scroll horizontally inside their card instead of bursting the layout */
+  .sec-body { padding: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* larger tap targets + 16px prevents iOS auto-zoom on focus for the main stacked fields */
+  .field input, .field select { font-size: 16px; height: 32px; }
+  .field textarea { font-size: 16px; }
+  /* app bar: tighter and horizontally scrollable so every action stays reachable */
+  .app-bar { padding: 0 8px; gap: 8px; overflow-x: auto; }
+  .app-bar-title { font-size: 11px; }
+  .app-bar .btn { padding: 5px 9px; font-size: 9.5px; flex-shrink: 0; }
+  /* auto-fill panel flows inline at the top of the form (full width, not floated) */
+  #pdf-drop-panel { position: static; width: auto; margin: 0 0 14px; box-shadow: none; }
+}
+@media (max-width: 460px) {
+  .app-bar .btn svg { display: none; }   /* icon-only would be ambiguous — keep labels, drop glyphs */
+  .app-bar .btn { padding: 5px 7px; letter-spacing: 0; }
+}
+
 /* PRINT */
 @media print {
   @page { size: letter; margin: .45in .5in; }
@@ -211,6 +237,18 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <main class="main">
 <div class="form-body">
+
+<!-- PDF/.log auto-fill panel. Desktop: position:fixed top-right (DOM location irrelevant).
+     Mobile/tablet: flows inline here at the top of the form. -->
+<div id="pdf-drop-panel">
+  <div class="pdp-title">⬇ Auto-fill from PDF / .log</div>
+  <div id="pdp-drop">
+    <div class="pdp-big">Drop PDF or Abbott .log</div>
+    <div class="pdp-small">Medtronic / Boston PDF · Abbott .log · runs locally</div>
+  </div>
+  <input type="file" id="pdp-file" accept="application/pdf,.log,.txt" style="display:none">
+  <div id="pdp-status"></div>
+</div>
 
 <!-- §1 PATIENT & DEVICE -->
 <div class="section" id="s-patient">
@@ -1442,15 +1480,6 @@ loadSaved();
 @media print{ #pdf-drop-panel{ display:none !important; } }
 </style>
 
-<div id="pdf-drop-panel">
-  <div class="pdp-title">⬇ Auto-fill from PDF / .log</div>
-  <div id="pdp-drop">
-    <div class="pdp-big">Drop PDF or Abbott .log</div>
-    <div class="pdp-small">Medtronic / Boston PDF · Abbott .log · runs locally</div>
-  </div>
-  <input type="file" id="pdp-file" accept="application/pdf,.log,.txt" style="display:none">
-  <div id="pdp-status"></div>
-</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="engine.js"></script>
