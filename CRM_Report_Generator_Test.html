@@ -44,6 +44,11 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .btn-danger { background: #fff; color: #b03030; border-color: #dbb; }
 .btn-danger:hover { background: #fdf0f0; }
 
+/* JSON import/export dropdown */
+.json-dd { position: fixed; min-width: 134px; background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.16); z-index: 400; overflow: hidden; padding: 3px 0; }
+.json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; }
+.json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
+
 /* SIDEBAR */
 .sidebar {
   position: fixed; top: 44px; left: 0; bottom: 0; width: 186px;
@@ -208,10 +213,15 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0L5 7m3 3l3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="2" y="11" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
       Export .txt
     </button>
-    <button class="btn btn-ghost" onclick="window.print()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="1" y="6" width="14" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M4 6V2.5A.5.5 0 014.5 2h7a.5.5 0 01.5.5V6" stroke="currentColor" stroke-width="1.4"/><rect x="4" y="10" width="8" height="1.2" rx=".6" fill="currentColor"/><rect x="4" y="12" width="5" height="1.2" rx=".6" fill="currentColor"/></svg>
-      Print
+    <button class="btn btn-ghost" onclick="toggleJsonMenu(event)">
+      JSON
+      <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
+    <div id="json-dropdown" class="json-dd" style="display:none;">
+      <button class="json-dd-item" onclick="importJSON()">Import JSON…</button>
+      <button class="json-dd-item" onclick="exportJSON()">Export JSON</button>
+    </div>
+    <input type="file" id="json-import-file" accept="application/json,.json" style="display:none" onchange="onJsonFileChosen(event)">
     <button class="btn btn-primary" onclick="exportPDF()">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 1h6l3 3v10a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4"/><path d="M9 1v4h3" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5 9h6M5 11.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
       Save PDF
@@ -895,7 +905,9 @@ function scheduleSave() {
   saveTimer = setTimeout(doSave, 900);
 }
 
-function doSave() {
+// Serialize the whole form to a plain key/value object (same shape used by autosave + restore,
+// so an exported JSON round-trips cleanly back into the form).
+function collectFormData() {
   var d = { __ep: epN, __rp: rpN };
   document.querySelectorAll('input, select, textarea').forEach(function(el) {
     if (el.type === 'radio') { if (el.checked) d['r:' + el.name] = el.value; }
@@ -907,6 +919,11 @@ function doSave() {
       d[key] = el.value;
     }
   });
+  return d;
+}
+
+function doSave() {
+  var d = collectFormData();
   try {
     localStorage.setItem('crm-digital', JSON.stringify(d));
     var t = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
@@ -923,7 +940,11 @@ function loadSaved() {
   if (!raw) return;
   var d;
   try { d = JSON.parse(raw); } catch(e) { return; }
+  applyFormData(d);
+}
 
+// Apply a serialized form object (from autosave or an imported .json) back into the form.
+function applyFormData(d) {
   // rebuild dynamic rows first
   var ep = Math.max(d.__ep || 1, 0);
   var rp = Math.max(d.__rp || 3, 0);
@@ -1253,6 +1274,51 @@ function exportSummary() {
   var ptName = (document.getElementById('pt-name')||{value:''}).value.replace(/[^a-zA-Z]/g,'_') || 'Record';
   a.download = 'CRM_' + ptName + '_' + new Date().toISOString().slice(0,10) + '.txt';
   a.click();
+}
+
+function exportJSON() {
+  var blob = new Blob([JSON.stringify(collectFormData(), null, 2)], {type:'application/json'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  var ptName = (document.getElementById('pt-name')||{value:''}).value.replace(/[^a-zA-Z]/g,'_') || 'Record';
+  a.download = 'CRM_' + ptName + '_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+}
+
+// ── JSON menu (Import / Export) ──
+function toggleJsonMenu(e) {
+  e.stopPropagation();
+  var dd = document.getElementById('json-dropdown');
+  if (!dd) return;
+  if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
+  // position:fixed so the menu escapes the app bar's overflow clipping (esp. on mobile)
+  var r = e.currentTarget.getBoundingClientRect();
+  dd.style.top = (r.bottom + 4) + 'px';
+  dd.style.right = (window.innerWidth - r.right) + 'px';
+  dd.style.display = 'block';
+}
+document.addEventListener('click', function() {
+  var dd = document.getElementById('json-dropdown');
+  if (dd) dd.style.display = 'none';
+});
+
+function importJSON() {
+  var inp = document.getElementById('json-import-file');
+  if (inp) { inp.value = ''; inp.click(); }   // reset so re-importing the same file fires change
+}
+function onJsonFileChosen(e) {
+  var file = e.target.files && e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function() {
+    var d;
+    try { d = JSON.parse(reader.result); }
+    catch(err) { alert('Could not read that file as JSON: ' + err.message); return; }
+    if (typeof resetFormState === 'function') resetFormState();   // clear old data first
+    applyFormData(d);
+    if (typeof scheduleSave === 'function') scheduleSave();
+  };
+  reader.readAsText(file);
 }
 
 function buildSummaryLines() {
