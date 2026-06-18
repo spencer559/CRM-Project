@@ -1324,23 +1324,46 @@ function exportPDF() {
   }
 }
 
-function exportSummary() {
-  var lines = buildSummaryLines();
-  var blob = new Blob([lines.join('\n')], {type:'text/plain'});
+// Save a file letting the user choose where, using the best mechanism the platform offers:
+//   1. showSaveFilePicker  — true "Save As" dialog (Chrome/Edge desktop, Android Chrome)
+//   2. navigator.share     — iOS/Safari share sheet → "Save to Files" (pick folder / USB / iCloud)
+//   3. classic <a download> — fallback (downloads to the browser's default folder)
+// Must run from a user gesture (button click) so the picker/share sheet is allowed.
+async function saveFile(filename, text, mime) {
+  var blob = new Blob([text], { type: mime });
+  if (window.showSaveFilePicker) {
+    try {
+      var accept = {}; accept[mime] = ['.' + filename.split('.').pop()];
+      var handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: mime, accept: accept }] });
+      var writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (e) { if (e && e.name === 'AbortError') return; }   // cancelled — stop; else fall through
+  }
+  try {
+    if (navigator.canShare) {
+      var file = new File([blob], filename, { type: mime });
+      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: filename }); return; }
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }       // cancelled the share sheet
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  var ptName = (document.getElementById('pt-name')||{value:''}).value.replace(/[^a-zA-Z]/g,'_') || 'Record';
-  a.download = 'CRM_' + ptName + '_' + new Date().toISOString().slice(0,10) + '.txt';
+  a.download = filename;
   a.click();
 }
 
-function exportJSON() {
-  var blob = new Blob([JSON.stringify(collectFormData(), null, 2)], {type:'application/json'});
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+function fileStamp(ext) {
   var ptName = (document.getElementById('pt-name')||{value:''}).value.replace(/[^a-zA-Z]/g,'_') || 'Record';
-  a.download = 'CRM_' + ptName + '_' + new Date().toISOString().slice(0,10) + '.json';
-  a.click();
+  return 'CRM_' + ptName + '_' + new Date().toISOString().slice(0,10) + '.' + ext;
+}
+
+function exportSummary() {
+  return saveFile(fileStamp('txt'), buildSummaryLines().join('\n'), 'text/plain');
+}
+
+function exportJSON() {
+  return saveFile(fileStamp('json'), JSON.stringify(collectFormData(), null, 2), 'application/json');
 }
 
 // ── JSON menu (Import / Export) ──
