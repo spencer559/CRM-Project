@@ -945,6 +945,9 @@ function scheduleSave() {
 function collectFormData() {
   var d = { __ep: epN, __rp: rpN };
   document.querySelectorAll('input, select, textarea').forEach(function(el) {
+    if (el.type === 'file') return;                 // file inputs can't be restored (browser security)
+    if (!el.id && !el.name) return;                 // dynamic lead-table cells ride in __leadinfo instead
+    if (/^pdp-/.test(el.id) || el.id === 'json-import-file') return;  // auto-fill tool controls, not form data
     if (el.type === 'radio') { if (el.checked) d['r:' + el.name] = el.value; }
     else if (el.type === 'checkbox') {
       var key = el.id ? 'c:' + el.id : 'cx:' + el.name + ':' + el.value;
@@ -1032,10 +1035,12 @@ function applyFormData(d) {
         document.querySelectorAll('input[name="'+parts[0]+'"][value="'+parts[1]+'"]').forEach(function(el){ el.checked = val; });
       } else if (key.startsWith('n:')) {
         var el = document.querySelector('[name="' + key.slice(2) + '"]:not([type=radio]):not([type=checkbox])');
-        if (el) el.value = val;
+        if (el && el.type !== 'file') { try { el.value = val; } catch(e){} }
       } else {
         var el = document.getElementById(key);
-        if (el && el.type !== 'radio' && el.type !== 'checkbox') el.value = val;
+        // skip file inputs — setting input[type=file].value to a non-empty string throws (browser
+        // security), which would otherwise abort the whole restore on a legacy export.
+        if (el && el.type !== 'radio' && el.type !== 'checkbox' && el.type !== 'file') { try { el.value = val; } catch(e){} }
       }
     });
   }
