@@ -375,8 +375,11 @@
         var lbl = (LINES[j].items[0] || {}).str || '';
         if (/^Total\b/i.test(lbl)) break;                 // "Total PACs" — excluded, stop
         if (/Counters$|Arrhythmia$|^Ventricular\b/i.test(lbl)) break;  // ran past the block
-        var cell = LINES[j].items.slice(1).find(function (n) { return /\d/.test(n.str); });
-        if (cell) { sum += valK(cell.str); any = true; }
+        // Episodes by Duration sits in the "Reset Before Last | Since Last Reset" block, so the
+        // Since-Last-Reset value is the RIGHTMOST numeric cell — NOT the first (that's Reset
+        // Before Last). When a device was never reset there is just one cell, also the rightmost.
+        var nums = LINES[j].items.slice(1).filter(function (n) { return /\d/.test(n.str); });
+        if (nums.length) { sum += valK(nums[nums.length - 1].str); any = true; }
       }
       return any ? Math.round(sum) : null;
     }
