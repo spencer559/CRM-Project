@@ -428,18 +428,27 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 <div class="section" id="s-episodes">
   <div class="sec-hdr">Stored Episodes / Arrhythmia Log</div>
   <div class="sec-body">
-    <div class="fg" style="grid-template-columns: 110px 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
-      <div class="field"><span class="lbl">Total Episodes</span><input type="number" id="ep-total" min="0"></div>
+    <div class="fg" style="grid-template-columns: 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="ep-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
       <div class="field"><span class="lbl">AHR <span class="sub-note">(AT / AF / AFl)</span></span><input type="number" id="ep-ahr" min="0"></div>
       <div class="field"><span class="lbl">HVR <span class="sub-note">(VT / VF / NS-VT)</span></span><input type="number" id="ep-hvr" min="0"></div>
       <div class="field"><span class="lbl">PMT</span><input type="number" id="ep-pmt" min="0"></div>
     </div>
+    <div class="cbg" style="margin-bottom:8px;">
+      <span class="cbg-lbl">Episode entry:</span>
+      <label class="cbl"><input type="radio" name="ep-mode" value="logbook" checked onchange="updateEpMode()"> Logbook</label>
+      <label class="cbl"><input type="radio" name="ep-mode" value="freetext" onchange="updateEpMode()"> Free text</label>
+    </div>
+    <div id="ep-logbook-wrap">
     <table class="dt">
       <thead><tr><th style="width:18px">#</th><th style="min-width:128px">Date / Time</th><th>Episode Type</th><th>Duration</th><th>Max Rate</th><th>Therapy</th><th>Approp.?</th><th>Notes</th><th style="width:16px"></th></tr></thead>
       <tbody id="ep-tbody"></tbody>
     </table>
     <button class="add-btn" onclick="addEpRow()">+ Add Episode</button>
+    </div>
+    <div id="ep-freetext-wrap" style="display:none;">
+      <textarea id="ep-freetext" placeholder="Enter episodes / arrhythmia summary as free text…" style="width:100%;min-height:120px;"></textarea>
+    </div>
     <div class="sub-lbl" style="margin-top:12px;">Observations</div>
     <div class="cbg" style="margin-bottom:6px;">
       <label class="cbl"><input type="radio" name="obs-yn" value="Yes" onchange="updateObservations()"> Yes</label>
@@ -662,6 +671,17 @@ function updateObservations() {
   var yes = document.querySelector('input[name="obs-yn"][value="Yes"]');
   var wrap = document.getElementById('obs-text-wrap');
   if (wrap) wrap.style.display = (yes && yes.checked) ? '' : 'none';
+}
+
+// ── EPISODE ENTRY MODE (Logbook table vs Free text) ──
+// Default is the logbook table. "Free text" swaps it for a single textarea.
+function updateEpMode() {
+  var m = document.querySelector('input[name="ep-mode"]:checked');
+  var free = !!(m && m.value === 'freetext');
+  var lb = document.getElementById('ep-logbook-wrap');
+  var ft = document.getElementById('ep-freetext-wrap');
+  if (lb) lb.style.display = free ? 'none' : '';
+  if (ft) ft.style.display = free ? '' : 'none';
 }
 
 // ── DYNAMIC AV TOGGLE ──
@@ -1000,6 +1020,8 @@ function applyFormData(d) {
   applyValues(d); // first pass: everything except dynamic lead inputs (not yet in DOM)
   updateConditionals(); // leads now in DOM with correct types
   applyValues(d); // second pass: picks up newly created lead inputs
+  if (typeof updateObservations === 'function') updateObservations();
+  if (typeof updateEpMode === 'function') updateEpMode();   // show table vs free-text per saved choice
 
   ss.textContent = 'Form restored';
   ss.className = 'save-status saved';
@@ -1027,6 +1049,7 @@ function resetFormState() {
   if (typeof updateConditionals  === 'function') updateConditionals();
   if (typeof updatePacingPct      === 'function') updatePacingPct();
   if (typeof updateObservations   === 'function') updateObservations();
+  if (typeof updateEpMode         === 'function') updateEpMode();
   if (typeof updateReprogTable    === 'function') updateReprogTable();
   if (typeof updateLeadInfoTable  === 'function') updateLeadInfoTable();
   if (typeof updateDynamicAV      === 'function') updateDynamicAV();
@@ -1221,18 +1244,20 @@ function exportPDF() {
         + leadRows + '</tbody></table>' : '')
 
     + (function(){
-        var epTotal=v('ep-total'), epAF=v('ep-af-burden'), epAhr=v('ep-ahr'), epHvr=v('ep-hvr'), epPmt=v('ep-pmt');
-        var hasSummary = !!(epTotal||epAF||epAhr||epHvr||epPmt);
-        if (!epRows && !hasSummary) return '';   // omit the whole section when there is no episode data
+        var epAF=v('ep-af-burden'), epAhr=v('ep-ahr'), epHvr=v('ep-hvr'), epPmt=v('ep-pmt');
+        var hasSummary = !!(epAF||epAhr||epHvr||epPmt);
+        var epModeEl = document.querySelector('input[name="ep-mode"]:checked');
+        var epFreeTxt = (epModeEl && epModeEl.value === 'freetext') ? v('ep-freetext') : '';
+        if (!epRows && !hasSummary && !epFreeTxt) return '';   // omit the whole section when there is no episode data
         return '<h2>Stored Episodes</h2>'
           + (hasSummary ? '<div class="row" style="margin-bottom:3px;">'
-              + pf('Total', epTotal)
               + (epAF ? '<div class="f"><span class="lbl">AF Burden (%)</span><span class="val">'+epAF+'</span></div>' : '')
               + pf('AHR', epAhr)
               + pf('HVR', epHvr)
               + pf('PMT', epPmt)
               + '</div>' : '')
-          + (epRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Therapy</th><th>Approp.</th><th>Notes</th></tr></thead><tbody>'+epRows+'</tbody></table>' : '');
+          + (epFreeTxt ? '<p style="font-size:10px;margin:4px 0;white-space:pre-wrap">'+epFreeTxt+'</p>'
+                       : (epRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Therapy</th><th>Approp.</th><th>Notes</th></tr></thead><tbody>'+epRows+'</tbody></table>' : ''));
       })()
 
     + psec('Reprogramming / Observations',
@@ -1448,26 +1473,29 @@ function buildSummaryLines() {
 
   // STORED EPISODES / OBSERVATIONS
   lines.push('STORED EPISODES / OBSERVATIONS');
-  var epTotal    = val('ep-total');
   var epAFBurden = val('ep-af-burden');
   var epAHR      = val('ep-ahr');
   var epHVR      = val('ep-hvr');
   var epPMT      = val('ep-pmt');
   var epSum = [];
-  if (epTotal)  epSum.push('Total: ' + epTotal);
   epSum.push('AF Burden: ' + (epAFBurden || '\u2014') + '%'); // always included
   if (epAHR)    epSum.push('AHR: ' + epAHR);
   if (epHVR)    epSum.push('HVR: ' + epHVR);
   if (epPMT)    epSum.push('PMT: ' + epPMT);
   lines.push('  ' + epSum.join('    '));
-  lines.push('');
 
-  // Episode rows
-  var hasEpData = false;
+  // Free-text mode: emit the textarea (indented) instead of the logbook rows.
+  var epModeEl = document.querySelector('input[name="ep-mode"]:checked');
+  if (epModeEl && epModeEl.value === 'freetext') {
+    var epFree = val('ep-freetext');
+    if (epFree) { lines.push(''); epFree.split(/\r?\n/).forEach(function(t){ lines.push('  ' + t); }); }
+  } else {
+  // Episode rows — a separating blank is added before the first row only, so an empty
+  // logbook leaves no stray blank line or placeholder text.
+  var firstEp = true;
   document.querySelectorAll('#ep-tbody tr').forEach(function(tr) {
     var cells = tr.querySelectorAll('td');
     if (!cells.length) return;
-    var num   = cells[0] ? cells[0].innerText.trim() : '';
     var dtRaw = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
     var dt    = dtRaw ? (function(){ try { return new Date(dtRaw).toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){ return dtRaw; } })() : '';
     var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
@@ -1477,17 +1505,18 @@ function buildSummaryLines() {
     var app   = cells[6] ? (function(){ var c=cells[6].querySelector('input:checked'); return c?c.value:''; })() : '';
     var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
     if (!dt && !types && !dur) return;
-    hasEpData = true;
-    var ep = ['  [' + num + '] ' + (dt||'\u2014')];
+    if (firstEp) { lines.push(''); firstEp = false; }
+    var ep = ['  ' + (dt||'\u2014')];
     if (types) ep.push('Type: ' + types);
     if (dur)   ep.push('Dur: ' + dur);
     if (rate)  ep.push('Rate: ' + rate + ' bpm');
     if (ther)  ep.push('Therapy: ' + ther);
     if (app)   ep.push('Approp: ' + app);
     lines.push(ep.join('  |  '));
-    if (notes) lines.push('       Notes: ' + notes);
+    if (notes) lines.push('    Notes: ' + notes);
   });
-  if (!hasEpData) lines.push('  No episodes recorded.');
+  }
+
   // Observations (moved here from the Reprogramming section) — one blank line separates it from the log
   var obsYN   = radio('obs-yn');
   var obsText = val('obs-text');
@@ -1539,6 +1568,7 @@ function buildSummaryLines() {
 
 // ── INIT ──
 updatePacingPct();
+updateEpMode();
 document.addEventListener('input', scheduleSave);
 document.addEventListener('change', scheduleSave);
 loadSaved();

@@ -110,7 +110,7 @@ Every parser returns the **same bundle**:
 bat-lon-cur, bat-lon-unit, bat-cc-cur, pct-a, pct-v, pct-lv, pct-biv, p-mode, p-lrl, p-utr, p-usr,
 dyn-av, p-sav, p-sav-hi, p-pav, p-pav-hi, p-ms, p-msrate,
 lead-ra-{imp,sens,thr,pw}, lead-rv-{imp,sens,thr,pw}, lead-lv-{imp,sens,thr,pw},
-lead-rv-coil-imp, lead-svc-coil-imp, ep-total, ep-af-burden, ep-ahr, ep-hvr, obs-yn, obs-text, rp-chg, sig-date`
+lead-rv-coil-imp, lead-svc-coil-imp, ep-af-burden, ep-ahr, ep-hvr, obs-yn, obs-text, rp-chg, sig-date`
 
 **Conventions:**
 - `mfr` radio values: `Medtronic`, `Abbott`, `BSc`, `Biotronik`.
@@ -150,7 +150,7 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 - Dynamic AV delays print as a range (`260 - 300 ms`) → fills both bounds and flips the form's **Dynamic AV** toggle to Yes. A fixed range like `170 - 170` collapses to a single value.
 - **Routing by shock evidence**, not model name (VISIONIST is CRT-P, not CRT-D!): CRT + shock = CRT-D, CRT without shock = CRT-P.
 - Lead inventory is **verbatim** — manufacturer cell must match exactly `Boston Scientific` (the page footer says `Boston Scientific Corporation`).
-- **Episode / arrhythmia-log mapping** (all from the *Since Last Reset* column): `ep-hvr` ← the **Total Episodes** row (first value to the right of the label; Device Totals is the second). `ep-ahr` ← **sum of the "Episodes by Duration" buckets** (<1m + 1m–1h + 1h–24h + 24h–48h + >48h), walking from that header to the "Total PACs" row, which is **excluded**. `ep-total` ← `ep-hvr + ep-ahr` (computed). The **"Longest"** episode under *AT/AF Overview: Since Last Reset* (not *Reset Before Last*) is pushed to the logbook as one row (date/time, duration, avg V rate, type AF/AHR, note "Longest").
+- **Episode / arrhythmia-log mapping** (all from the *Since Last Reset* column): `ep-hvr` ← the **Total Episodes** row (first value to the right of the label; Device Totals is the second). `ep-ahr` ← **sum of the "Episodes by Duration" buckets** (<1m + 1m–1h + 1h–24h + 24h–48h + >48h), walking from that header to the "Total PACs" row, which is **excluded**. The **"Longest"** episode under *AT/AF Overview: Since Last Reset* (not *Reset Before Last*) is pushed to the logbook as one row (date/time, duration, avg V rate, type AF/AHR, note "Longest").
 
 ### Abbott / St. Jude (`abbott.js`)
 - Input is the Merlin **.log**, which is **FS-delimited**: each line is `code <FS> name <FS> value <FS> unit <FS>` where `<FS>` = ASCII `0x1C`. Pasted into an editor the separators are invisible (so `2.0V` looks concatenated — it's `2.0<FS>V`). Values are keyed by the **numeric code** (unique per line).
@@ -190,7 +190,7 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 
 **Working & verified against real (redacted) reports:**
 - Medtronic PPM / ICD / CRT (incl. MVP, dynamic two-column split, verbatim inventory).
-- Boston PPM-DC / ICD-DC / CRT-D / CRT-P (incl. quadripolar LV, dynamic AV, comparators, shock-based routing, and episode/arrhythmia-log mapping → HVR / AHR / Total Episodes + Longest AT/AF row).
+- Boston PPM-DC / ICD-DC / CRT-D / CRT-P (incl. quadripolar LV, dynamic AV, comparators, shock-based routing, and episode/arrhythmia-log mapping → HVR / AHR + Longest AT/AF row).
 - Abbott PPM-DC / ICD-DC / CRT-D / CRT-P via `.log` (Fortify / Gallant DR/HF / Quadra Allure/Assure families).
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
 - **JSON export/import** round-trips a full record; **pdf.js self-hosted** under a strict CSP (no network egress).

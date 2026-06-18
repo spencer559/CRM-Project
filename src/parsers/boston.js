@@ -34,7 +34,7 @@
   var MR_X = 470;
   var DROPDOWN_MODES = ['AAI', 'AAIR', 'VVI', 'VVIR', 'DDD', 'DDDR', 'DDI', 'DDIR', 'VDI', 'VDIR', 'AOO', 'VOO', 'DOO', 'OOO'];
 
-  var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'pct-lv', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'dyn-av', 'p-sav', 'p-sav-hi', 'p-pav', 'p-pav-hi', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-lv-imp', 'lead-lv-sens', 'lead-lv-thr', 'lead-lv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-total', 'ep-af-burden', 'ep-ahr', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
+  var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'pct-lv', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'dyn-av', 'p-sav', 'p-sav-hi', 'p-pav', 'p-pav-hi', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-lv-imp', 'lead-lv-sens', 'lead-lv-thr', 'lead-lv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-af-burden', 'ep-ahr', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
 
   /* ---------- Boston date: "8 Apr 2026" / "13 Jun 1947" -> ISO ---------- */
   var BMONTHS = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };
@@ -348,11 +348,6 @@
     // <1 min + 1m-1h + 1h-24h + 24h-48h + >48h. The Total PACs row that follows is excluded.
     var ahr = sumByDuration();
     if (ahr != null) set('ep-ahr', 'AHR (AT/AF/AFl)', String(ahr), 'p (Episodes by Duration)', 'review', 'Sum of AT/AF Episodes by Duration (Since Last Reset); excludes Total PACs. Confirm in the logbook.');
-    // Total Episodes form field = HVR (Since-Last-Reset total) + AHR (Episodes-by-Duration sum).
-    if (teVal !== '' || ahr != null) {
-      var epSum = (parseFloat(teVal) || 0) + (ahr != null ? ahr : 0);
-      set('ep-total', 'Total Episodes', String(epSum), 'computed (HVR + AHR)', 'review', 'HVR total episodes (Since Last Reset) + AHR Episodes-by-Duration sum.');
-    }
     mapObsAndChanges();
     flagMode();
 
