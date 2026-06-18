@@ -261,6 +261,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     <div class="pdp-small">Medtronic / Boston PDF · Abbott .log · runs locally</div>
   </div>
   <input type="file" id="pdp-file" accept="application/pdf,.log,.txt" style="display:none">
+  <label class="cbl" style="margin-top:8px; font-size:9px; color:#556;"><input type="checkbox" id="pdp-merge"> Merge — keep what I've already entered</label>
   <div id="pdp-status"></div>
 </div>
 
@@ -805,12 +806,28 @@ function setLeadInfoRows(leads){
 }
 // Fill the arrhythmia logbook from parsed episodes. Each ep = {dt,dur,rate,types[],app,notes}.
 // Uses the existing empty row(s) and appends more as needed; matches the ep<N>-* input naming.
-function setEpisodeRows(eps){
+// append=true (merge import): add each episode as a NEW row (reusing a blank row if one exists)
+// so manually-entered episodes are kept. append=false: fill rows by index (fresh import).
+function setEpisodeRows(eps, append){
   if (!eps || !eps.length) return;
   var tb = document.getElementById('ep-tbody'); if (!tb) return;
+  function rowEmpty(tr){
+    var n = (tr.id||'').replace('ep-','');
+    return !(tr.querySelector('[name="ep'+n+'-dt"]')||{value:''}).value
+        && !(tr.querySelector('[name="ep'+n+'-dur"]')||{value:''}).value
+        && !tr.querySelector('input[name="ep'+n+'-type"]:checked');
+  }
   eps.forEach(function(e, idx){
-    if (idx >= tb.querySelectorAll('tr').length && typeof addEpRow === 'function') addEpRow();
-    var tr = tb.querySelectorAll('tr')[idx]; if (!tr) return;
+    var rows = tb.querySelectorAll('tr');
+    var tr;
+    if (append){
+      tr = Array.prototype.filter.call(rows, rowEmpty)[0];   // reuse a blank row if present
+      if (!tr){ if (typeof addEpRow === 'function') addEpRow(); rows = tb.querySelectorAll('tr'); tr = rows[rows.length-1]; }
+    } else {
+      if (idx >= rows.length && typeof addEpRow === 'function') addEpRow();
+      tr = tb.querySelectorAll('tr')[idx];
+    }
+    if (!tr) return;
     var n = (tr.id || '').replace('ep-', '');
     function q(sel){ return tr.querySelector(sel); }
     if (e.dt)   { var d = q('[name="ep'+n+'-dt"]');   if (d) d.value = e.dt; }
@@ -1621,21 +1638,26 @@ loadSaved();
   function setStatus(html, cls){ statusEl.className = 'show ' + (cls||''); statusEl.innerHTML = html; }
 
   // Resolve a parser field key to the matching form control (radio group, #id, or [name]).
-  function setField(key, val){
+  // onlyIfEmpty (merge mode): don't overwrite a field the user has already filled.
+  function setField(key, val, onlyIfEmpty){
     if (val == null || val === '') return false;
     var radios = document.querySelectorAll('input[name="'+key+'"][type=radio]');
-    if (radios.length){ var hit=false; radios.forEach(function(el){ if(el.value===val){ el.checked=true; hit=true; } }); return hit; }
+    if (radios.length){
+      if (onlyIfEmpty && Array.prototype.some.call(radios, function(r){ return r.checked; })) return false;
+      var hit=false; radios.forEach(function(el){ if(el.value===val){ el.checked=true; hit=true; } }); return hit;
+    }
     var el = document.getElementById(key);
-    if (el && el.type!=='radio' && el.type!=='checkbox'){ el.value = val; return true; }
+    if (el && el.type!=='radio' && el.type!=='checkbox'){ if (onlyIfEmpty && el.value) return false; el.value = val; return true; }
     el = document.querySelector('[name="'+key+'"]:not([type=radio]):not([type=checkbox])');
-    if (el){ el.value = val; return true; }
+    if (el){ if (onlyIfEmpty && el.value) return false; el.value = val; return true; }
     return false;
   }
 
-  function prefillForm(RESULT, LEADS, EPISODES){
+  function prefillForm(RESULT, LEADS, EPISODES, opts){
+    var merge = !!(opts && opts.merge);   // merge mode: keep what the user already typed
     // 1) manufacturer + device type FIRST — device type rebuilds the lead rows & toggles
-    if (RESULT['mfr'])  setField('mfr',  RESULT['mfr'].v);
-    if (RESULT['dtype'] && RESULT['dtype'].v) setField('dtype', RESULT['dtype'].v);
+    if (RESULT['mfr'])  setField('mfr',  RESULT['mfr'].v, merge);
+    if (RESULT['dtype'] && RESULT['dtype'].v) setField('dtype', RESULT['dtype'].v, merge);
     if (typeof updateConditionals === 'function') updateConditionals();
 
     // 2) every other scalar field
@@ -1643,7 +1665,7 @@ loadSaved();
     Object.keys(RESULT).forEach(function(k){
       if (k==='mfr' || k==='dtype') return;
       var f = RESULT[k]; if (!f || f.v===''|| f.v==null) return;
-      if (setField(k, f.v)) { filled++; if (f.status==='review') review.push(f.label||k); }
+      if (setField(k, f.v, merge)) { filled++; if (f.status==='review') review.push(f.label||k); }
     });
 
     // 3) toggles that depend on the radios we just set
@@ -1653,13 +1675,16 @@ loadSaved();
 
     // 4) lead inventory table — one row per scraped lead, verbatim (location/model/serial/
     //    implant date exactly as in the report; no chamber slotting, duplicates preserved).
+    //    In merge mode, don't clobber a lead table the user has already started.
     if (LEADS && LEADS.length && typeof setLeadInfoRows === 'function'){
-      setLeadInfoRows(LEADS);
+      var existingLeadRows = document.querySelectorAll('#leadinfo-tbody tr').length;
+      if (!(merge && existingLeadRows)) setLeadInfoRows(LEADS);
     }
 
-    // 5) arrhythmia logbook rows (e.g. the Longest AT/AF episode)
+    // 5) arrhythmia logbook rows (e.g. the Longest AT/AF episode). In merge mode these are
+    //    APPENDED as new rows so manually-typed episodes are preserved, not overwritten.
     if (EPISODES && EPISODES.length && typeof setEpisodeRows === 'function'){
-      setEpisodeRows(EPISODES);
+      setEpisodeRows(EPISODES, merge);
     }
 
     if (typeof updatePacingPct === 'function') updatePacingPct();
@@ -1688,8 +1713,9 @@ loadSaved();
                 : (abytes[0] === 0xFE && abytes[1] === 0xFF) ? 'utf-16be' : 'utf-8';
         var txt = new TextDecoder(enc).decode(abuf);
         var aout = window.ABBOTT.runLog(txt);
-        if (typeof resetFormState === 'function') resetFormState();
-        var ares = prefillForm(aout.RESULT, aout.LEADS);
+        var amerge = !!(document.getElementById('pdp-merge')||{}).checked;
+        if (!amerge && typeof resetFormState === 'function') resetFormState();
+        var ares = prefillForm(aout.RESULT, aout.LEADS, null, { merge: amerge });
         var adev = (aout.RESULT['dev-model']||{}).v || '';
         var amsg = '<b>'+ (aout.ROUTE.label || aout.ROUTE.dtype || 'Abbott device') +'</b>'
           + (adev ? '<br><span class="pdp-dev">'+adev+'</span>' : '')
@@ -1719,10 +1745,12 @@ loadSaved();
       }
       var LINES = Engine.tagSections(Engine.normalize(items));
       var out = parser.runMap(LINES, {});
-      // force a clean "New Patient" slate before filling, so nothing from a prior patient
-      // lingers in fields this report doesn't set.
-      if (typeof resetFormState === 'function') resetFormState();
-      var res = prefillForm(out.RESULT, out.LEADS, out.EPISODES);
+      // Force a clean "New Patient" slate before filling, so nothing from a prior patient
+      // lingers in fields this report doesn't set — UNLESS "Merge" is checked, in which case
+      // keep what the user already entered and only fill blanks / append episodes.
+      var merge = !!(document.getElementById('pdp-merge')||{}).checked;
+      if (!merge && typeof resetFormState === 'function') resetFormState();
+      var res = prefillForm(out.RESULT, out.LEADS, out.EPISODES, { merge: merge });
       var dev = (out.RESULT['dev-model']||{}).v || '';
       var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'
         + (dev ? '<br><span class="pdp-dev">'+dev+'</span>' : '')
