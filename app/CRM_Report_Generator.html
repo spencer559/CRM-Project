@@ -934,6 +934,20 @@ function collectFormData() {
       d[key] = el.value;
     }
   });
+  // Lead-info table cells use CSS classes (no id/name), so the generic loop above can't capture
+  // them — serialize each row into a structured array instead.
+  var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
+  if (liYN && liYN.value === 'Yes') {
+    d.__leadinfo = Array.prototype.map.call(document.querySelectorAll('#leadinfo-tbody tr'), function(tr){
+      return {
+        location:     (tr.querySelector('.li-loc')   ||{value:''}).value,
+        manufacturer: (tr.querySelector('.li-mfr')   ||{value:''}).value,
+        model:        (tr.querySelector('.li-model') ||{value:''}).value,
+        serial:       (tr.querySelector('.li-serial')||{value:''}).value,
+        date:         (tr.querySelector('.li-date')  ||{value:''}).value
+      };
+    });
+  }
   return d;
 }
 
@@ -984,7 +998,7 @@ function applyFormData(d) {
 
   function applyValues(d) {
     Object.keys(d).forEach(function(key) {
-      if (key === '__ep' || key === '__rp') return;
+      if (key === '__ep' || key === '__rp' || key === '__leadinfo') return;
       var val = d[key];
       if (key.startsWith('r:')) {
         document.querySelectorAll('input[name="' + key.slice(2) + '"]').forEach(function(el) {
@@ -1011,6 +1025,10 @@ function applyFormData(d) {
   applyValues(d); // second pass: picks up newly created lead inputs
   if (typeof updateObservations === 'function') updateObservations();
   if (typeof updateEpMode === 'function') updateEpMode();   // show table vs free-text per saved choice
+  // restore the verbatim lead-info table rows (cells have no id/name, so they ride in __leadinfo)
+  if (Array.isArray(d.__leadinfo) && d.__leadinfo.length && typeof setLeadInfoRows === 'function') {
+    setLeadInfoRows(d.__leadinfo);
+  }
 
   ss.textContent = 'Form restored';
   ss.className = 'save-status saved';
