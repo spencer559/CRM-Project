@@ -246,9 +246,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="nav-group-lbl">Review</div>
   <a class="nav-item" id="nav-episodes" href="#s-episodes" onclick="return navTo('s-episodes')"><span class="nav-dot"></span>Episode Log</a>
   <div class="nav-group-lbl">Documentation</div>
-  <a class="nav-item" id="nav-reprog" href="#s-reprog" onclick="return navTo('s-reprog')"><span class="nav-dot"></span>Reprogramming</a>
-  <a class="nav-item" id="nav-remote" href="#s-remote" onclick="return navTo('s-remote')"><span class="nav-dot"></span>Remote Monitoring</a>
-  <a class="nav-item" id="nav-ap" href="#s-ap" onclick="return navTo('s-ap')"><span class="nav-dot"></span>Assessment &amp; Plan</a>
+  <a class="nav-item" id="nav-final" href="#s-final" onclick="return navTo('s-final')"><span class="nav-dot"></span>Final Session Summary</a>
 </nav>
 
 <main class="main">
@@ -460,10 +458,12 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   </div>
 </div>
 
-<!-- §8 REPROGRAMMING / OBSERVATIONS -->
-<div class="section" id="s-reprog">
-  <div class="sec-hdr">Reprogramming</div>
+<!-- §8 FINAL SESSION SUMMARY (merged: reprogramming + remote monitoring + sign-off) -->
+<div class="section" id="s-final">
+  <div class="sec-hdr">Final Session Summary</div>
   <div class="sec-body">
+
+    <div class="sub-lbl">Reprogramming</div>
     <div class="cbg" style="margin-bottom:8px;">
       <span class="cbg-lbl">Changes made this visit:</span>
       <label class="cbl"><input type="radio" name="rp-chg" value="Yes" onchange="updateReprogTable()"> Yes</label>
@@ -476,27 +476,16 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     </table>
     <button class="add-btn" onclick="addRpRow()">+ Add Parameter Change</button>
     </div>
-  </div>
-</div>
 
-<!-- §7 REMOTE MONITORING -->
-<div class="section" id="s-remote">
-  <div class="sec-hdr">Remote Monitoring</div>
-  <div class="sec-body">
+    <div class="sub-lbl" style="margin-top:12px;">Remote Monitoring</div>
     <div class="fg" style="grid-template-columns: 80px 80px 130px;">
       <div class="field"><span class="lbl">Enrolled</span><select id="rm-enrolled"><option value="">—</option><option>Yes</option><option>No</option></select></div>
       <div class="field"><span class="lbl">Compliant</span><select id="rm-comply"><option value="">—</option><option>Yes</option><option>No</option></select></div>
       <div class="field"><span class="lbl">Last Transmission</span><input type="date" id="rm-last"></div>
     </div>
     <div class="field" style="margin-top:4px;"><span class="lbl">Active Alerts Since Last Visit</span><input type="text" id="rm-active" placeholder="None — or describe"></div>
-  </div>
-</div>
 
-<!-- §9 ASSESSMENT & PLAN -->
-<div class="section" id="s-ap">
-  <div class="sec-hdr">Assessment &amp; Plan</div>
-  <div class="sec-body">
-
+    <div class="sub-lbl" style="margin-top:12px;">Sign-off</div>
     <div class="fg" style="grid-template-columns: 260px 160px;">
       <div class="field"><span class="lbl">Device Technician</span><input type="text" id="sig-name"></div>
       <div class="field"><span class="lbl">Date Completed</span><input type="date" id="sig-date"></div>
@@ -909,7 +898,7 @@ function navTo(id) {
   return false;
 }
 
-var sectionIds = ['s-patient','s-battery','s-params','s-leads','s-episodes','s-remote','s-reprog','s-ap'];
+var sectionIds = ['s-patient','s-battery','s-params','s-leads','s-episodes','s-final'];
 var io = new IntersectionObserver(function(entries) {
   entries.forEach(function(e) {
     if (e.isIntersecting) {
@@ -1528,9 +1517,9 @@ function buildSummaryLines() {
   }
   lines.push('');
 
-  // REPROGRAMMING
+  // FINAL SESSION SUMMARY (reprogramming changes + remote monitoring merged into one section)
   var rpChgTxt = radio('rp-chg');
-  sPos = secStart('REPROGRAMMING');
+  sPos = secStart('FINAL SESSION SUMMARY');
   add('Changes this visit: ', rpChgTxt);
   if (rpChgTxt === 'Yes') {
     document.querySelectorAll('#rp-tbody tr').forEach(function(tr) {
@@ -1548,14 +1537,10 @@ function buildSummaryLines() {
     });
   }
   add('Provider:           ', val('pt-provider'));
-  secEnd(sPos);
-
-  // REMOTE MONITORING
-  sPos = secStart('REMOTE MONITORING');
-  add('Enrolled:          ', val('rm-enrolled'));
-  add('Compliant:         ', val('rm-comply'));
-  add('Last Transmission: ', val('rm-last'));
-  add('Active Alerts:     ', val('rm-active'));
+  add('Remote Enrolled:    ', val('rm-enrolled'));
+  add('Remote Compliant:   ', val('rm-comply'));
+  add('Last Transmission:  ', val('rm-last'));
+  add('Active Alerts:      ', val('rm-active'));
   secEnd(sPos);
 
   // DEVICE TECHNICIAN is intentionally omitted from the TEXT output (copy-to-clipboard /
