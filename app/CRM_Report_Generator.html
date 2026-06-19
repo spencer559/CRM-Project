@@ -1349,7 +1349,9 @@ async function saveFile(filename, text, mime) {
   try {
     if (navigator.canShare) {
       var file = new File([blob], filename, { type: mime });
-      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: filename }); return; }
+      // Share ONLY the file — including title/text makes iOS "Save to Files" write a second
+      // stray .txt containing that text alongside the real file.
+      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
     }
   } catch (e) { if (e && e.name === 'AbortError') return; }       // cancelled the share sheet
   var a = document.createElement('a');
