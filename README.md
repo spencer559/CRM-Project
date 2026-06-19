@@ -71,15 +71,22 @@ file dropped → handleFile(file)               [in app/CRM_Report_Generator.htm
    ├─ .log / .txt  → ABBOTT.runLog(text)       (read as text, BOM/encoding-aware)
    └─ .pdf         → pdf.js → Engine.extractItems → Engine.normalize → Engine.tagSections
                      → Engine.guessVendor → PARSERS[vendor].runMap(LINES)
-   → resetFormState()        (force a clean "New Patient" slate first)
-   → prefillForm(RESULT, LEADS)
+   → (unless "Merge" is ticked) resetFormState()   — clean "New Patient" slate
+   → prefillForm(RESULT, LEADS, EPISODES, { merge })
 ```
 
-Every parser returns the **same bundle**:
+Every parser returns the **same bundle** (`EPISODES` optional):
 
 ```js
-{ RESULT, LEADS, ROUTE, ORDER, GOTCHAS }
+{ RESULT, LEADS, ROUTE, ORDER, GOTCHAS, EPISODES? }
 ```
+
+**Merge import.** The auto-fill panel has a **"Merge — keep what I've entered"** checkbox. With it
+off (default), import resets the form and fills fresh. With it on, `resetFormState()` is skipped and
+`prefillForm(..., { merge:true })`: scalar fields fill **only where blank** (your typed values are
+kept), the lead table is left alone if you've already started one, and parser `EPISODES` are
+**appended** as new logbook rows instead of overwriting. Use it to chart episodes live, then drop the
+PDF later to fill in the rest.
 
 ### The `RESULT` contract
 
@@ -150,7 +157,11 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 - Dynamic AV delays print as a range (`260 - 300 ms`) → fills both bounds and flips the form's **Dynamic AV** toggle to Yes. A fixed range like `170 - 170` collapses to a single value.
 - **Routing by shock evidence**, not model name (VISIONIST is CRT-P, not CRT-D!): CRT + shock = CRT-D, CRT without shock = CRT-P.
 - Lead inventory is **verbatim** — manufacturer cell must match exactly `Boston Scientific` (the page footer says `Boston Scientific Corporation`).
-- **Episode / arrhythmia-log mapping** (all from the *Since Last Reset* column): `ep-hvr` ← the **Total Episodes** row (first value to the right of the label; Device Totals is the second). `ep-ahr` ← **sum of the "Episodes by Duration" buckets** (<1m + 1m–1h + 1h–24h + 24h–48h + >48h), walking from that header to the "Total PACs" row, which is **excluded**. The **"Longest"** episode under *AT/AF Overview: Since Last Reset* (not *Reset Before Last*) is pushed to the logbook as one row (date/time, duration, avg V rate, type AF/AHR, note "Longest").
+- **Episode / arrhythmia-log mapping** — both values come from the *Since Last Reset* column, but **that column is in a different position in two adjacent blocks**, which is the subtle trap:
+  - `ep-hvr` ← **Total Episodes**, which lives in the *Ventricular Tachy Counters* block laid out `Since Last Reset | Device Totals` → Since-Last-Reset is the **first/left** value (`findRight` returns it).
+  - `ep-ahr` ← **sum of the "Episodes by Duration" buckets** (<1m + 1m–1h + 1h–24h + 24h–48h + >48h, walking to "Total PACs" which is **excluded**). These rows are in the *Brady / Atrial Arrhythmia* block laid out `Reset Before Last | Since Last Reset` → Since-Last-Reset is the **rightmost** value. `sumByDuration()` takes the rightmost numeric cell on each row, **not** the first (the first is Reset Before Last — often 0, which is the bug that returned AHR = 0). Cross-check with `% A Paced` against page 1's single Since-Last-Reset value to confirm which column is which.
+  - The **"Longest"** episode under *AT/AF Overview: Since Last Reset* (not *Reset Before Last*) is pushed to the logbook as one row (date/time, duration, avg V rate, type AF/AHR, note "Longest").
+  - (There is no `ep-total` — that field was removed; episodes are entered/typed, and HVR/AHR are the counters.)
 
 ### Abbott / St. Jude (`abbott.js`)
 - Input is the Merlin **.log**, which is **FS-delimited**: each line is `code <FS> name <FS> value <FS> unit <FS>` where `<FS>` = ASCII `0x1C`. Pasted into an editor the separators are invisible (so `2.0V` looks concatenated — it's `2.0<FS>V`). Values are keyed by the **numeric code** (unique per line).
@@ -163,18 +174,21 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 
 ## Form / UI features (in `app/CRM_Report_Generator.html`)
 
-- **Auto-fill drop panel** accepts PDF (Medtronic/Boston) and `.log` (Abbott).
-- **Force "New Patient" on every import** — `resetFormState()` clears the form in-memory (no page reload, which would abort the file read) so nothing from a prior patient lingers.
+- **Auto-fill drop panel** accepts PDF (Medtronic/Boston) and `.log` (Abbott), with the **"Merge — keep what I've entered"** checkbox described in the data-flow section above.
+- **Force "New Patient" on every import** — `resetFormState()` clears the form in-memory (no page reload, which would abort the file read) so nothing from a prior patient lingers. (Skipped in merge mode.)
 - **Lead-info table is verbatim**: editable Location, a **Manufacturer** column, free-text model/serial/implant-date; one row per scraped lead. (Aveir relabels these columns "Module …".)
 - **Dynamic AV** Yes/No toggle with min/max fields (defaults No; importer flips it for true ranges).
 - **% paced & AF burden are text inputs** and comparator-aware (`<1` survives instead of becoming `1`).
 - **Aveir leadless mode** — picking the `Aveir` device type reveals RA/RV chamber checkboxes that drive the lead-info rows, per-module Longevity rows, and which pacing-% fields show (see Conventions above).
-- **Episode table defaults to 1 row** ("+ Add Episode" for more); a parser's `EPISODES` rows are written in automatically.
-- **Export buttons:** New Patient · Copy to Clipboard · Export .txt · **JSON** (a dropdown: Import / Export) · Save PDF. JSON export/import round-trips the entire form via `collectFormData()` / `applyFormData()` — Import does a clean reset first, so a saved `.json` restores a record exactly. (The standalone Print button was removed; Save PDF is the print path.)
-- **PDF report**: compact one-page-oriented layout; Provider on the patient line; the Stored Episodes section is omitted when empty.
-- **Text report (clipboard / .txt)** omits the *Device Technician* block (the EHR stamps date + signing tech); the **PDF keeps it** (that copy is printed/signed).
-- Autosave to `localStorage` (key `crm-digital`); "New Patient" button clears + reloads.
-- **Responsive layout** — below 820px the sidebar collapses, the auto-fill panel flows inline at the top of the form (instead of floating), dense field grids reflow, and wide tables scroll horizontally, so the form is usable on phone/tablet.
+- **Episode logbook** — a **"Logbook / Free text"** radio (`ep-mode`, default Logbook) lets you either use the row-based table or type a single free-text block (`ep-freetext`). The logbook defaults to 1 row ("+ Add Episode" for more); a parser's `EPISODES` rows are written in automatically. **Observations** (`obs-yn` + `obs-text`) live at the bottom of this section.
+- **Section layout.** Form sections: Patient & Device · Battery / Device Status · Programmed Parameters · Lead / Electrode Measurements · Stored Episodes / Arrhythmia Log (+ Observations) · **Final Session Summary** (a merge of Reprogramming changes + Remote Monitoring + the Device Technician / Date-Completed sign-off, all under one header).
+- **Export buttons:** New Patient · Copy to Clipboard · Export .txt · **JSON** (a dropdown: Import / Export) · Save PDF. The Print button was removed (Save PDF is the print path).
+  - **JSON export/import** round-trips the whole form via `collectFormData()` / `applyFormData()`. It serializes the dynamic lead-table rows separately as `__leadinfo` (the cells have no id/name) and **excludes file inputs / auto-fill tool controls** (`pdp-*`, `json-import-file`) — those threw on import (you can't set `input[type=file].value`), which used to abort the whole restore. Import does a clean reset first.
+  - **Save-location aware** — `saveFile()` uses `showSaveFilePicker` (desktop/Android Chrome → pick folder/USB), else `navigator.share` (iOS Safari → share sheet → "Save to Files"; shares the file **only**, no title/text, or iOS writes a stray `.txt`), else a classic download.
+- **Text/clipboard report** (`buildSummaryLines`): DEVICE is a compact pipe-separated line (no provider); BATTERY folds in Mode/LRL/UTR/USR (rate line and pacing-% line are each pipe-separated, BiV included only when present); STORED EPISODES / OBSERVATIONS shows the logbook rows *or* the free-text block, plus Observations; FINAL SESSION SUMMARY carries Changes-this-visit + Provider + Remote Monitoring. The *Device Technician* block is intentionally omitted (the EHR stamps it); the **PDF keeps it**.
+- **PDF report**: compact one-page-oriented layout; Provider on the patient line; Stored Episodes omitted when empty; renders the episode free-text block when that mode is active.
+- Autosave to `localStorage` (key `crm-digital`) — now including the lead table (`__leadinfo`); "New Patient" button clears + reloads.
+- **Responsive layout** — below 820px the sidebar collapses, the auto-fill panel flows inline at the top of the form, dense field grids reflow, and wide tables scroll horizontally. The JSON menu lives at body level (the app bar gets `overflow:auto` on mobile, which would clip it) and is **absolutely** positioned in document coordinates — `position:fixed` triggers an iOS Safari bug where the menu's tap target is offset by the scroll amount, so taps miss unless you're at the top.
 
 ---
 
@@ -193,7 +207,8 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 - Boston PPM-DC / ICD-DC / CRT-D / CRT-P (incl. quadripolar LV, dynamic AV, comparators, shock-based routing, and episode/arrhythmia-log mapping → HVR / AHR + Longest AT/AF row).
 - Abbott PPM-DC / ICD-DC / CRT-D / CRT-P via `.log` (Fortify / Gallant DR/HF / Quadra Allure/Assure families).
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
-- **JSON export/import** round-trips a full record; **pdf.js self-hosted** under a strict CSP (no network egress).
+- **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
+- **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
 
 **Known gaps / TODO ideas:**
 - Abbott PDF (scanned image) is **not** supported — `.log` only. (OCR would be the only PDF route.)
@@ -202,7 +217,7 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 - A few Abbott edge cases (legacy/other-manufacturer leads) may leave a lead model blank (serial still captured).
 - Boston **single-chamber** and several less-common families are scaffolded but not validated with real exports.
 - **Biotronik** is recognized by signature but has **no parser** yet.
-- Lead-table cells use CSS classes (no `id`/`name`), so they aren't captured by `localStorage` autosave or JSON export/import — only the scalar fields persist; the lead table is in-session only.
+- Lead-table cells have no `id`/`name`, so they're saved/restored via the dedicated `__leadinfo` array (handled — autosave + JSON now persist the lead table). Anything else without an id/name would still be missed by the generic serializer.
 
 ---
 
