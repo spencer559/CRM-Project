@@ -51,7 +51,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .btn-danger:hover { background: #fdf0f0; }
 
 /* JSON import/export dropdown */
-.json-dd { position: fixed; min-width: 134px; background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.16); z-index: 1000; overflow: hidden; padding: 3px 0; }
+.json-dd { position: absolute; min-width: 134px; background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.16); z-index: 1000; overflow: hidden; padding: 3px 0; }
 .json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; }
 .json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
 
@@ -1379,10 +1379,12 @@ function toggleJsonMenu(e) {
   var dd = document.getElementById('json-dropdown');
   if (!dd) return;
   if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
-  // position:fixed so the menu escapes the app bar's overflow clipping (esp. on mobile)
+  // position:absolute in DOCUMENT coordinates (add scroll offset). Using fixed here triggers an
+  // iOS Safari bug where, once the page is scrolled, the menu paints correctly but its tap target
+  // is offset by the scroll amount — so taps miss the items unless you're at the very top.
   var r = e.currentTarget.getBoundingClientRect();
-  dd.style.top = (r.bottom + 4) + 'px';
-  dd.style.right = (window.innerWidth - r.right) + 'px';
+  dd.style.top = (window.pageYOffset + r.bottom + 4) + 'px';
+  dd.style.right = (document.documentElement.clientWidth - r.right) + 'px';
   dd.style.display = 'block';
 }
 document.addEventListener('click', function() {
