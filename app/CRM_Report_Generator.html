@@ -223,15 +223,20 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       JSON
       <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
-    <button class="btn btn-primary" onclick="exportPDF()">
+    <button class="btn btn-primary" onclick="togglePdfMenu(event)">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 1h6l3 3v10a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4"/><path d="M9 1v4h3" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5 9h6M5 11.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-      Save PDF
+      PDF
+      <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
   </div>
 </header>
 
 <!-- JSON menu lives outside the app bar (which gets overflow:auto on mobile and would clip a
      fixed-position descendant in WebKit). As a body child it stacks above everything. -->
+<div id="pdf-dropdown" class="json-dd" style="display:none;">
+  <button class="json-dd-item" onclick="exportPDF()">Print</button>
+  <button class="json-dd-item" onclick="savePDF()">Save (PDF file)</button>
+</div>
 <div id="json-dropdown" class="json-dd" style="display:none;">
   <button class="json-dd-item" onclick="importJSON()">Import JSON…</button>
   <button class="json-dd-item" onclick="exportJSON()">Export JSON</button>
@@ -1100,6 +1105,158 @@ function copyToClipboard() {
   });
 }
 
+// Build a real, SELECTABLE vector PDF of the report with vendored jsPDF + autotable.
+// Mirrors the print report's sections. Returns a Blob (application/pdf), or null if jsPDF missing.
+function buildReportPdfBlob() {
+  var JS = (window.jspdf || {}).jsPDF;
+  if (!JS) return null;
+  var doc = new JS({ unit: 'pt', format: 'letter' });
+  var W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+  var M = 40, NAVY = [30, 58, 95], y = M;
+
+  function val(id){ var e=document.getElementById(id); return e?(e.value||'').trim():''; }
+  function radio(n){ var e=document.querySelector('input[name="'+n+'"]:checked'); return e?e.value:''; }
+  function unit(name,d){ var e=document.querySelector('[name="'+name+'"]'); return e?e.value:d; }
+  function fmtDT(s){ if(!s) return ''; try { return new Date(s).toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){ return s; } }
+  function space(h){ if (y + h > H - M) { doc.addPage(); y = M; } }
+
+  function h1(t){
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+    doc.text(t, M, y+4);
+    doc.setDrawColor(NAVY[0],NAVY[1],NAVY[2]); doc.setLineWidth(1.2); doc.line(M, y+8, W-M, y+8); doc.setLineWidth(0.5);
+    doc.setTextColor(0,0,0); y += 18;
+  }
+  function h2(t){
+    space(22);
+    doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]); doc.rect(M, y, W-2*M, 14, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(255,255,255);
+    doc.text(t.toUpperCase(), M+5, y+10); doc.setTextColor(0,0,0); y += 20;
+  }
+  // key/value grid: small navy label above an underlined value; 3 columns.
+  function grid(pairs){
+    pairs = pairs.filter(function(p){ return p[1] != null && String(p[1]).trim() !== ''; });
+    if (!pairs.length) return;
+    var cols = 3, colW = (W - 2*M) / cols, rowH = 24;
+    for (var i=0; i<pairs.length; i++){
+      if (i % cols === 0) space(rowH);
+      var col = i % cols, x = M + col*colW;
+      doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+      doc.text(String(pairs[i][0]).toUpperCase(), x, y+2);
+      doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(17,17,17);
+      doc.text(doc.splitTextToSize(String(pairs[i][1]), colW-8)[0] || '', x, y+13);
+      doc.setDrawColor(200,216,232); doc.line(x, y+16, x + colW - 10, y+16);
+      if (col === cols-1 || i === pairs.length-1) y += rowH;
+    }
+  }
+  function para(label, text){
+    if (!text) return;
+    if (label){ space(11); doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]); doc.text(label.toUpperCase(), M, y); y += 10; }
+    else { y += 6; }   // no label (e.g. "No changes made this visit.") — pad it off the section header
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(17,17,17);
+    doc.splitTextToSize(String(text), W-2*M).forEach(function(ln){ space(12); doc.text(ln, M, y); y += 12; });
+    y += 4;
+  }
+  function table(head, body){
+    if (!body.length) return;
+    doc.autoTable({ startY: y, head: [head], body: body, theme:'grid',
+      styles:{ fontSize:8, cellPadding:2, lineColor:[184,204,223], lineWidth:0.4, textColor:[17,17,17], overflow:'linebreak' },
+      headStyles:{ fillColor:[230,238,246], textColor:NAVY, fontStyle:'bold', fontSize:7 },
+      margin:{ left:M, right:M } });
+    y = doc.lastAutoTable.finalY + 12;
+  }
+
+  h1('Cardiac CRM Interrogation & Reprogramming Record');
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(136,136,136);
+  doc.text('Generated: ' + new Date().toLocaleString(), M, y); doc.setTextColor(0,0,0); y += 14;
+
+  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){return e.value;}).join(', ');
+  h2('Patient & Device');
+  grid([['Patient Name',val('pt-name')],['DOB',val('pt-dob')],['MRN',val('pt-mrn')],['Date',val('pt-date')],['Provider',val('pt-provider')],
+        ['Device Type',dtype],['Manufacturer',radio('mfr')],['Model',val('dev-model')],['Serial #',val('dev-serial')],['Implant Date',val('dev-implant')]]);
+
+  if (radio('leadinfo-yn') === 'Yes') {
+    var liBody = [];
+    document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr){
+      var loc=(tr.querySelector('.li-loc')||{value:''}).value || tr.getAttribute('data-loc') || '';
+      var r=[loc,(tr.querySelector('.li-mfr')||{value:''}).value,(tr.querySelector('.li-model')||{value:''}).value,(tr.querySelector('.li-serial')||{value:''}).value,(tr.querySelector('.li-date')||{value:''}).value];
+      if (r.some(function(c){return c;})) liBody.push(r);
+    });
+    if (liBody.length){ h2('Lead Information'); table(['Location','Manufacturer','Lead Model','Lead Serial #','Implant Date'], liBody); para('Notes', val('leadinfo-notes')); }
+  }
+
+  var isAveir = dtype.indexOf('Aveir') > -1, batPairs = [];
+  if (isAveir){
+    if (val('bat-lon-ra-cur')) batPairs.push(['RA Module Longevity', val('bat-lon-ra-cur')+' '+unit('bat-lon-ra-unit','years')]);
+    if (val('bat-lon-rv-cur')) batPairs.push(['RV Module Longevity', val('bat-lon-rv-cur')+' '+unit('bat-lon-rv-unit','years')]);
+  } else if (val('bat-lon-cur')) batPairs.push(['Longevity', val('bat-lon-cur')+' '+unit('bat-lon-unit','years')]);
+  batPairs.push(['Battery Status',radio('bat-status')],['Device Function',val('ap-devfx')],['Pacing Dependency',val('ap-dep')],['Intrinsic Rhythm',val('ap-rhythm')],['A Paced %',val('pct-a')],['V Paced %',val('pct-v')],['LV Paced %',val('pct-lv')],['BiV Paced %',val('pct-biv')]);
+  h2('Battery / Device Status'); grid(batPairs);
+
+  h2('Programmed Parameters');
+  grid([['Mode',val('p-mode')],['LRL (bpm)',val('p-lrl')],['UTR (bpm)',val('p-utr')],['USR (bpm)',val('p-usr')],
+        ['Sensed AV (ms)', val('p-sav-hi')?(val('p-sav')+' - '+val('p-sav-hi')):val('p-sav')],
+        ['Paced AV (ms)', val('p-pav-hi')?(val('p-pav')+' - '+val('p-pav-hi')):val('p-pav')],
+        ['Mode Switch',val('p-ms')],['MS Rate (bpm)',val('p-msrate')]]);
+
+  var lmBody = [];
+  document.querySelectorAll('#leads-tbody tr').forEach(function(tr){
+    var c=tr.querySelectorAll('td'); if(!c.length) return;
+    var label=c[0]?(c[0].querySelector('strong')?c[0].querySelector('strong').textContent.trim():(c[0].textContent||'').split('\n')[0].trim()):'';
+    var imp=((c[1]&&c[1].querySelector('input'))||{value:''}).value, sens=((c[2]&&c[2].querySelector('input'))||{value:''}).value, thr=((c[3]&&c[3].querySelector('input'))||{value:''}).value, pw=((c[4]&&c[4].querySelector('input'))||{value:''}).value;
+    if (imp||sens||thr||pw) lmBody.push([label,imp,sens,thr,pw]);
+  });
+  if (lmBody.length){ h2('Lead / Electrode Measurements'); table(['Lead','Impedance (ohms)','Sensing (mV)','Threshold (V)','PW (ms)'], lmBody); }
+
+  var epAF=val('ep-af-burden'),epAhr=val('ep-ahr'),epHvr=val('ep-hvr'),epPmt=val('ep-pmt');
+  var epFree=(radio('ep-mode')==='freetext')?val('ep-freetext'):'', epBody=[];
+  if (radio('ep-mode')!=='freetext'){
+    document.querySelectorAll('#ep-tbody tr').forEach(function(tr){
+      var c=tr.querySelectorAll('td'); if(!c.length) return;
+      var dt=fmtDT(((c[1]&&c[1].querySelector('input'))||{value:''}).value);
+      var types=c[2]?Array.from(c[2].querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', '):'';
+      var dur=((c[3]&&c[3].querySelector('input'))||{value:''}).value, rate=((c[4]&&c[4].querySelector('input'))||{value:''}).value;
+      var ther=c[5]?Array.from(c[5].querySelectorAll('input:checked')).map(function(i){return i.value;}).join('+'):'';
+      var app=c[6]?(function(){var x=c[6].querySelector('input:checked');return x?x.value:'';})():'';
+      var notes=((c[7]&&c[7].querySelector('textarea'))||{value:''}).value;
+      if (dt||types||dur) epBody.push([dt,types,dur,rate,ther,app,notes]);
+    });
+  }
+  if (epAF||epAhr||epHvr||epPmt||epBody.length||epFree){
+    h2('Stored Episodes');
+    grid([['AF Burden (%)',epAF],['AHR',epAhr],['HVR',epHvr],['PMT',epPmt]]);
+    if (epFree) para('', epFree); else table(['Date/Time','Type','Duration','Rate','Therapy','Approp.','Notes'], epBody);
+  }
+
+  var rpChg=radio('rp-chg'), rpBody=[];
+  if (rpChg==='Yes') document.querySelectorAll('#rp-tbody tr').forEach(function(tr){
+    var c=tr.querySelectorAll('td'); if(!c.length) return;
+    var p=((c[0]&&c[0].querySelector('input'))||{value:''}).value;
+    if (p) rpBody.push([p,((c[1]&&c[1].querySelector('input'))||{value:''}).value,((c[2]&&c[2].querySelector('input'))||{value:''}).value,((c[3]&&c[3].querySelector('input'))||{value:''}).value]);
+  });
+  var obsYN=radio('obs-yn'), obsText=val('obs-text');
+  if (rpChg||rpBody.length||obsYN){
+    h2('Reprogramming / Observations');
+    if (rpChg==='Yes' && rpBody.length) table(['Parameter','Previous','New Value','Reason'], rpBody);
+    else if (rpChg==='No') para('', 'No changes made this visit.');
+    if (obsYN) grid([['Observations', obsYN]]);
+    if (obsYN==='Yes') para('Notes', obsText);
+  }
+
+  var rmPairs=[['Enrolled',val('rm-enrolled')],['Compliant',val('rm-comply')],['Last Transmission',val('rm-last')],['Active Alerts',val('rm-active')]].filter(function(p){return p[1];});
+  if (rmPairs.length){ h2('Remote Monitoring'); grid(rmPairs); }
+
+  var dtPairs=[['Name',val('sig-name')],['Date Completed',val('sig-date')]].filter(function(p){return p[1];});
+  if (dtPairs.length){ h2('Device Technician'); grid(dtPairs); }
+
+  return doc.output('blob');
+}
+
+function savePDF() {
+  var blob = buildReportPdfBlob();
+  if (!blob) { alert('PDF generator not loaded — use Print instead.'); return; }
+  return saveFile(fileStamp('pdf'), blob, 'application/pdf');
+}
+
 function exportPDF() {
   function v(id) { var e = document.getElementById(id); return e ? (e.value || '') : ''; }
   function r(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
@@ -1334,8 +1491,8 @@ function exportPDF() {
 //   2. navigator.share     — iOS/Safari share sheet → "Save to Files" (pick folder / USB / iCloud)
 //   3. classic <a download> — fallback (downloads to the browser's default folder)
 // Must run from a user gesture (button click) so the picker/share sheet is allowed.
-async function saveFile(filename, text, mime) {
-  var blob = new Blob([text], { type: mime });
+async function saveFile(filename, data, mime) {
+  var blob = (data instanceof Blob) ? data : new Blob([data], { type: mime });
   if (window.showSaveFilePicker) {
     try {
       var accept = {}; accept[mime] = ['.' + filename.split('.').pop()];
@@ -1374,10 +1531,11 @@ function exportJSON() {
 }
 
 // ── JSON menu (Import / Export) ──
-function toggleJsonMenu(e) {
+function toggleMenu(e, id) {
   e.stopPropagation();
-  var dd = document.getElementById('json-dropdown');
+  var dd = document.getElementById(id);
   if (!dd) return;
+  document.querySelectorAll('.json-dd').forEach(function(m){ if (m !== dd) m.style.display = 'none'; });
   if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
   // position:absolute in DOCUMENT coordinates (add scroll offset). Using fixed here triggers an
   // iOS Safari bug where, once the page is scrolled, the menu paints correctly but its tap target
@@ -1387,9 +1545,10 @@ function toggleJsonMenu(e) {
   dd.style.right = (document.documentElement.clientWidth - r.right) + 'px';
   dd.style.display = 'block';
 }
+function toggleJsonMenu(e){ toggleMenu(e, 'json-dropdown'); }
+function togglePdfMenu(e){ toggleMenu(e, 'pdf-dropdown'); }
 document.addEventListener('click', function() {
-  var dd = document.getElementById('json-dropdown');
-  if (dd) dd.style.display = 'none';
+  document.querySelectorAll('.json-dd').forEach(function(m){ m.style.display = 'none'; });
 });
 
 function importJSON() {
@@ -1657,6 +1816,10 @@ loadSaved();
      runs in the same context as PHI, and the page makes no external network requests. -->
 <script src="../vendor/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '../vendor/pdf.worker.min.js';</script>
+<!-- jsPDF + autotable (vendored locally) — used by the PDF "Save" option to generate a real,
+     selectable, vector PDF file. Pure JS, no network, CSP-safe. -->
+<script src="../vendor/jspdf.umd.min.js"></script>
+<script src="../vendor/jspdf.plugin.autotable.min.js"></script>
 <script src="../src/engine.js"></script>
 <script src="../src/parsers/medtronic.js"></script>
 <script src="../src/parsers/boston.js"></script>
