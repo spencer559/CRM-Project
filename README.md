@@ -22,6 +22,7 @@ Supported inputs:
 | **Medtronic** | SmartSync **PDF** (text-based) | Quick Look / Session Summary / Parameters / Patient Info pages |
 | **Boston Scientific** | LATITUDE **PDF** (text-based) | Quick Look / Combined Follow-up / Patient Data pages |
 | **Abbott / St. Jude** | Merlin **.log** (text) | Their PDF is a scanned **image** with no selectable text → use the `.log` export instead |
+| **Biotronik** | Home Monitoring **PDF** (text-based) | Parameters / Follow-up / Patient / Leads pages. Text is per-character fragmented (see gotchas). |
 
 ---
 
@@ -163,6 +164,18 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
   - The **"Longest"** episode under *AT/AF Overview: Since Last Reset* (not *Reset Before Last*) is pushed to the logbook as one row (date/time, duration, avg V rate, type AF/AHR, note "Longest").
   - (There is no `ep-total` — that field was removed; episodes are entered/typed, and HVR/AHR are the counters.)
 
+### Biotronik (`biotronik.js`)
+Biotronik exports come in (at least) **two very different templates**, and the parser handles both:
+- **(A) Home-Monitoring report** — text fragmented into per-character tokens (`"R"+"ecent"`), bold headers drawn 2–4× (duplicate tokens), values in far-right columns (A ~x407, V ~x485), device on a `… S/N: …` line.
+- **(B) Standard / BIOSTD report** — whole-word tokens, a clean first line `PDF: BIOTRONIK - <model> - <serial> - <Last, First> - p/N`, values closer in (A/V ~x315/x406 or x334/x378/x400), leads as an A|V table (no per-lead serials), and different labels (`Atrial burden`, `P/R wave amplitude`, fixed `AV delay`).
+
+Unifying tricks:
+- **Dynamic label/value split** at `VSPLIT≈305`: tokens left of it are the (joined, de-spaced) label — so both fragmentation styles normalize to the same key (`leftStr`); tokens right of it are values. A value row's **first** value token = Atrial, **second** = Ventricular (`avField`); `-----` = not measured.
+- **Header** is read from the clean `PDF: BIOTRONIK - …` line when present, else from the `S/N:` line (model from the fragmented header tokens → flagged review).
+- **Leads**: Home-Monitoring lists per-lead blocks (with serials, deduped); Standard lists an A|V table (Type/Manufacturer/Position, no serials → uses the device implant date).
+- Dates `MM/DD/YYYY` → `bToISO`. Longevity from "Calculated/Expected ERI N Y. M Mo." → years. AV is dynamic (`300/260` → min–max + Dynamic AV = Yes) or fixed (`AV delay [ms] 240`). Multiple interrogations/test runs appear, so values come from the **last (non-empty)** matching row.
+- **Validated against one dual-chamber PPM in each layout** — ICD/CRT and single-chamber Biotronik are unverified.
+
 ### Abbott / St. Jude (`abbott.js`)
 - Input is the Merlin **.log**, which is **FS-delimited**: each line is `code <FS> name <FS> value <FS> unit <FS>` where `<FS>` = ASCII `0x1C`. Pasted into an editor the separators are invisible (so `2.0V` looks concatenated — it's `2.0<FS>V`). Values are keyed by the **numeric code** (unique per line).
 - The reader is **encoding-aware**: `handleFile` decodes with a BOM-sniffing `TextDecoder` (UTF-16/UTF-8); `runLog` also strips stray BOM/null bytes and accepts any line ending.
@@ -206,6 +219,7 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 - Medtronic PPM / ICD / CRT (incl. MVP, dynamic two-column split, verbatim inventory).
 - Boston PPM-DC / ICD-DC / CRT-D / CRT-P (incl. quadripolar LV, dynamic AV, comparators, shock-based routing, and episode/arrhythmia-log mapping → HVR / AHR + Longest AT/AF row).
 - Abbott PPM-DC / ICD-DC / CRT-D / CRT-P via `.log` (Fortify / Gallant DR/HF / Quadra Allure/Assure families).
+- Biotronik dual-chamber **PPM** via Home Monitoring PDF (one validated sample; per-character text handling, A/V column split, two-interrogation handling).
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
 - **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
 - **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
@@ -216,7 +230,7 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 - Abbott `% paced` uses the recent Event-Histogram value; lifetime figures are in the note. Confirm which the clinic wants.
 - A few Abbott edge cases (legacy/other-manufacturer leads) may leave a lead model blank (serial still captured).
 - Boston **single-chamber** and several less-common families are scaffolded but not validated with real exports.
-- **Biotronik** is recognized by signature but has **no parser** yet.
+- **Biotronik** parser handles two report layouts (Home-Monitoring + Standard/BIOSTD), each validated against one dual-chamber PPM; ICD/CRT and single-chamber Biotronik are unverified, and the Home-Monitoring `dev-model` needs verification (fragmented header text).
 - Lead-table cells have no `id`/`name`, so they're saved/restored via the dedicated `__leadinfo` array (handled — autosave + JSON now persist the lead table). Anything else without an id/name would still be missed by the generic serializer.
 
 ---

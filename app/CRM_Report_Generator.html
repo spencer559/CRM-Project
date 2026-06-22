@@ -1824,6 +1824,7 @@ loadSaved();
 <script src="../src/parsers/medtronic.js"></script>
 <script src="../src/parsers/boston.js"></script>
 <script src="../src/parsers/abbott.js"></script>
+<script src="../src/parsers/biotronik.js"></script>
 <script>
 /* PDF → CRM form auto-fill. Reuses the form's own update functions so toggles,
    lead rows and pacing-% visibility behave exactly as for manual entry. */
@@ -1892,7 +1893,7 @@ loadSaved();
   window.prefillForm = prefillForm;   // exposed for testing
 
   // vendor name (from Engine.guessVendor) -> parser module
-  var PARSERS = { 'Medtronic': window.MEDTRONIC, 'Boston Scientific': window.BOSTON };
+  var PARSERS = { 'Medtronic': window.MEDTRONIC, 'Boston Scientific': window.BOSTON, 'Biotronik': window.BIOTRONIK };
 
   async function handleFile(file){
     if (!file) return;
