@@ -1594,6 +1594,23 @@ function buildSummaryLines() {
     if (lines.length === pos) lines.pop();
     else lines.push('');
   }
+  // wrapLines(text, firstPrefix, contPrefix, totalWidth): word-wrap so every output line ends at
+  // the same right margin (totalWidth). The first line carries firstPrefix and the rest carry
+  // contPrefix; since those prefixes differ in length, each line's text budget is totalWidth minus
+  // its own prefix length, so the right edges align even though the left prefixes don't.
+  function wrapLines(text, firstPrefix, contPrefix, totalWidth) {
+    var out = [];
+    String(text).split(/\r?\n/).forEach(function(para) {
+      var words = para.split(/\s+/).filter(Boolean), cur = '';
+      words.forEach(function(w) {
+        var width = totalWidth - (out.length === 0 ? firstPrefix : contPrefix).length;
+        if (cur && (cur.length + 1 + w.length) > width) { out.push(cur); cur = w; }
+        else { cur = cur ? cur + ' ' + w : w; }
+      });
+      if (cur) out.push(cur);
+    });
+    return out.map(function(t, i) { return (i === 0 ? firstPrefix : contPrefix) + t; });
+  }
 
   // DEVICE — compact, pipe-separated like the lead-info lines (Provider now lives under REPROGRAMMING)
   var sPos = secStart('DEVICE');
@@ -1712,11 +1729,9 @@ function buildSummaryLines() {
   var epModeEl = document.querySelector('input[name="ep-mode"]:checked');
   if (epModeEl && epModeEl.value === 'freetext') {
     var epFree = val('ep-freetext');
-    if (epFree) { lines.push(''); epFree.split(/\r?\n/).forEach(function(t){ lines.push('  ' + t); }); }
+    if (epFree) { epFree.split(/\r?\n/).forEach(function(t){ lines.push('  ' + t); }); }
   } else {
-  // Episode rows — a separating blank is added before the first row only, so an empty
-  // logbook leaves no stray blank line or placeholder text.
-  var firstEp = true;
+  // Episode rows — no blank line between the counters and the first row (tighter spacing).
   document.querySelectorAll('#ep-tbody tr').forEach(function(tr) {
     var cells = tr.querySelectorAll('td');
     if (!cells.length) return;
@@ -1729,26 +1744,27 @@ function buildSummaryLines() {
     var app   = cells[6] ? (function(){ var c=cells[6].querySelector('input:checked'); return c?c.value:''; })() : '';
     var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
     if (!dt && !types && !dur) return;
-    if (firstEp) { lines.push(''); firstEp = false; }
     var ep = ['  ' + (dt||'\u2014')];
     if (types) ep.push('Type: ' + types);
     if (dur)   ep.push('Dur: ' + dur);
     if (rate)  ep.push('Rate: ' + rate + ' bpm');
     if (ther)  ep.push('Therapy: ' + ther);
     if (app)   ep.push('Approp: ' + app);
+    // Notes go inline as another pipe-separated field \u2014 just the free text, no "Notes:" label.
+    if (notes) ep.push(notes.replace(/\r?\n+/g, ' ').trim());
     lines.push(ep.join('  |  '));
-    if (notes) lines.push('    Notes: ' + notes);
   });
   }
 
-  // Observations (moved here from the Reprogramming section) — one blank line separates it from the log
+  // Observations — only rendered when "Yes" is selected with text; "N/A" (or nothing) is omitted.
+  // Sits directly under the last episode (no blank line) and reads "Observations: <free text>",
+  // word-wrapped with continuation lines aligned under the text.
   var obsYN   = radio('obs-yn');
   var obsText = val('obs-text');
-  if (obsYN) {
-    lines.push('');
-    add('Observations: ', obsYN);
-    // indent EVERY line of multi-line text (not just the first) so wrapped notes stay aligned
-    if (obsYN === 'Yes' && obsText) obsText.split(/\r?\n/).forEach(function(t){ lines.push('    ' + t); });
+  if (obsYN === 'Yes' && obsText) {
+    // Continuation lines align under "Observations:" (the 2-space base indent); all lines wrap to
+    // the same right margin (78 cols) so the first line doesn't extend further right than the rest.
+    wrapLines(obsText, '  Observations: ', '  ', 78).forEach(function(l){ lines.push(l); });
   }
   lines.push('');
 
