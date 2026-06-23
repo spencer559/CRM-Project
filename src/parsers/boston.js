@@ -344,10 +344,19 @@
     var te = findRight(/^Total Episodes$/);
     var teVal = te ? num(te.v) : '';
     set('ep-hvr', 'HVR (VT/VF/NS-VT)', teVal, te ? 'p' + te.page : '', 'review', 'Total episodes (Since Last Reset). Confirm in the logbook.');
-    // AHR count = sum of the AT/AF "Episodes by Duration" buckets (Since Last Reset column):
-    // <1 min + 1m-1h + 1h-24h + 24h-48h + >48h. The Total PACs row that follows is excluded.
-    var ahr = sumByDuration();
-    if (ahr != null) set('ep-ahr', 'AHR (AT/AF/AFl)', String(ahr), 'p (Episodes by Duration)', 'review', 'Sum of AT/AF Episodes by Duration (Since Last Reset); excludes Total PACs. Confirm in the logbook.');
+    // AHR count: prefer the pre-totaled "AT/AF Events:" line under "AT/AF Overview: Since Last
+    // Reset" (already summed by the device, most accurate). When that line is absent, fall back to
+    // summing the AT/AF "Episodes by Duration" buckets (Since Last Reset; excludes Total PACs).
+    var ahrTotal = atafEventsTotal();
+    var ahr = ahrTotal != null ? ahrTotal : sumByDuration();
+    if (ahr != null) {
+      var fromTotal = ahrTotal != null;
+      set('ep-ahr', 'AHR (AT/AF/AFl)', String(ahr),
+        fromTotal ? 'p (AT/AF Events)' : 'p (Episodes by Duration)', 'review',
+        fromTotal
+          ? 'AT/AF Events total (Since Last Reset). Confirm in the logbook.'
+          : 'Sum of AT/AF Episodes by Duration (Since Last Reset); excludes Total PACs. Confirm in the logbook.');
+    }
     mapObsAndChanges();
     flagMode();
 
@@ -382,6 +391,29 @@
         if (nums.length) { sum += valK(nums[nums.length - 1].str); any = true; }
       }
       return any ? Math.round(sum) : null;
+    }
+    // Preferred AHR source: the pre-totaled "AT/AF Events: N" total inside the
+    // "AT/AF Overview: Since Last Reset" block (the device's own count — more accurate than
+    // summing the duration buckets). In the real export this prints mid-row as a single token,
+    // e.g.  "AT/AF: <1 %" | "AT/AF Events: 139" | "Total Time in AT/AF (hr): <0.1"  — so the
+    // count is NOT the first cell; we scan every token on each line of the block for it.
+    // Returns null when the block or that token is absent (caller then falls back to sumByDuration).
+    function atafEventsTotal() {
+      var start = -1;
+      for (var i = 0; i < LINES.length; i++) {
+        var l0 = LINES[i].items[0];
+        if (l0 && /^AT\/AF Overview: Since Last Reset/.test(l0.str)) { start = i; break; }
+      }
+      if (start < 0) return null;
+      for (var j = start + 1; j < LINES.length; j++) {
+        var first = (LINES[j].items[0] || {}).str || '';
+        if (/^AT\/AF Overview:/.test(first)) break;        // reached the next overview block
+        for (var k = 0; k < LINES[j].items.length; k++) {
+          var m = LINES[j].items[k].str.match(/AT\/AF Events:?\s*([\d.,]+\s*[KkMm]?)/);
+          if (m && /\d/.test(m[1])) return Math.round(valK(m[1]));
+        }
+      }
+      return null;
     }
     // "17 May 2026 00:12" -> "2026-05-17T00:12" for the datetime-local input.
     function dtToLocal(s) {
