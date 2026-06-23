@@ -1114,7 +1114,10 @@ function buildReportPdfBlob() {
   var W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
   var M = 40, NAVY = [30, 58, 95], y = M;
 
-  function val(id){ var e=document.getElementById(id); return e?(e.value||'').trim():''; }
+  // Look up by id first, then fall back to name= (battery-table inputs like bat-lon-cur,
+  // bat-lon-ra-cur, bat-cc-cur carry only a name attribute — without this fallback the PDF
+  // silently dropped Longevity and the other name-only fields).
+  function val(id){ var e=document.getElementById(id) || document.querySelector('[name="'+id+'"]'); return e?(e.value||'').trim():''; }
   function radio(n){ var e=document.querySelector('input[name="'+n+'"]:checked'); return e?e.value:''; }
   function unit(name,d){ var e=document.querySelector('[name="'+name+'"]'); return e?e.value:d; }
   function fmtDT(s){ if(!s) return ''; try { return new Date(s).toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){ return s; } }
@@ -1133,10 +1136,11 @@ function buildReportPdfBlob() {
     doc.text(t.toUpperCase(), M+5, y+10); doc.setTextColor(0,0,0); y += 20;
   }
   // key/value grid: small navy label above an underlined value; 3 columns.
-  function grid(pairs){
+  function grid(pairs, cols){
     pairs = pairs.filter(function(p){ return p[1] != null && String(p[1]).trim() !== ''; });
     if (!pairs.length) return;
-    var cols = 3, colW = (W - 2*M) / cols, rowH = 24;
+    cols = cols || 3;
+    var colW = (W - 2*M) / cols, rowH = 24;
     for (var i=0; i<pairs.length; i++){
       if (i % cols === 0) space(rowH);
       var col = i % cols, x = M + col*colW;
@@ -1171,8 +1175,9 @@ function buildReportPdfBlob() {
 
   var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){return e.value;}).join(', ');
   h2('Patient & Device');
+  // 5 columns so the 10 patient/device fields fit in 2 rows instead of 3–4.
   grid([['Patient Name',val('pt-name')],['DOB',val('pt-dob')],['MRN',val('pt-mrn')],['Date',val('pt-date')],['Provider',val('pt-provider')],
-        ['Device Type',dtype],['Manufacturer',radio('mfr')],['Model',val('dev-model')],['Serial #',val('dev-serial')],['Implant Date',val('dev-implant')]]);
+        ['Device Type',dtype],['Manufacturer',radio('mfr')],['Model',val('dev-model')],['Serial #',val('dev-serial')],['Implant Date',val('dev-implant')]], 5);
 
   if (radio('leadinfo-yn') === 'Yes') {
     var liBody = [];
@@ -1193,10 +1198,11 @@ function buildReportPdfBlob() {
   h2('Battery / Device Status'); grid(batPairs);
 
   h2('Programmed Parameters');
+  // 4 columns so the 8 programmed-parameter fields fit in 2 rows instead of 3.
   grid([['Mode',val('p-mode')],['LRL (bpm)',val('p-lrl')],['UTR (bpm)',val('p-utr')],['USR (bpm)',val('p-usr')],
         ['Sensed AV (ms)', val('p-sav-hi')?(val('p-sav')+' - '+val('p-sav-hi')):val('p-sav')],
         ['Paced AV (ms)', val('p-pav-hi')?(val('p-pav')+' - '+val('p-pav-hi')):val('p-pav')],
-        ['Mode Switch',val('p-ms')],['MS Rate (bpm)',val('p-msrate')]]);
+        ['Mode Switch',val('p-ms')],['MS Rate (bpm)',val('p-msrate')]], 4);
 
   var lmBody = [];
   document.querySelectorAll('#leads-tbody tr').forEach(function(tr){
