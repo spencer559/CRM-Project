@@ -247,29 +247,53 @@
       return null;
     }
     // Verbatim: capture EVERY lead row from the Patient Data "Leads" table exactly as printed —
-    // location, model, serial and implant date — with no chamber dedup or re-labeling, so the
-    // form's lead table mirrors the report (including quirks like two "Right Ventricle" rows or
-    // a mislabeled position). A row is real iff it carries the "Boston Scientific" manufacturer
-    // cell; "N/R" filler rows have none and are skipped.
+    // location, manufacturer, model, serial and implant date — with no chamber dedup or
+    // re-labeling, so the form's lead table mirrors the report (including quirks like two
+    // "Right Ventricle" rows or a mislabeled position).
+    //
+    // Anchor on the table's COLUMN HEADER ("Implant Date | Manufacturer | Model | Serial |
+    // Polarity | Position") and read each row below it, assigning every cell to the nearest header
+    // column by x. A row is real iff its Manufacturer cell isn't "N/R" (the filler rows are all
+    // N/R). This captures leads from ANY manufacturer — e.g. a legacy Guidant or St. Jude lead —
+    // not just Boston's own, and never sees the page footer (which is outside the table region).
     function mapLeadInventory() {
       LEADS = [];
-      LINES.forEach(function (l) {
-        // Manufacturer cell is EXACTLY "Boston Scientific". (The page footer says "Boston
-        // Scientific Corporation" — substring-matching that pulled the footer in as a lead.)
-        var mi = l.items.findIndex(function (it) { return /^Boston Scientific$/.test(it.str); });
-        if (mi < 0) return;
-        var rest = l.items.slice(mi + 1);                         // [model, serial, polarity, position]
-        if (!rest.length) return;                                 // need at least a model after it
-        var pos = (l.items[l.items.length - 1] || {}).str || '';  // right-most cell = Position
-        LEADS.push({
-          location:     pos,                                      // raw, e.g. "Right Ventricle" / "LV Mid (lateral)"
-          manufacturer: (l.items[mi] || {}).str || '',            // the matched "Boston Scientific" cell
-          model:    (rest[0] || {}).str || '',
-          serial:   (rest[1] || {}).str || '',
-          date:     (l.items[0] || {}).str || '',                 // raw, e.g. "Mar 2025" (verbatim)
-          chamber:  chamberOf(pos)                                // best-effort tag (not used by the table)
-        });
+      var hdrIdx = LINES.findIndex(function (l) {
+        var s = l.items.map(function (it) { return it.str; });
+        return s.indexOf('Manufacturer') >= 0 && s.indexOf('Position') >= 0 &&
+               (s.indexOf('Model') >= 0 || s.indexOf('Serial') >= 0);
       });
+      if (hdrIdx < 0) return;
+      var hdr = LINES[hdrIdx], pg = hdr.page;
+      function colX(name) { var it = hdr.items.find(function (i) { return i.str === name; }); return it ? it.x : null; }
+      var cols = { date: colX('Implant Date'), mfr: colX('Manufacturer'), model: colX('Model'),
+                   serial: colX('Serial'), pol: colX('Polarity'), pos: colX('Position') };
+      for (var j = hdrIdx + 1; j < LINES.length && LINES[j].page === pg; j++) {
+        var first = (LINES[j].items[0] || {}).str || '';
+        if (/^(Lead Notes|Programmed Shock|Implant Data|Implant Notes|Indications|Physician)/.test(first)) break;
+        var cell = {};
+        LINES[j].items.forEach(function (it) {
+          var best = null, bestD = 1e9;
+          Object.keys(cols).forEach(function (k) {
+            if (cols[k] == null) return;
+            var d = Math.abs(it.x - cols[k]);
+            if (d < bestD) { bestD = d; best = k; }
+          });
+          if (best && bestD <= 60) cell[best] = (cell[best] ? cell[best] + ' ' : '') + it.str;
+        });
+        var mfr = (cell.mfr || '').trim();
+        if (!mfr || /^N\/R/i.test(mfr)) continue;                 // filler row
+        if (!cell.model && !cell.serial) continue;                // not a real lead row
+        var pos = (cell.pos || '').trim();
+        LEADS.push({
+          location:     pos,                                      // raw, e.g. "Right Ventricle"
+          manufacturer: mfr,                                      // verbatim — Boston, Guidant, St. Jude, …
+          model:        (cell.model || '').trim(),
+          serial:       (cell.serial || '').trim(),
+          date:         (cell.date || '').trim(),                 // raw, e.g. "May 2014" (verbatim)
+          chamber:      chamberOf(pos)                            // best-effort tag (not used by the table)
+        });
+      }
     }
 
     /* ---------- observations (My Alerts) + changes ---------- */
