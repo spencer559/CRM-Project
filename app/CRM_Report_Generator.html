@@ -50,17 +50,13 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .btn-danger { background: #fff; color: #b03030; border-color: #dbb; }
 .btn-danger:hover { background: #fdf0f0; }
 
-/* JSON import/export dropdown */
-.json-dd { position: absolute; min-width: 134px; background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.16); z-index: 1000; overflow: hidden; padding: 3px 0; }
+/* JSON import/export dropdown — position:fixed so it's anchored in VIEWPORT coordinates under the
+   fixed app-bar button. This keeps the menu (and the native iOS share popover it triggers, which
+   anchors to the tapped item) on screen no matter how far the page is scrolled. */
+.json-dd { position: fixed; min-width: 134px; background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.16); z-index: 1000; overflow: hidden; padding: 3px 0; }
 .json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; }
 .json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
-/* Touch (iPad/iPhone): show the menu centered in the viewport instead of anchored to the button,
-   so it's always on-screen no matter how far the page is scrolled. */
-.json-dd.dd-center { position: fixed; top: 50%; left: 50%; right: auto; bottom: auto; transform: translate(-50%,-50%);
-  min-width: 220px; border-radius: 12px; padding: 6px 0; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
-.json-dd.dd-center .json-dd-item { padding: 15px 22px; font-size: 16px; text-align: center; }
-.json-dd.dd-center .json-dd-item:active { background: var(--navy-lt); color: var(--navy); }
-#dd-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.32); z-index: 999; display: none; }
+.json-dd-item:active { background: var(--navy-lt); color: var(--navy); }
 
 /* SIDEBAR */
 .sidebar {
@@ -249,7 +245,6 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <button class="json-dd-item" onclick="exportJSON()">Export JSON</button>
 </div>
 <input type="file" id="json-import-file" accept="application/json,.json" style="display:none" onchange="onJsonFileChosen(event)">
-<div id="dd-backdrop" onclick="closeMenus()"></div>
 
 <!-- SIDEBAR -->
 <nav class="sidebar">
@@ -1554,8 +1549,7 @@ function exportJSON() {
 
 // ── JSON menu (Import / Export) ──
 function closeMenus() {
-  document.querySelectorAll('.json-dd').forEach(function(m){ m.style.display = 'none'; m.classList.remove('dd-center'); });
-  var b = document.getElementById('dd-backdrop'); if (b) b.style.display = 'none';
+  document.querySelectorAll('.json-dd').forEach(function(m){ m.style.display = 'none'; });
 }
 function toggleMenu(e, id) {
   e.stopPropagation();
@@ -1563,20 +1557,13 @@ function toggleMenu(e, id) {
   if (!dd) return;
   if (dd.style.display === 'block') { closeMenus(); return; }
   closeMenus();   // close any other open menu first
-  // Touch devices (iPad/iPhone): center the menu in the viewport with a backdrop, so it's always
-  // visible regardless of scroll position. Pure position:fixed centering (no scroll math) also
-  // sidesteps the old iOS tap-target-offset bug.
-  if (window.matchMedia('(pointer: coarse)').matches) {
-    dd.classList.add('dd-center');
-    dd.style.top = dd.style.right = dd.style.left = '';   // let the CSS center it
-    var b = document.getElementById('dd-backdrop'); if (b) b.style.display = 'block';
-  } else {
-    // Desktop (mouse): anchor under the button in DOCUMENT coordinates (absolute + scroll offset).
-    var r = e.currentTarget.getBoundingClientRect();
-    dd.style.top = (window.pageYOffset + r.bottom + 4) + 'px';
-    dd.style.right = (document.documentElement.clientWidth - r.right) + 'px';
-    dd.style.left = 'auto';
-  }
+  // The menu is position:fixed, so anchor it under the button using VIEWPORT coordinates (the
+  // app-bar is fixed, so the button rect is always near the top). No pageYOffset — using document
+  // coordinates on a fixed element is what pushed the iOS share popover off-screen when scrolled.
+  var r = e.currentTarget.getBoundingClientRect();
+  dd.style.top = (r.bottom + 4) + 'px';
+  dd.style.right = (document.documentElement.clientWidth - r.right) + 'px';
+  dd.style.left = 'auto';
   dd.style.display = 'block';
 }
 function toggleJsonMenu(e){ toggleMenu(e, 'json-dropdown'); }
