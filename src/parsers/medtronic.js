@@ -287,12 +287,17 @@
         LINES.forEach(function (l) {
           var a = l.items.find(function (i) { return /^Atrial\(/.test(i.str); });
           var rv = l.items.find(function (i) { return /^RV\(/.test(i.str); });
-          if (!a || !rv) return;
+          if (!a && !rv) return;                              // not a chamber header (need ≥1 chamber)
           var lv = l.items.find(function (i) { return /^LV(\(|$)/.test(i.str); });
-          if (!hdr || (l.secType === 'final' && hdr.secType !== 'final')) hdr = { a: a.x, rv: rv.x, lv: lv ? lv.x : null, secType: l.secType };
+          if (!hdr || (l.secType === 'final' && hdr.secType !== 'final'))
+            hdr = { a: a ? a.x : null, rv: rv ? rv.x : null, lv: lv ? lv.x : null, secType: l.secType };
         });
         if (!hdr) return { split: COL_SPLIT, lvSplit: isCRT ? LV_SPLIT : undefined };   // fallback to fixed
-        return { split: Math.round((hdr.a + hdr.rv) / 2), lvSplit: (isCRT && hdr.lv) ? Math.round((hdr.rv + hdr.lv) / 2) : undefined };
+        if (hdr.a != null && hdr.rv != null)                  // two-column: atrial | RV [| LV]
+          return { split: Math.round((hdr.a + hdr.rv) / 2), lvSplit: (isCRT && hdr.lv) ? Math.round((hdr.rv + hdr.lv) / 2) : undefined };
+        if (hdr.rv != null)                                   // single-chamber RV: the lone column is RV → "v"
+          return { split: hdr.rv - 40, lvSplit: undefined };
+        return { split: hdr.a + 1000, lvSplit: undefined };   // single-chamber atrial: the lone column is RA → "a"
       })();
 
       // two-column lead measurements (atrial | RV [| LV])
@@ -314,7 +319,8 @@
       }
       function ioNote(x) { return x.io ? 'In-office (clinician) reading — preferred over the device auto value. Verify.' : 'Device-measured value (no in-office reading). Verify.'; }
 
-      var sns = preferIO(/^In-Office P\/R Wave$/, /Measured P\/R Wave/, /mV/);
+      // Label is "P/R Wave" on dual/CRT reports but just "R Wave" on single-chamber RV reports.
+      var sns = preferIO(/^In-Office (?:P\/)?R Wave$/, /Measured (?:P\/)?R Wave/, /mV/);
       set('lead-ra-sens', 'RA Sensing P-wave (mV)', num(sns.a), sns.src, 'review', ioNote(sns));
       set('lead-rv-sens', 'RV Sensing R-wave (mV)', num(sns.v), sns.src, 'review', ioNote(sns));
       if (isCRT && sns.lv) set('lead-lv-sens', 'LV Sensing (mV)', num(sns.lv), sns.src, 'review', ioNote(sns));
