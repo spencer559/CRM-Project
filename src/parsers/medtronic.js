@@ -208,31 +208,50 @@
       var isCRT = ROUTE.family === 'crt';
       var LV_SPLIT = 385;  // x boundary: RV column < LV_SPLIT <= LV column
       var h;
-      // Pacing percentages. Two Quick Look layouts exist:
-      //  (a) simple MVP report: standalone "AP <x%>" and "VP <x%>" rows.
-      //  (b) AdaptivCRT report: a four-state breakdown (AS-VS / AS-VP / AP-VS / AP-VP)
-      //      plus "Total VP*". There is no standalone "AP"/"VP", so pct-a came back blank
-      //      and /^VP$/ grabbed the stray "VP" on the AT/AF histogram page (% of AT/AF paced).
-      // Simple Quick Look format has standalone "AP <x%>" and "VP <x%>" rows (the
-      // since-last-session summary). Prefer these. Only the AdaptivCRT breakdown layout
-      // lacks them; there we sum the four pacing states instead. Requiring BOTH a standalone
-      // AP and VP avoids the stray "VP" (% of AT/AF) on the histogram pages.
-      var hAP = findRight(/^AP$/, { match: /%/ }), hVP = findRight(/^VP$/, { match: /%/ });
-      if (hAP && hVP) {
-        // pacing % may be a comparator ("<0.1 %"); cmpNum keeps it for the text field.
-        var ca = cmpNum(hAP.v), cv = cmpNum(hVP.v);
-        set('pct-a', 'A Paced %', ca.v, 'p' + hAP.page, ca.cmp ? 'review' : 'auto', ca.cmp ? ('Reported "' + ca.raw + '".') : '');
-        set('pct-v', 'V Paced %', cv.v, 'p' + hVP.page, cv.cmp ? 'review' : 'auto', cv.cmp ? ('Reported "' + cv.raw + '".') : '');
+      // Pacing percentages — read from the device's "Therapy Summary" block on the Quick Look
+      // page, which lists the authoritative since-last-session values as SINGLE tokens:
+      //   dual chamber : "VP" / "AP"
+      //   CRT          : "Total VP*" / "AP" + an "Effective" line (Total VP Effective -> BiV)
+      // Scoping to that block is essential: the Rate-Histogram pages repeat "Total VP" / "VP" as
+      // TWO-column rows (prior | since-last) and as a "% of AT/AF" metric, so a document-wide
+      // search grabbed the wrong number (e.g. a prior-session 79.4%, or the 89.2% AT/AF VP).
+      function therapySummaryVal(re) {
+        var hdr = -1;
+        for (var i = 0; i < LINES.length; i++) {
+          if (LINES[i].items.some(function (it) { return /^Therapy Summary$/.test(it.str); })) { hdr = i; break; }
+        }
+        if (hdr < 0) return null;
+        var pg = LINES[hdr].page;
+        for (var j = hdr + 1; j < LINES.length && LINES[j].page === pg; j++) {
+          var items = LINES[j].items;
+          for (var k = 0; k < items.length; k++) {
+            if (re.test(items[k].str)) {
+              var r = items.slice(k + 1).find(function (n) { return n.x > items[k].x && /%/.test(n.str); });
+              if (r) return { v: r.str, page: pg };
+            }
+          }
+        }
+        return null;
+      }
+      var hVP = therapySummaryVal(/^Total VP\*?$/) || therapySummaryVal(/^VP$/);
+      if (hVP) {
+        var cVP = cmpNum(hVP.v);
+        set('pct-v', 'V Paced %', cVP.v, 'p' + hVP.page, cVP.cmp ? 'review' : 'auto', 'Device Total VP (ventricular paced).' + (cVP.cmp ? ' Reported "' + cVP.raw + '".' : ''));
+        var hAP = therapySummaryVal(/^(?:Total )?AP$/);
+        if (hAP) { var cAP = cmpNum(hAP.v); set('pct-a', 'A Paced %', cAP.v, 'p' + hAP.page, cAP.cmp ? 'review' : 'auto', 'Device Total AP (atrial paced).' + (cAP.cmp ? ' Reported "' + cAP.raw + '".' : '')); }
+        if (isCRT) {
+          // "Total VP Effective" prints as an "Effective" row directly under "Total VP*".
+          var hEff = therapySummaryVal(/^Effective$/);
+          if (hEff) { var cEff = cmpNum(hEff.v); set('pct-biv', 'BiV Paced %', cEff.v, 'p' + hEff.page, cEff.cmp ? 'review' : 'auto', 'Total VP Effective (effective CRT pacing).' + (cEff.cmp ? ' Reported "' + cEff.raw + '".' : '')); }
+        }
       } else {
+        // No Therapy Summary block — last-resort AdaptivCRT four-state sum (since-last column).
         var pH = function (re) { return findRight(re, { match: /%/ }); };
-        var hApvp = pH(/^AP-VP$/), hApvs = pH(/^AP-VS$/), hAsvp = pH(/^AS-VP$/), hTotVP = pH(/^Total VP\*?$/);
+        var hApvp = pH(/^AP-VP$/), hApvs = pH(/^AP-VS$/), hAsvp = pH(/^AS-VP$/);
         if (hApvp) {
           var pv = function (x) { return x ? (parseFloat(num(x.v)) || 0) : 0; };
-          var aPaced = pv(hApvs) + pv(hApvp);                        // atrium paced in any state
-          var vPaced = hTotVP ? pv(hTotVP) : pv(hAsvp) + pv(hApvp);  // ventricle paced (device Total VP preferred)
-          var pSrc = 'p' + hApvp.page;
-          set('pct-a', 'A Paced %', aPaced.toFixed(1), pSrc, 'auto', 'Summed pacing states: AP-VS + AP-VP.');
-          set('pct-v', 'V Paced %', vPaced.toFixed(1), pSrc, 'auto', hTotVP ? 'Device Total VP from the pacing-state breakdown.' : 'Summed pacing states: AS-VP + AP-VP.');
+          set('pct-a', 'A Paced %', (pv(hApvs) + pv(hApvp)).toFixed(1), 'p' + hApvp.page, 'auto', 'Summed pacing states: AP-VS + AP-VP.');
+          set('pct-v', 'V Paced %', (pv(hAsvp) + pv(hApvp)).toFixed(1), 'p' + hApvp.page, 'auto', 'Summed pacing states: AS-VP + AP-VP.');
         } else {
           set('pct-a', 'A Paced %', '', '', 'review', '');
           set('pct-v', 'V Paced %', '', '', 'review', '');
