@@ -208,17 +208,19 @@
       var isCRT = ROUTE.family === 'crt';
       var LV_SPLIT = 385;  // x boundary: RV column < LV_SPLIT <= LV column
       var h;
-      // Pacing percentages — read from the device's "Therapy Summary" block on the Quick Look
-      // page, which lists the authoritative since-last-session values as SINGLE tokens:
-      //   dual chamber : "VP" / "AP"
-      //   CRT          : "Total VP*" / "AP" + an "Effective" line (Total VP Effective -> BiV)
-      // Scoping to that block is essential: the Rate-Histogram pages repeat "Total VP" / "VP" as
-      // TWO-column rows (prior | since-last) and as a "% of AT/AF" metric, so a document-wide
-      // search grabbed the wrong number (e.g. a prior-session 79.4%, or the 89.2% AT/AF VP).
+      // Pacing percentages — read from the Quick Look pacing-summary block, which lists the
+      // authoritative since-last-session values as SINGLE tokens:
+      //   single chamber : "VS" / "VP"
+      //   dual chamber   : "VP" / "AP"
+      //   CRT            : "Total VP*" / "AP" + an "Effective" line (Total VP Effective -> BiV)
+      // Anchor on the "(% of Time Since …)" header rather than the "Therapy Summary" label — only
+      // dual/CRT print "Therapy Summary"; single-chamber reports have just the "Pacing (% of Time)"
+      // header. The parenthesis distinguishes this header from the Rate-Histogram pages' bare
+      // "% of Time" (two-column prior | since-last) and the "% of AT/AF" metric, which we must skip.
       function therapySummaryVal(re) {
         var hdr = -1;
         for (var i = 0; i < LINES.length; i++) {
-          if (LINES[i].items.some(function (it) { return /^Therapy Summary$/.test(it.str); })) { hdr = i; break; }
+          if (LINES[i].items.some(function (it) { return /\(%\s*of\s*Time/i.test(it.str); })) { hdr = i; break; }
         }
         if (hdr < 0) return null;
         var pg = LINES[hdr].page;
