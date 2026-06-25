@@ -54,6 +54,13 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .json-dd { position: absolute; min-width: 134px; background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.16); z-index: 1000; overflow: hidden; padding: 3px 0; }
 .json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; }
 .json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
+/* Touch (iPad/iPhone): show the menu centered in the viewport instead of anchored to the button,
+   so it's always on-screen no matter how far the page is scrolled. */
+.json-dd.dd-center { position: fixed; top: 50%; left: 50%; right: auto; bottom: auto; transform: translate(-50%,-50%);
+  min-width: 220px; border-radius: 12px; padding: 6px 0; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+.json-dd.dd-center .json-dd-item { padding: 15px 22px; font-size: 16px; text-align: center; }
+.json-dd.dd-center .json-dd-item:active { background: var(--navy-lt); color: var(--navy); }
+#dd-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.32); z-index: 999; display: none; }
 
 /* SIDEBAR */
 .sidebar {
@@ -233,15 +240,16 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- JSON menu lives outside the app bar (which gets overflow:auto on mobile and would clip a
      fixed-position descendant in WebKit). As a body child it stacks above everything. -->
-<div id="pdf-dropdown" class="json-dd" style="display:none;">
+<div id="pdf-dropdown" class="json-dd" style="display:none;" onclick="event.stopPropagation()">
   <button class="json-dd-item" onclick="exportPDF()">Print</button>
   <button class="json-dd-item" onclick="savePDF()">Save (PDF file)</button>
 </div>
-<div id="json-dropdown" class="json-dd" style="display:none;">
+<div id="json-dropdown" class="json-dd" style="display:none;" onclick="event.stopPropagation()">
   <button class="json-dd-item" onclick="importJSON()">Import JSON…</button>
   <button class="json-dd-item" onclick="exportJSON()">Export JSON</button>
 </div>
 <input type="file" id="json-import-file" accept="application/json,.json" style="display:none" onchange="onJsonFileChosen(event)">
+<div id="dd-backdrop" onclick="closeMenus()"></div>
 
 <!-- SIDEBAR -->
 <nav class="sidebar">
@@ -1264,6 +1272,7 @@ function savePDF() {
 }
 
 function exportPDF() {
+  closeMenus();
   function v(id) { var e = document.getElementById(id); return e ? (e.value || '') : ''; }
   function r(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
   function fmtDT(val) {
@@ -1499,28 +1508,35 @@ function exportPDF() {
 // Must run from a user gesture (button click) so the picker/share sheet is allowed.
 async function saveFile(filename, data, mime) {
   var blob = (data instanceof Blob) ? data : new Blob([data], { type: mime });
-  if (window.showSaveFilePicker) {
-    try {
-      var accept = {}; accept[mime] = ['.' + filename.split('.').pop()];
-      var handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: mime, accept: accept }] });
-      var writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return;
-    } catch (e) { if (e && e.name === 'AbortError') return; }   // cancelled — stop; else fall through
-  }
   try {
-    if (navigator.canShare) {
-      var file = new File([blob], filename, { type: mime });
-      // Share ONLY the file — including title/text makes iOS "Save to Files" write a second
-      // stray .txt containing that text alongside the real file.
-      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
+    if (window.showSaveFilePicker) {
+      try {
+        var accept = {}; accept[mime] = ['.' + filename.split('.').pop()];
+        var handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: mime, accept: accept }] });
+        var writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (e) { if (e && e.name === 'AbortError') return; }   // cancelled — stop; else fall through
     }
-  } catch (e) { if (e && e.name === 'AbortError') return; }       // cancelled the share sheet
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
+    try {
+      if (navigator.canShare) {
+        var file = new File([blob], filename, { type: mime });
+        // Share ONLY the file — including title/text makes iOS "Save to Files" write a second
+        // stray .txt containing that text alongside the real file.
+        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return; }     // cancelled the share sheet
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  } finally {
+    // Close the export menu only AFTER the picker/share sheet has resolved. On iPad the native
+    // share popover anchors to the element that triggered it; the menu is centered on touch, so
+    // keeping it on screen until now makes the popover appear centered instead of top-left.
+    closeMenus();
+  }
 }
 
 function fileStamp(ext) {
@@ -1537,27 +1553,38 @@ function exportJSON() {
 }
 
 // ── JSON menu (Import / Export) ──
+function closeMenus() {
+  document.querySelectorAll('.json-dd').forEach(function(m){ m.style.display = 'none'; m.classList.remove('dd-center'); });
+  var b = document.getElementById('dd-backdrop'); if (b) b.style.display = 'none';
+}
 function toggleMenu(e, id) {
   e.stopPropagation();
   var dd = document.getElementById(id);
   if (!dd) return;
-  document.querySelectorAll('.json-dd').forEach(function(m){ if (m !== dd) m.style.display = 'none'; });
-  if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
-  // position:absolute in DOCUMENT coordinates (add scroll offset). Using fixed here triggers an
-  // iOS Safari bug where, once the page is scrolled, the menu paints correctly but its tap target
-  // is offset by the scroll amount — so taps miss the items unless you're at the very top.
-  var r = e.currentTarget.getBoundingClientRect();
-  dd.style.top = (window.pageYOffset + r.bottom + 4) + 'px';
-  dd.style.right = (document.documentElement.clientWidth - r.right) + 'px';
+  if (dd.style.display === 'block') { closeMenus(); return; }
+  closeMenus();   // close any other open menu first
+  // Touch devices (iPad/iPhone): center the menu in the viewport with a backdrop, so it's always
+  // visible regardless of scroll position. Pure position:fixed centering (no scroll math) also
+  // sidesteps the old iOS tap-target-offset bug.
+  if (window.matchMedia('(pointer: coarse)').matches) {
+    dd.classList.add('dd-center');
+    dd.style.top = dd.style.right = dd.style.left = '';   // let the CSS center it
+    var b = document.getElementById('dd-backdrop'); if (b) b.style.display = 'block';
+  } else {
+    // Desktop (mouse): anchor under the button in DOCUMENT coordinates (absolute + scroll offset).
+    var r = e.currentTarget.getBoundingClientRect();
+    dd.style.top = (window.pageYOffset + r.bottom + 4) + 'px';
+    dd.style.right = (document.documentElement.clientWidth - r.right) + 'px';
+    dd.style.left = 'auto';
+  }
   dd.style.display = 'block';
 }
 function toggleJsonMenu(e){ toggleMenu(e, 'json-dropdown'); }
 function togglePdfMenu(e){ toggleMenu(e, 'pdf-dropdown'); }
-document.addEventListener('click', function() {
-  document.querySelectorAll('.json-dd').forEach(function(m){ m.style.display = 'none'; });
-});
+document.addEventListener('click', closeMenus);
 
 function importJSON() {
+  closeMenus();
   var inp = document.getElementById('json-import-file');
   if (inp) { inp.value = ''; inp.click(); }   // reset so re-importing the same file fires change
 }
