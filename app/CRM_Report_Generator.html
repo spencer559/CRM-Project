@@ -1526,10 +1526,16 @@ async function saveFile(filename, data, mime) {
         // Share ONLY the file — including title/text makes iOS "Save to Files" write a second
         // stray .txt containing that text alongside the real file.
         if (navigator.canShare({ files: [file] })) {
-          // iPad: iPadOS anchors the share popover near the top of the page (not web-controllable),
-          // so it scrolls off-screen when you're scrolled down. Snap to the top first so it's
-          // visible. (iPhone shows a bottom sheet regardless, so only do this on iPad.)
-          if (isIPad()) window.scrollTo(0, 0);
+          // iPad: iPadOS anchors the share popover to the focused element. iOS Safari doesn't focus
+          // a <button> on tap, so with nothing focused the popover falls back to the page body
+          // (top-left, scrolling off as you go down the page). Move focus to a visible element in
+          // the fixed top toolbar first so the popover anchors there, on screen, regardless of
+          // scroll. (iPhone shows a bottom sheet regardless, so this only matters on iPad.)
+          if (isIPad()) {
+            var anchorBtn = document.querySelector('.app-bar-actions .btn-primary') ||
+                            document.querySelector('.app-bar-actions button');
+            if (anchorBtn) anchorBtn.focus({ preventScroll: true });
+          }
           await navigator.share({ files: [file] });
           return;
         }
