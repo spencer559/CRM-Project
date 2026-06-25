@@ -1501,6 +1501,12 @@ function exportPDF() {
 //   2. navigator.share     — iOS/Safari share sheet → "Save to Files" (pick folder / USB / iCloud)
 //   3. classic <a download> — fallback (downloads to the browser's default folder)
 // Must run from a user gesture (button click) so the picker/share sheet is allowed.
+// iPadOS 13+ Safari reports a desktop ("MacIntel") platform, so detect iPad by the touch-capable
+// Mac signature as well as the classic iPad UA.
+function isIPad() {
+  return /iPad/.test(navigator.userAgent) ||
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
 async function saveFile(filename, data, mime) {
   var blob = (data instanceof Blob) ? data : new Blob([data], { type: mime });
   try {
@@ -1519,7 +1525,14 @@ async function saveFile(filename, data, mime) {
         var file = new File([blob], filename, { type: mime });
         // Share ONLY the file — including title/text makes iOS "Save to Files" write a second
         // stray .txt containing that text alongside the real file.
-        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
+        if (navigator.canShare({ files: [file] })) {
+          // iPad: iPadOS anchors the share popover near the top of the page (not web-controllable),
+          // so it scrolls off-screen when you're scrolled down. Snap to the top first so it's
+          // visible. (iPhone shows a bottom sheet regardless, so only do this on iPad.)
+          if (isIPad()) window.scrollTo(0, 0);
+          await navigator.share({ files: [file] });
+          return;
+        }
       }
     } catch (e) { if (e && e.name === 'AbortError') return; }     // cancelled the share sheet
     var a = document.createElement('a');
