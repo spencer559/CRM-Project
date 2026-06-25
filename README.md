@@ -22,7 +22,7 @@ Supported inputs:
 | **Medtronic** | SmartSync **PDF** (text-based) | Quick Look / Session Summary / Parameters / Patient Info pages |
 | **Boston Scientific** | LATITUDE **PDF** (text-based) | Quick Look / Combined Follow-up / Patient Data pages |
 | **Abbott / St. Jude** | Merlin **.log** (text) | Their PDF is a scanned **image** with no selectable text → use the `.log` export instead |
-| **Biotronik** | Home Monitoring **PDF** (text-based) | Parameters / Follow-up / Patient / Leads pages. Text is per-character fragmented (see gotchas). |
+| **Biotronik** | **PDF** (text-based) | Two report layouts handled: Home-Monitoring (per-character fragmented text) and Standard/BIOSTD (whole-word). See gotchas. |
 
 ---
 
@@ -38,6 +38,7 @@ src/
     medtronic.js                    Medtronic PDF parser  → window.MEDTRONIC.runMap(LINES, META)
     boston.js                       Boston Scientific PDF  → window.BOSTON.runMap(LINES, META)
     abbott.js                       Abbott Merlin .log     → window.ABBOTT.runLog(text)
+    biotronik.js                    Biotronik PDF parser  → window.BIOTRONIK.runMap(LINES, META)
 vendor/
   pdf.min.js  pdf.worker.min.js     Vendored pdf.js 3.11.174 (self-hosted, not a CDN)
 assets/
@@ -61,7 +62,8 @@ prefixes. Test fixtures (`Abbott Test Cases/`) stay local and are git-ignored.
 | `src/parsers/medtronic.js` | Medtronic PDF parser → `window.MEDTRONIC.runMap(LINES, META)` |
 | `src/parsers/boston.js` | Boston Scientific PDF parser → `window.BOSTON.runMap(LINES, META)` |
 | `src/parsers/abbott.js` | Abbott Merlin **.log** parser → `window.ABBOTT.runLog(text)` |
-| `vendor/` | Self-hosted pdf.js (no runtime CDN dependency). |
+| `src/parsers/biotronik.js` | Biotronik PDF parser (two report layouts) → `window.BIOTRONIK.runMap(LINES, META)` |
+| `vendor/` | Self-hosted pdf.js **+ jsPDF/autotable** (no runtime CDN dependency). |
 
 ---
 
@@ -147,6 +149,7 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 - **Generator implant date** must come from device-level anchors ("Device … Implanted:" / "Device Status (Implanted: …)"), **not** the first "Implant Date" line — that one is the *first lead's* date.
 - **Two-column lead measurements**: the Atrial/RV[/LV] column x-positions differ between the Quick Look and the (compressed) Session Summary, so the column split is **derived dynamically from the chamber header row** (`Atrial(####) RV(####) [LV]`), not a fixed x.
 - **MVP (Managed Ventricular Pacing)** prints two mode tokens (e.g. `AAIR  DDDR`); record the pair verbatim as `AAIR/DDDR`, don't collapse to `DDD`.
+- **Pacing % comes from the "Therapy Summary" block on the Quick Look page** (`therapySummaryVal()`), which lists single, since-last-session values: dual chamber → `VP` / `AP`; CRT → `Total VP*` / `AP` plus an `Effective` row (Total VP Effective → **BiV Paced %**). Scoping to that block is essential — the Rate-Histogram pages repeat `Total VP` / `VP` as **two-column** rows (`prior | since-last`) and as a `% of AT/AF` metric, so a document-wide search grabbed the wrong number (a prior-session value, or the AT/AF-paced VP). `pct-v` ← Total VP/VP, `pct-a` ← AP/Total AP, `pct-biv` ← Effective (CRT only). Fallback when no Therapy Summary: sum the four pacing states (`AS-VP + AP-VP`, etc.).
 - ICD coil impedance / charge time come from single-value rows (RV Defib / SVC Defib / Charge Time).
 - Lead inventory: from the "Device Information" rows; **de-dup by serial** (the rows repeat across pages) — never by chamber (two same-chamber leads must both survive).
 
@@ -160,7 +163,7 @@ Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhyth
 - Lead inventory is **verbatim** — manufacturer cell must match exactly `Boston Scientific` (the page footer says `Boston Scientific Corporation`).
 - **Episode / arrhythmia-log mapping** — both values come from the *Since Last Reset* column, but **that column is in a different position in two adjacent blocks**, which is the subtle trap:
   - `ep-hvr` ← **Total Episodes**, which lives in the *Ventricular Tachy Counters* block laid out `Since Last Reset | Device Totals` → Since-Last-Reset is the **first/left** value (`findRight` returns it).
-  - `ep-ahr` ← **sum of the "Episodes by Duration" buckets** (<1m + 1m–1h + 1h–24h + 24h–48h + >48h, walking to "Total PACs" which is **excluded**). These rows are in the *Brady / Atrial Arrhythmia* block laid out `Reset Before Last | Since Last Reset` → Since-Last-Reset is the **rightmost** value. `sumByDuration()` takes the rightmost numeric cell on each row, **not** the first (the first is Reset Before Last — often 0, which is the bug that returned AHR = 0). Cross-check with `% A Paced` against page 1's single Since-Last-Reset value to confirm which column is which.
+  - `ep-ahr` ← **prefer the device's own pre-totaled `AT/AF Events: N`** value, which prints inside the *AT/AF Overview: Since Last Reset* block (`atafEventsTotal()`). It's a **mid-row token** (e.g. `AT/AF: <1 %` | `AT/AF Events: 139` | `Total Time…`), not the first cell, so the scan checks **every** token on each line of that block. When that line is absent, **fall back** to `sumByDuration()` — the **sum of the "Episodes by Duration" buckets** (<1m + 1m–1h + 1h–24h + 24h–48h + >48h, walking to "Total PACs" which is **excluded**). Those rows are in the *Brady / Atrial Arrhythmia* block laid out `Reset Before Last | Since Last Reset` → Since-Last-Reset is the **rightmost** value, so `sumByDuration()` takes the rightmost numeric cell on each row, **not** the first (the first is Reset Before Last — often 0, which was the bug that returned AHR = 0). The two agree when both are present (the total == the bucket sum); the source note records which path filled the field.
   - The **"Longest"** episode under *AT/AF Overview: Since Last Reset* (not *Reset Before Last*) is pushed to the logbook as one row (date/time, duration, avg V rate, type AF/AHR, note "Longest").
   - (There is no `ep-total` — that field was removed; episodes are entered/typed, and HVR/AHR are the counters.)
 
@@ -174,6 +177,7 @@ Unifying tricks:
 - **Header** is read from the clean `PDF: BIOTRONIK - …` line when present, else from the `S/N:` line (model from the fragmented header tokens → flagged review).
 - **Leads**: Home-Monitoring lists per-lead blocks (with serials, deduped); Standard lists an A|V table (Type/Manufacturer/Position, no serials → uses the device implant date).
 - Dates `MM/DD/YYYY` → `bToISO`. Longevity from "Calculated/Expected ERI N Y. M Mo." → years. AV is dynamic (`300/260` → min–max + Dynamic AV = Yes) or fixed (`AV delay [ms] 240`). Multiple interrogations/test runs appear, so values come from the **last (non-empty)** matching row.
+- **Lead measurements (impedance / sensing / threshold / pulse width) are scoped to the last "Test results" block** (`avScoped`): if a chamber's row there shows `-----` (not measured), the field stays **blank**. Without this, the label "Pulse width [ms]" also appears in the programmed-output and test-program sections, and a whole-document "keep last non-empty" search leaked the *programmed* atrial pulse width (e.g. `1.0`) into a chamber whose measured value was `-----`. Fields whose row is genuinely absent from the block fall back to the wider search (e.g. the Home-Monitoring threshold lives in a different section).
 - **Validated against one dual-chamber PPM in each layout** — ICD/CRT and single-chamber Biotronik are unverified.
 
 ### Abbott / St. Jude (`abbott.js`)
@@ -195,19 +199,22 @@ Unifying tricks:
 - **Aveir leadless mode** — picking the `Aveir` device type reveals RA/RV chamber checkboxes that drive the lead-info rows, per-module Longevity rows, and which pacing-% fields show (see Conventions above).
 - **Episode logbook** — a **"Logbook / Free text"** radio (`ep-mode`, default Logbook) lets you either use the row-based table or type a single free-text block (`ep-freetext`). The logbook defaults to 1 row ("+ Add Episode" for more); a parser's `EPISODES` rows are written in automatically. **Observations** (`obs-yn` + `obs-text`) live at the bottom of this section.
 - **Section layout.** Form sections: Patient & Device · Battery / Device Status · Programmed Parameters · Lead / Electrode Measurements · Stored Episodes / Arrhythmia Log (+ Observations) · **Final Session Summary** (a merge of Reprogramming changes + Remote Monitoring + the Device Technician / Date-Completed sign-off, all under one header).
-- **Export buttons:** New Patient · Copy to Clipboard · Export .txt · **JSON** (a dropdown: Import / Export) · Save PDF. The Print button was removed (Save PDF is the print path).
+- **Export buttons:** New Patient · Copy to Clipboard · Export .txt · **JSON** (a dropdown: Import / Export) · **PDF** (a dropdown: **Print** = browser print, **Save (PDF file)** = a real vector PDF built with jsPDF and saved like the JSON exports).
   - **JSON export/import** round-trips the whole form via `collectFormData()` / `applyFormData()`. It serializes the dynamic lead-table rows separately as `__leadinfo` (the cells have no id/name) and **excludes file inputs / auto-fill tool controls** (`pdp-*`, `json-import-file`) — those threw on import (you can't set `input[type=file].value`), which used to abort the whole restore. Import does a clean reset first.
-  - **Save-location aware** — `saveFile()` uses `showSaveFilePicker` (desktop/Android Chrome → pick folder/USB), else `navigator.share` (iOS Safari → share sheet → "Save to Files"; shares the file **only**, no title/text, or iOS writes a stray `.txt`), else a classic download.
+  - **Save-location aware** — `saveFile()` uses `showSaveFilePicker` (desktop/Android Chrome → pick folder/USB), else `navigator.share` (iOS Safari → share sheet → "Save to Files"; shares the file **only**, no title/text, or iOS writes a stray `.txt`), else a classic download. The same path saves both JSON and the vector PDF; the export menu is closed in a `finally` (after the picker/share resolves) so the trigger element survives until the sheet presents.
+  - **iPad share-sheet caveat** — on **iPad Safari**, `navigator.share` is a *popover* whose anchor iPadOS controls; with nothing focused it falls back to the page body (top-left, scrolling off as you scroll down). Mitigation: on iPad (`isIPad()`), focus a visible top-toolbar button right before sharing so the popover anchors on-screen. This is a Safari limitation, not web-fixable in general — **Chrome on iPad** wraps the sheet in its own centered UI and works regardless; iPhone shows a bottom sheet regardless. If reliable placement is ever required on iPad Safari, the fallback is a direct download (no popover).
 - **Text/clipboard report** (`buildSummaryLines`): DEVICE is a compact pipe-separated line (no provider); BATTERY folds in Mode/LRL/UTR/USR (rate line and pacing-% line are each pipe-separated, BiV included only when present); STORED EPISODES / OBSERVATIONS shows the logbook rows *or* the free-text block, plus Observations; FINAL SESSION SUMMARY carries Changes-this-visit + Provider + Remote Monitoring. The *Device Technician* block is intentionally omitted (the EHR stamps it); the **PDF keeps it**.
-- **PDF report**: compact one-page-oriented layout; Provider on the patient line; Stored Episodes omitted when empty; renders the episode free-text block when that mode is active.
+  - **Episode rows** print tight under the counter line (no blank between them), unnumbered; each row is one pipe-separated line and **notes are an inline `| ` field** (just the free text — no `Notes:` label).
+  - **Observations** render only when `obs-yn` = **Yes** (`N/A` is omitted entirely) as `Observations: <free text>`, word-wrapped by `wrapLines()` so continuation lines align under "Observations:" and every line shares the same right margin (~78 cols).
+- **PDF report** (vector, jsPDF): compact one-page-oriented layout; Provider on the patient line; Stored Episodes omitted when empty; renders the episode free-text block when that mode is active. The key/value `grid()` takes a **column count** — Patient & Device renders at **5 columns** and Programmed Parameters at **4** so each fits in 2 rows. Its `val()` looks up by `id` **then `name`**, so the battery-table inputs (Longevity, per-module RA/RV longevity, charge time) — which carry only a `name` — are no longer dropped from the PDF.
 - Autosave to `localStorage` (key `crm-digital`) — now including the lead table (`__leadinfo`); "New Patient" button clears + reloads.
-- **Responsive layout** — below 820px the sidebar collapses, the auto-fill panel flows inline at the top of the form, dense field grids reflow, and wide tables scroll horizontally. The JSON menu lives at body level (the app bar gets `overflow:auto` on mobile, which would clip it) and is **absolutely** positioned in document coordinates — `position:fixed` triggers an iOS Safari bug where the menu's tap target is offset by the scroll amount, so taps miss unless you're at the top.
+- **Responsive layout** — below 820px the sidebar collapses, the auto-fill panel flows inline at the top of the form, dense field grids reflow, and wide tables scroll horizontally. The JSON/PDF menus live at body level (the app bar gets `overflow:auto` on mobile, which would clip them) and are **`position:fixed`, anchored in viewport coordinates** under the (fixed) app-bar button — `r.bottom + 4` with **no** scroll offset. (An earlier version used `position:absolute` + `pageYOffset`; mixing document coordinates with the share popover is what pushed the iOS share sheet off-screen when scrolled.)
 
 ---
 
 ## Security / hosting
 
-- **Self-hosted pdf.js** — `vendor/pdf.min.js` + `pdf.worker.min.js` (v3.11.174) are committed to the repo; nothing is pulled from a CDN at runtime. `engine.js` derives the worker URL from the page's own `pdf.min.js` `<script>` tag (and respects a `workerSrc` the page set explicitly), so no third-party script ever runs in the same context as PHI.
+- **Self-hosted libraries** — `vendor/pdf.min.js` + `pdf.worker.min.js` (pdf.js v3.11.174) **and** `jspdf.umd.min.js` + `jspdf.plugin.autotable.min.js` (the vector-PDF generator) are committed to the repo; nothing is pulled from a CDN at runtime. `engine.js` derives the worker URL from the page's own `pdf.min.js` `<script>` tag (and respects a `workerSrc` the page set explicitly), so no third-party script ever runs in the same context as PHI.
 - **Content-Security-Policy** — the app HTML ships a `<meta http-equiv="Content-Security-Policy">` whose key directive is `connect-src 'none'`: the page cannot make *any* network request, so PHI cannot be exfiltrated. `script-src`/`style-src` keep `'unsafe-inline'` only because the form uses inline handlers + `<script>` blocks (that allowance grants no network egress); `worker-src 'self' blob:` lets the local pdf.js worker run.
 - **Still out of scope (deployment-level):** access controls, audit logging, encryption at rest (localStorage + downloaded files are plaintext), and the fact that public GitHub Pages is not a HIPAA-eligible host. See any compliance review before clinical use.
 
@@ -216,10 +223,10 @@ Unifying tricks:
 ## Current status
 
 **Working & verified against real (redacted) reports:**
-- Medtronic PPM / ICD / CRT (incl. MVP, dynamic two-column split, verbatim inventory).
-- Boston PPM-DC / ICD-DC / CRT-D / CRT-P (incl. quadripolar LV, dynamic AV, comparators, shock-based routing, and episode/arrhythmia-log mapping → HVR / AHR + Longest AT/AF row).
+- Medtronic PPM / ICD / CRT (incl. MVP, dynamic two-column split, verbatim inventory, Therapy-Summary-scoped pacing % with CRT `Total VP` / `Effective`→BiV; validated on Azure dual + Cobalt XT CRT).
+- Boston PPM-DC / ICD-DC / CRT-D / CRT-P (incl. quadripolar LV, dynamic AV, comparators, shock-based routing, and episode/arrhythmia-log mapping → HVR / AHR (prefers the `AT/AF Events` total, falls back to the bucket sum) + Longest AT/AF row).
 - Abbott PPM-DC / ICD-DC / CRT-D / CRT-P via `.log` (Fortify / Gallant DR/HF / Quadra Allure/Assure families).
-- Biotronik dual-chamber **PPM** via Home Monitoring PDF (one validated sample; per-character text handling, A/V column split, two-interrogation handling).
+- Biotronik dual-chamber **PPM** via both report layouts (Home-Monitoring + Standard/BIOSTD); per-character text handling, A/V column split, and lead measurements scoped to the "Test results" block so an unmeasured (`-----`) chamber stays blank instead of inheriting the programmed pulse width.
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
 - **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
 - **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
