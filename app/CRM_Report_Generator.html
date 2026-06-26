@@ -1532,17 +1532,17 @@ async function saveFile(filename, data, mime) {
           // the fixed top toolbar first so the popover anchors there, on screen, regardless of
           // scroll. (iPhone shows a bottom sheet regardless, so this only matters on iPad.)
           if (isIPad()) {
+            // The iPad share sheet is the ONLY way a web page can write to an external USB drive
+            // ("Save to Files → <USB>"); showSaveFilePicker isn't supported on iOS. Its popover
+            // position is controlled by WebKit and can stick to the top-left corner (a WebKit bug
+            // that survives reloads — only force-quitting Safari resets it). We can't move it, but
+            // we can keep it ON SCREEN: scroll to the top (the corner-fallback tracks the document
+            // origin) and move focus to the top toolbar button so, wherever it lands, it's in the
+            // visible top strip and still tappable.
+            window.scrollTo(0, 0);
             var anchorBtn = document.querySelector('.app-bar-actions .btn-primary') ||
                             document.querySelector('.app-bar-actions button');
-            if (anchorBtn) {
-              // Force a REAL focus change every time. After the previous share, focus is left on
-              // this button; if the next patient is loaded via PDF import (no field tapped), the
-              // button is still the active element, so focus() would be a no-op and iPadOS reuses
-              // its stale top-left anchor (the "works once, then reverts until reload" bug). Blur
-              // first so the re-focus actually fires and re-anchors the popover.
-              try { anchorBtn.blur(); } catch (e) {}
-              anchorBtn.focus({ preventScroll: true });
-            }
+            if (anchorBtn) { try { anchorBtn.blur(); } catch (e) {} anchorBtn.focus({ preventScroll: true }); }
           }
           await navigator.share({ files: [file] });
           return;
