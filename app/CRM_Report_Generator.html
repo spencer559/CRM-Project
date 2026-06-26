@@ -1534,7 +1534,15 @@ async function saveFile(filename, data, mime) {
           if (isIPad()) {
             var anchorBtn = document.querySelector('.app-bar-actions .btn-primary') ||
                             document.querySelector('.app-bar-actions button');
-            if (anchorBtn) anchorBtn.focus({ preventScroll: true });
+            if (anchorBtn) {
+              // Force a REAL focus change every time. After the previous share, focus is left on
+              // this button; if the next patient is loaded via PDF import (no field tapped), the
+              // button is still the active element, so focus() would be a no-op and iPadOS reuses
+              // its stale top-left anchor (the "works once, then reverts until reload" bug). Blur
+              // first so the re-focus actually fires and re-anchors the popover.
+              try { anchorBtn.blur(); } catch (e) {}
+              anchorBtn.focus({ preventScroll: true });
+            }
           }
           await navigator.share({ files: [file] });
           return;
