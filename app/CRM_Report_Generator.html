@@ -25,8 +25,10 @@
   --green: #2d7d46;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 11px; }
-body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); line-height: 1.35; }
+html { font-size: 11px; height: 100%; }
+/* App-shell: the page itself never scrolls (so the document stays at scroll 0 and the iPad share
+   popover can't scroll off-screen). The form scrolls inside .main instead. */
+body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); line-height: 1.35; height: 100%; margin: 0; overflow: hidden; }
 
 /* APP BAR */
 .app-bar {
@@ -80,7 +82,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .nav-item.hidden-nav { display: none; }
 
 /* MAIN */
-.main { margin-left: 186px; padding: 60px 26px 60px; }
+.main { position: fixed; top: 44px; left: 186px; right: 0; bottom: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 18px 26px 60px; }
 .form-body { max-width: 860px; }
 
 /* SECTION */
@@ -166,7 +168,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   html { font-size: 12px; -webkit-text-size-adjust: 100%; }
   /* drop the fixed sidebar and reclaim the full width for the form */
   .sidebar { display: none; }
-  .main { margin-left: 0; padding: 54px 10px 40px; }
+  .main { left: 0; padding: 14px 10px 40px; }
   .form-body { max-width: none; }
   /* dense multi-column field grids reflow to whatever fits the screen */
   .sec-body .fg { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important; }
@@ -190,9 +192,9 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 /* PRINT */
 @media print {
   @page { size: letter; margin: .45in .5in; }
-  body { background: #fff; }
+  html, body { background: #fff; height: auto !important; overflow: visible !important; }
   .app-bar, .sidebar { display: none !important; }
-  .main { margin-left: 0 !important; padding: 0 !important; }
+  .main { position: static !important; overflow: visible !important; height: auto !important; left: 0 !important; padding: 0 !important; }
   .section { box-shadow: none; margin-bottom: 14px; page-break-inside: avoid; }
   .add-btn, .del-btn { display: none !important; }
   .dt input:not([type=checkbox]):not([type=radio]), .dt select { font-size: 9px; }
@@ -920,9 +922,12 @@ function updateLeadInfoTable() {
 // ── SIDEBAR NAV ──
 function navTo(id) {
   var el = document.getElementById(id);
-  if (!el) return false;
-  var top = el.getBoundingClientRect().top + window.pageYOffset - 56;
-  window.scrollTo({ top: top, behavior: 'smooth' });
+  var main = document.querySelector('.main');
+  if (!el || !main) return false;
+  // .main is the scroll container (the page itself doesn't scroll), so scroll IT — compute the
+  // section's offset within the container rather than the document.
+  var top = el.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop - 12;
+  main.scrollTo({ top: top, behavior: 'smooth' });
   return false;
 }
 
@@ -936,7 +941,7 @@ var io = new IntersectionObserver(function(entries) {
       if (active) active.classList.add('active');
     }
   });
-}, { rootMargin: '-15% 0px -75% 0px' });
+}, { root: document.querySelector('.main'), rootMargin: '-15% 0px -75% 0px' });
 sectionIds.forEach(function(id) { var el = document.getElementById(id); if (el) io.observe(el); });
 
 // ── AUTO-SAVE ──
@@ -1501,12 +1506,6 @@ function exportPDF() {
 //   2. navigator.share     — iOS/Safari share sheet → "Save to Files" (pick folder / USB / iCloud)
 //   3. classic <a download> — fallback (downloads to the browser's default folder)
 // Must run from a user gesture (button click) so the picker/share sheet is allowed.
-// iPadOS 13+ Safari reports a desktop ("MacIntel") platform, so detect iPad by the touch-capable
-// Mac signature as well as the classic iPad UA.
-function isIPad() {
-  return /iPad/.test(navigator.userAgent) ||
-         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-}
 async function saveFile(filename, data, mime) {
   var blob = (data instanceof Blob) ? data : new Blob([data], { type: mime });
   try {
@@ -1525,28 +1524,13 @@ async function saveFile(filename, data, mime) {
         var file = new File([blob], filename, { type: mime });
         // Share ONLY the file — including title/text makes iOS "Save to Files" write a second
         // stray .txt containing that text alongside the real file.
-        if (navigator.canShare({ files: [file] })) {
-          // iPad: iPadOS anchors the share popover to the focused element. iOS Safari doesn't focus
-          // a <button> on tap, so with nothing focused the popover falls back to the page body
-          // (top-left, scrolling off as you go down the page). Move focus to a visible element in
-          // the fixed top toolbar first so the popover anchors there, on screen, regardless of
-          // scroll. (iPhone shows a bottom sheet regardless, so this only matters on iPad.)
-          if (isIPad()) {
-            // The iPad share sheet is the ONLY way a web page can write to an external USB drive
-            // ("Save to Files → <USB>"); showSaveFilePicker isn't supported on iOS. Its popover
-            // position is controlled by WebKit and can stick to the top-left corner (a WebKit bug
-            // that survives reloads — only force-quitting Safari resets it). We can't move it, but
-            // we can keep it ON SCREEN: scroll to the top (the corner-fallback tracks the document
-            // origin) and move focus to the top toolbar button so, wherever it lands, it's in the
-            // visible top strip and still tappable.
-            window.scrollTo(0, 0);
-            var anchorBtn = document.querySelector('.app-bar-actions .btn-primary') ||
-                            document.querySelector('.app-bar-actions button');
-            if (anchorBtn) { try { anchorBtn.blur(); } catch (e) {} anchorBtn.focus({ preventScroll: true }); }
-          }
-          await navigator.share({ files: [file] });
-          return;
-        }
+        // The iPad share sheet is the only way a web page can write to an external USB drive
+        // ("Save to Files → <USB>") — showSaveFilePicker isn't supported on iOS. WebKit positions
+        // the popover relative to the document; because the app shell keeps the page locked at
+        // scroll 0 (body{overflow:hidden} + the .main scroll pane), the document origin is always
+        // at the top of the viewport, so the popover stays on screen however far the form is
+        // scrolled — no focus/scroll hacks needed.
+        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
       }
     } catch (e) { if (e && e.name === 'AbortError') return; }     // cancelled the share sheet
     var a = document.createElement('a');
