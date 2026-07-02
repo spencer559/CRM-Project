@@ -9,7 +9,7 @@
      blocks, and it does not permit any network egress. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CRM Interrogation — Digital Form</title>
+<title>CRM Interrogation — Digital Form (TEST)</title>
 
 <style>
 :root {
@@ -211,7 +211,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <svg width="34" height="20" viewBox="0 0 36 22" fill="none" aria-hidden="true" style="flex-shrink:0">
     <polyline points="0,11 5,11 7,5 9,17 11,3 13,19 15,11 20,11 21,8 22,14 23,11 36,11" stroke="#1e3a5f" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
   </svg>
-  <div class="app-bar-title">CRM Interrogation — Digital Form</div>
+  <div class="app-bar-title">CRM Interrogation — Digital Form <span style="background:#c87000;color:#fff;padding:1px 7px;border-radius:9px;font-size:9px;letter-spacing:.5px;vertical-align:middle;">TEST</span></div>
   <div class="divider"></div>
   <span class="save-status" id="save-status">No data saved</span>
   <div class="app-bar-actions">
@@ -390,7 +390,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   </div>
 </div>
 
-<!-- §5 EPISODES (moved up — reviewed right after the interrogation summary, before testing) -->
+<!-- §5 EPISODES (TEST: moved up — reviewed right after the interrogation summary, before testing) -->
 <div class="section" id="s-episodes">
   <div class="sec-hdr">Stored Episodes / Arrhythmia Log</div>
   <div class="sec-body">
@@ -426,7 +426,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   </div>
 </div>
 
-<!-- §4 LEADS (after Episodes — threshold/sensing tests happen mid-visit) -->
+<!-- §4 LEADS (TEST: moved after Episodes — threshold/sensing tests happen mid-visit) -->
 <div class="section" id="s-leads">
   <div class="sec-hdr">Lead / Electrode Measurements</div>
   <div class="sec-body">
@@ -439,7 +439,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   </div>
 </div>
 
-<!-- §3 PARAMETERS (before Final — programming is confirmed/adjusted at the end of the visit) -->
+<!-- §3 PARAMETERS (TEST: moved before Final — programming is confirmed/adjusted at the end of the visit) -->
 <div class="section" id="s-params">
   <div class="sec-hdr">Programmed Parameters</div>
   <div class="sec-body">
@@ -628,7 +628,7 @@ function addEpRow() {
   var therapyChecks = ['ATP','Shock','None'].map(function(t) {
     return '<label class="cbl"><input type="checkbox" name="ep'+n+'-therapy" value="'+t+'"> '+t+'</label>';
   }).join('');
-  // Episode flag checkboxes (replaced the old "Approp.?" radios)
+  // TEST: "Approp.?" radios replaced by episode flag checkboxes
   var flagChecks = ['Longest','Recent','Fastest'].map(function(t) {
     return '<label class="cbl"><input type="checkbox" name="ep'+n+'-flag" value="'+t+'"> '+t+'</label>';
   }).join('');
@@ -848,7 +848,7 @@ function setEpisodeRows(eps, append){
     if (e.dt)   { var d = q('[name="ep'+n+'-dt"]');   if (d) d.value = e.dt; }
     if (e.dur)  { var u = q('[name="ep'+n+'-dur"]');  if (u) u.value = e.dur; }
     if (e.rate) { var r = q('[name="ep'+n+'-rate"]'); if (r) r.value = e.rate; }
-    // Episode flag checkboxes (Longest / Recent / Fastest). A parser note that is exactly
+    // TEST: episode flag checkboxes (Longest / Recent / Fastest). A parser note that is exactly
     // a flag name (e.g. Boston's "Longest" AT/AF row) checks the flag instead of filling Notes.
     function setFlag(name){
       var fb = tr.querySelector('input[name="ep'+n+'-flag"][value="'+name+'"]');
@@ -1002,7 +1002,7 @@ function collectFormData() {
 function doSave() {
   var d = collectFormData();
   try {
-    localStorage.setItem('crm-digital', JSON.stringify(d));
+    localStorage.setItem('crm-digital-test', JSON.stringify(d));
     var t = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
     ss.textContent = 'Saved ' + t;
     ss.className = 'save-status saved';
@@ -1013,7 +1013,7 @@ function doSave() {
 }
 
 function loadSaved() {
-  var raw = localStorage.getItem('crm-digital');
+  var raw = localStorage.getItem('crm-digital-test');
   if (!raw) return;
   var d;
   try { d = JSON.parse(raw); } catch(e) { return; }
@@ -1086,7 +1086,7 @@ function applyFormData(d) {
 
 function clearForm() {
   if (!confirm('Clear all data and start a new patient record?\n\nThis cannot be undone.')) return;
-  localStorage.removeItem('crm-digital');
+  localStorage.removeItem('crm-digital-test');
   location.reload();
 }
 
@@ -1110,7 +1110,7 @@ function resetFormState() {
   if (typeof updateReprogTable    === 'function') updateReprogTable();
   if (typeof updateLeadInfoTable  === 'function') updateLeadInfoTable();
   if (typeof updateDynamicAV      === 'function') updateDynamicAV();
-  try { localStorage.removeItem('crm-digital'); } catch(e){}
+  try { localStorage.removeItem('crm-digital-test'); } catch(e){}
 }
 
 // ── EXPORT ──
@@ -1613,7 +1613,7 @@ function onJsonFileChosen(e) {
   reader.readAsText(file);
 }
 
-// ── COMPACT text report — the only text format (Copy to Clipboard + Export .txt) ──
+// ── TEST: COMPACT text report — the only text format (Copy to Clipboard + Export .txt) ──
 // Denser than the old report: single-space pipes, no "Mfr:/Model:" labels (manufacturer +
 // model are joined), Thr+PW merged into "V @ ms", battery/status folded onto ≤3 lines,
 // Remote Monitoring on one line, no blank lines between sections, and empty AF Burden is
@@ -1812,7 +1812,7 @@ function buildSummaryLines() {
   return lines;
 }
 
-// (The original "Full" text report was removed — the compact format above is now the only
+// (The original "Full" text report was removed \u2014 the compact format above is now the only
 //  text/clipboard format.)
 
 // ── INIT ──
@@ -1887,9 +1887,9 @@ loadSaved();
     return false;
   }
 
-  // ── Scrape normalizers ──
-  // Applied at prefill time (NOT in the parser files) so scraped-value formatting is
-  // controlled here without touching src/parsers/*.
+  // ── TEST: scrape normalizers ──
+  // Applied at prefill time (NOT in the shared parser files, which production also loads), so
+  // this TEST build can change scraped-value formatting without touching src/parsers/*.
   //
   // (1) Lead-info implant dates: each vendor prints its own format (Medtronic Mar/15/2022,
   //     Boston 15 Mar 2022, Abbott/Biotronik MM/DD/YYYY, ISO 2022-03-15). Normalize the lead
@@ -1922,14 +1922,14 @@ loadSaved();
 
   function prefillForm(RESULT, LEADS, EPISODES, opts){
     var merge = !!(opts && opts.merge);   // merge mode: keep what the user already typed
-    // Normalize scraped values before they land in the form
+    // TEST: normalize scraped values before they land in the form
     if (RESULT) Object.keys(RESULT).forEach(function(k){
       var f = RESULT[k]; if (!f || f.v == null || f.v === '') return;
       if (CLEAN_FIELDS.test(k)) f.v = cleanMeasure(f.v);
     });
     if (LEADS && LEADS.length) LEADS.forEach(function(L){ if (L && L.date) L.date = normLeadDate(L.date); });
     // 1) manufacturer + device type FIRST — device type rebuilds the lead rows & toggles
-    // Parsers return "BSc" for Boston (legacy value); the form's radio value is "BSci"
+    // TEST: parsers return "BSc" for Boston (shared with production); this build's radio value is "BSci"
     if (RESULT['mfr'] && RESULT['mfr'].v === 'BSc') RESULT['mfr'].v = 'BSci';
     if (RESULT['mfr'])  setField('mfr',  RESULT['mfr'].v, merge);
     if (RESULT['dtype'] && RESULT['dtype'].v) setField('dtype', RESULT['dtype'].v, merge);
@@ -2047,4 +2047,5 @@ loadSaved();
 </script>
 
 </body>
+<!-- TEST BUILD — evaluate, then promote to CRM_Report_Generator.html when approved -->
 </html>
