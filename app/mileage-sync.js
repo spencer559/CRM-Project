@@ -263,8 +263,8 @@
         document.getElementById("mGo").textContent = isReg ? "Create account" : "Sign in";
       });
     }
+    document.body.appendChild(modalEl); // must be in the DOM before bind() queries its fields
     bind();
-    document.body.appendChild(modalEl);
   }
   function closeModal() { if (modalEl && modalEl.parentNode) modalEl.parentNode.removeChild(modalEl); modalEl = null; }
 
