@@ -171,34 +171,47 @@
 
   function renderBar() {
     if (!barEl) {
-      barEl = document.createElement("div");
-      barEl.id = "mileageSyncBar";
-      barEl.style.cssText = "display:flex;align-items:center;gap:12px;justify-content:flex-end;" +
-        "padding:8px 14px;font:500 13px system-ui,Segoe UI,Roboto,sans-serif;" +
-        "background:#0b2230;color:#f5ead0;border-bottom:1px solid rgba(232,192,89,.35);";
-      document.body.insertBefore(barEl, document.body.firstChild);
+      var slot = document.getElementById("mileageSyncSlot");
+      if (slot) {
+        // Preferred: render inside the page header, on the right.
+        barEl = slot;
+      } else {
+        // Fallback: a floating strip if the header slot isn't present.
+        barEl = document.createElement("div");
+        barEl.id = "mileageSyncBar";
+        barEl.style.cssText = "padding:8px 14px;background:#1f2933;";
+        document.body.insertBefore(barEl, document.body.firstChild);
+      }
+      barEl.style.display = "flex";
+      barEl.style.alignItems = "center";
+      barEl.style.gap = "10px";
+      barEl.style.flexWrap = "wrap";
+      barEl.style.justifyContent = "flex-end";
+      barEl.style.font = "500 13px inherit";
     }
     var a = auth();
     if (tokenValid()) {
       barEl.innerHTML =
-        '<span style="opacity:.8">☁ <span id="mSyncStatus">Synced</span> · ' + escapeHtml(a.username) + "</span>" +
-        '<button id="mSyncPush" style="' + btnCss() + '">Sync now</button>' +
-        '<button id="mSyncOut" style="' + btnCss() + '">Sign out</button>';
+        '<span style="font-size:13px;color:#aeb8c2;white-space:nowrap;">&#9729; <span id="mSyncStatus" style="color:#fff;">Synced</span> &middot; ' + escapeHtml(a.username) + "</span>" +
+        '<button id="mSyncPush" style="' + btnCss(false) + '">Sync now</button>' +
+        '<button id="mSyncOut" style="' + btnCss(false) + '">Sign out</button>';
       statusEl = document.getElementById("mSyncStatus");
       document.getElementById("mSyncPush").onclick = pullThenReconcile;
       document.getElementById("mSyncOut").onclick = function () { signOut(false); };
     } else {
       barEl.innerHTML =
-        '<span style="opacity:.8">☁ Cloud sync</span>' +
-        '<button id="mSyncIn" style="' + btnCss() + '">Sign in / Register</button>';
+        '<span style="font-size:13px;color:#aeb8c2;white-space:nowrap;">&#9729; Cloud sync</span>' +
+        '<button id="mSyncIn" style="' + btnCss(true) + '">Sign in / Register</button>';
       statusEl = null;
       document.getElementById("mSyncIn").onclick = function () { openModal(""); };
     }
   }
 
-  function btnCss() {
-    return "cursor:pointer;background:rgba(232,192,89,.15);color:#f5ead0;border:1px solid rgba(232,192,89,.55);" +
-      "border-radius:7px;padding:5px 12px;font:500 13px system-ui,sans-serif;";
+  function btnCss(primary) {
+    if (primary) return "cursor:pointer;background:#2563eb;color:#fff;border:1px solid #2563eb;" +
+      "border-radius:6px;padding:6px 12px;font:600 13px inherit;white-space:nowrap;";
+    return "cursor:pointer;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3);" +
+      "border-radius:6px;padding:6px 12px;font:500 13px inherit;white-space:nowrap;";
   }
   function escapeHtml(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
@@ -206,29 +219,29 @@
     closeModal();
     modalEl = document.createElement("div");
     modalEl.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;" +
-      "background:rgba(3,12,18,.72);font:400 14px system-ui,Segoe UI,Roboto,sans-serif;";
+      "background:rgba(15,23,32,.55);font:400 14px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;";
     var mode = "login"; // or "register"
     function card() {
       var isReg = mode === "register";
-      return '<div style="background:#0b2230;color:#f5ead0;width:min(380px,92vw);padding:22px;border-radius:12px;' +
-        'border:1px solid rgba(232,192,89,.4);box-shadow:0 18px 50px rgba(0,0,0,.5);">' +
-        '<div style="font:600 17px system-ui;margin-bottom:4px;">' + (isReg ? "Create account" : "Sign in") + "</div>" +
-        (notice ? '<div style="color:#f8db7e;font-size:13px;margin-bottom:8px;">' + escapeHtml(notice) + "</div>" : "") +
-        '<div id="mErr" style="color:#ff9b7a;font-size:13px;min-height:16px;margin:6px 0;"></div>' +
+      return '<div style="background:#fff;color:#1f2933;width:min(380px,92vw);padding:22px;border-radius:12px;' +
+        'border:1px solid #dfe3e8;box-shadow:0 18px 50px rgba(15,23,32,.28);">' +
+        '<div style="font-weight:650;font-size:18px;margin-bottom:4px;">' + (isReg ? "Create account" : "Sign in") + "</div>" +
+        (notice ? '<div style="color:#1d4ed8;font-size:13px;margin-bottom:8px;">' + escapeHtml(notice) + "</div>" : "") +
+        '<div id="mErr" style="color:#d23f3f;font-size:13px;min-height:16px;margin:6px 0;"></div>' +
         row("Username", '<input id="mUser" autocomplete="username" style="' + inpCss() + '">') +
         row("Passphrase", '<input id="mPass" type="password" autocomplete="current-password" style="' + inpCss() + '">') +
         (isReg ? row("Invite code", '<input id="mInvite" style="' + inpCss() + '">') : "") +
         '<button id="mGo" style="' + goCss() + '">' + (isReg ? "Create account" : "Sign in") + "</button>" +
-        '<div style="text-align:center;margin-top:12px;font-size:13px;opacity:.85;">' +
-        (isReg ? 'Have an account? <a id="mSwap" href="#" style="color:#f8db7e;">Sign in</a>'
-               : 'New here? <a id="mSwap" href="#" style="color:#f8db7e;">Create an account</a>') +
+        '<div style="text-align:center;margin-top:12px;font-size:13px;color:#647280;">' +
+        (isReg ? 'Have an account? <a id="mSwap" href="#" style="color:#2563eb;text-decoration:none;">Sign in</a>'
+               : 'New here? <a id="mSwap" href="#" style="color:#2563eb;text-decoration:none;">Create an account</a>') +
         '</div>' +
-        '<div style="text-align:center;margin-top:10px;"><a id="mClose" href="#" style="color:#9fb3bd;font-size:12px;">Cancel</a></div>' +
+        '<div style="text-align:center;margin-top:10px;"><a id="mClose" href="#" style="color:#647280;font-size:12px;">Cancel</a></div>' +
         "</div>";
     }
-    function inpCss() { return "width:100%;margin:4px 0 10px;padding:9px 10px;border-radius:7px;border:1px solid rgba(232,192,89,.4);background:#06141d;color:#f5ead0;font:400 14px system-ui;box-sizing:border-box;"; }
-    function goCss() { return "width:100%;cursor:pointer;background:#e8c059;color:#1a1206;border:none;border-radius:8px;padding:11px;font:700 14px system-ui;margin-top:4px;"; }
-    function row(label, field) { return '<label style="display:block;font-size:12px;opacity:.8;">' + label + "</label>" + field; }
+    function inpCss() { return "width:100%;margin:4px 0 10px;padding:9px 10px;border-radius:7px;border:1px solid #dfe3e8;background:#fff;color:#1f2933;font:400 14px inherit;box-sizing:border-box;"; }
+    function goCss() { return "width:100%;cursor:pointer;background:#2563eb;color:#fff;border:none;border-radius:8px;padding:11px;font:600 14px inherit;margin-top:4px;"; }
+    function row(label, field) { return '<label style="display:block;font-size:12px;color:#647280;">' + label + "</label>" + field; }
 
     function bind() {
       modalEl.innerHTML = card();
