@@ -1,0 +1,15 @@
+name = "mileage-sync"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+# Origins allowed to call this Worker (comma-separated). This is your live site.
+# Add "http://localhost:8080" here too if you test the page from a local server.
+[vars]
+ALLOWED_ORIGIN = "https://spencer559.github.io"
+
+# D1 database binding. After `wrangler d1 create mileage`, paste the printed
+# database_id below (replace the placeholder).
+[[d1_databases]]
+binding = "DB"
+database_name = "mileage"
+database_id = "34d2b238-87f8-4de9-80ed-c548a643fcd0"

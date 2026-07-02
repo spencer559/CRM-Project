@@ -214,7 +214,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     if(!Array.isArray(s.entries)) s.entries = [];
     return s;
   }
-  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} try{ window.dispatchEvent(new CustomEvent("mileage:saved")); }catch(e){} }
 
   // ---------- helpers ----------
   var $ = function(id){ return document.getElementById(id); };
@@ -612,5 +612,6 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
   renderAll();
 })();
 </script>
+<script src="mileage-sync.js"></script>
 </body>
 </html>
