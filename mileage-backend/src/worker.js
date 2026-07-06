@@ -161,8 +161,17 @@ async function handleRegister(req, env, origin) {
   const passHash = await hashPassword(password, salt);
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  await env.DB.prepare("INSERT INTO users (id, username, pass_hash, pass_salt, created_at) VALUES (?,?,?,?,?)")
-    .bind(id, username, passHash, hex(salt), now).run();
+  try {
+    await env.DB.prepare("INSERT INTO users (id, username, pass_hash, pass_salt, created_at) VALUES (?,?,?,?,?)")
+      .bind(id, username, passHash, hex(salt), now).run();
+  } catch (e) {
+    // Race with a concurrent registration: the UNIQUE(username) constraint
+    // fired between our existence check and this insert.
+    if (/UNIQUE|constraint/i.test(String((e && e.message) || e))) {
+      return json({ error: "username_taken", message: "That username is taken." }, 409, origin);
+    }
+    throw e;
+  }
   await env.DB.prepare("INSERT INTO profiles (user_id, data, version, updated_at) VALUES (?,?,?,?)")
     .bind(id, "", 0, now).run();
 
@@ -212,11 +221,29 @@ async function handlePutProfile(req, env, origin) {
     return json({ error: "conflict", data: full ? full.data : "", version: current, updatedAt: full ? full.updated_at : null }, 409, origin);
   }
 
-  const newVersion = current + 1;
   const now = new Date().toISOString();
-  await env.DB.prepare("UPDATE profiles SET data = ?, version = ?, updated_at = ? WHERE user_id = ?")
-    .bind(body.data, newVersion, now, auth.sub).run();
-  return json({ version: newVersion, updatedAt: now }, 200, origin);
+  let updated;
+  if (body.force) {
+    // Forced write (client-resolved conflict): take whatever the current
+    // version is and bump it atomically.
+    updated = await env.DB.prepare(
+      "UPDATE profiles SET data = ?, version = version + 1, updated_at = ? WHERE user_id = ? RETURNING version"
+    ).bind(body.data, now, auth.sub).first();
+  } else {
+    // Guarded write: only succeeds if the version we read is still current,
+    // so two simultaneous saves can't both claim the same new version.
+    updated = await env.DB.prepare(
+      "UPDATE profiles SET data = ?, version = version + 1, updated_at = ? WHERE user_id = ? AND version = ? RETURNING version"
+    ).bind(body.data, now, auth.sub, current).first();
+    if (!updated) {
+      // Lost a race between our SELECT and this UPDATE: hand back the
+      // server copy just like a stale baseVersion.
+      const full = await env.DB.prepare("SELECT data, version, updated_at FROM profiles WHERE user_id = ?").bind(auth.sub).first();
+      return json({ error: "conflict", data: full ? full.data : "", version: full ? full.version || 0 : 0, updatedAt: full ? full.updated_at : null }, 409, origin);
+    }
+  }
+  if (!updated) return json({ error: "not_found" }, 404, origin);
+  return json({ version: updated.version, updatedAt: now }, 200, origin);
 }
 
 export default {
@@ -237,7 +264,8 @@ export default {
       if (path === "/") return json({ ok: true, service: "mileage-sync" }, 200, origin);
       return json({ error: "not_found" }, 404, origin);
     } catch (err) {
-      return json({ error: "server_error", detail: String((err && err.message) || err) }, 500, origin);
+      console.error("server_error:", (err && err.stack) || err); // visible via `wrangler tail`, never sent to clients
+      return json({ error: "server_error" }, 500, origin);
     }
   },
 };
