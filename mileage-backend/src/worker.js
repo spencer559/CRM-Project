@@ -184,11 +184,11 @@ async function handleLogin(req, env, origin) {
   const body = await req.json().catch(() => null);
   if (!body) return json({ error: "bad_request" }, 400, origin);
   const { username, password } = body;
-  if (!validUsername(username) || typeof password !== "string") return json({ error: "bad_credentials" }, 401, origin);
+  if (!validUsername(username) || typeof password !== "string") return json({ error: "bad_credentials", message: "Incorrect username or passphrase." }, 401, origin);
   const user = await getUserByName(env, username);
-  if (!user) return json({ error: "bad_credentials" }, 401, origin);
+  if (!user) return json({ error: "bad_credentials", message: "Incorrect username or passphrase." }, 401, origin);
   const candidate = await hashPassword(password, hexToBytes(user.pass_salt));
-  if (!timingSafeEqual(candidate, user.pass_hash)) return json({ error: "bad_credentials" }, 401, origin);
+  if (!timingSafeEqual(candidate, user.pass_hash)) return json({ error: "bad_credentials", message: "Incorrect username or passphrase." }, 401, origin);
 
   const nowS = Math.floor(Date.now() / 1000);
   const token = await signJwt({ sub: user.id, username: user.username, iat: nowS, exp: nowS + TOKEN_TTL_SECONDS }, env.JWT_SECRET);

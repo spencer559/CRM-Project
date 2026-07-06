@@ -268,7 +268,17 @@
           renderBar();
           pullThenReconcile();
         } else {
-          err.textContent = (r.data && r.data.message) || (r.data && r.data.error) || "Something went wrong.";
+          var friendly = {
+            bad_credentials: "Incorrect username or passphrase. Check both and try again.",
+            unauthorized: "Your session expired — please sign in again.",
+            username_taken: "That username is taken.",
+            bad_invite: "Invite code is incorrect.",
+            weak_password: "Use at least 8 characters.",
+            invalid_username: "Usernames are 3-32 characters: letters, numbers, . _ -",
+            server_error: "The sync server hit an error. Try again in a minute.",
+          };
+          var code = r.data && r.data.error;
+          err.textContent = (r.data && r.data.message) || friendly[code] || "Sign-in failed (" + (code || r.status) + "). Try again.";
           document.getElementById("mGo").textContent = isReg ? "Create account" : "Sign in";
         }
       }).catch(function () {
