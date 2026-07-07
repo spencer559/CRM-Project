@@ -375,9 +375,10 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
         </tr>
       </tbody>
     </table>
-    <div class="fg" style="grid-template-columns: 130px 130px 160px; margin-top:8px; margin-bottom:4px;">
+    <div class="fg" style="grid-template-columns: 130px 130px 160px 160px; margin-top:8px; margin-bottom:4px;">
       <div class="field"><span class="lbl">Device Function</span><select id="ap-devfx"><option value="">—</option><option>Normal</option><option>Abnormal</option></select></div>
       <div class="field"><span class="lbl">Pacing Dependency</span><select id="ap-dep"><option value="">—</option><option>Yes</option><option>No</option></select></div>
+      <div class="field"><span class="lbl">Presenting Rhythm</span><input type="text" id="ap-presenting" placeholder="e.g. AV paced, AF"></div>
       <div class="field"><span class="lbl">Intrinsic Rhythm</span><input type="text" id="ap-rhythm" placeholder="e.g. NSR, AF, CHB"></div>
     </div>
     <div class="sub-lbl" id="pct-lbl">Pacing Statistics <span class="sub-note" id="pct-note">— select device type above</span></div>
@@ -1235,13 +1236,20 @@ function buildReportPdfBlob() {
     if (liBody.length){ h2('Lead Information'); table(['Location','Manufacturer','Lead Model','Lead Serial #','Implant Date'], liBody); para('Notes', val('leadinfo-notes')); }
   }
 
-  var isAveir = dtype.indexOf('Aveir') > -1, batPairs = [];
+  // Battery / Device Status renders as three aligned 4-column grids so each logical group gets
+  // its own row: basics on row 1, the two rhythms (Presenting before Intrinsic) on row 2, and
+  // pacing % on row 3. grid() skips fully-empty groups, so when neither rhythm has data the
+  // rhythm grid draws nothing and pacing % moves up onto row 2.
+  var isAveir = dtype.indexOf('Aveir') > -1, batBasics = [];
   if (isAveir){
-    if (val('bat-lon-ra-cur')) batPairs.push(['RA Module Longevity', val('bat-lon-ra-cur')+' '+unit('bat-lon-ra-unit','years')]);
-    if (val('bat-lon-rv-cur')) batPairs.push(['RV Module Longevity', val('bat-lon-rv-cur')+' '+unit('bat-lon-rv-unit','years')]);
-  } else if (val('bat-lon-cur')) batPairs.push(['Longevity', val('bat-lon-cur')+' '+unit('bat-lon-unit','years')]);
-  batPairs.push(['Battery Status',radio('bat-status')],['Device Function',val('ap-devfx')],['Pacing Dependency',val('ap-dep')],['Intrinsic Rhythm',val('ap-rhythm')],['A Paced %',val('pct-a')],['V Paced %',val('pct-v')],['LV Paced %',val('pct-lv')],['BiV Paced %',val('pct-biv')]);
-  h2('Battery / Device Status'); grid(batPairs);
+    if (val('bat-lon-ra-cur')) batBasics.push(['RA Module Longevity', val('bat-lon-ra-cur')+' '+unit('bat-lon-ra-unit','years')]);
+    if (val('bat-lon-rv-cur')) batBasics.push(['RV Module Longevity', val('bat-lon-rv-cur')+' '+unit('bat-lon-rv-unit','years')]);
+  } else if (val('bat-lon-cur')) batBasics.push(['Longevity', val('bat-lon-cur')+' '+unit('bat-lon-unit','years')]);
+  batBasics.push(['Battery Status',radio('bat-status')],['Device Function',val('ap-devfx')],['Pacing Dependency',val('ap-dep')]);
+  var batRhythms = [['Presenting Rhythm',val('ap-presenting')],['Intrinsic Rhythm',val('ap-rhythm')]];
+  var batPacing  = [['A Paced %',val('pct-a')],['V Paced %',val('pct-v')],['LV Paced %',val('pct-lv')],['BiV Paced %',val('pct-biv')]];
+  h2('Battery / Device Status');
+  grid(batBasics, 4); grid(batRhythms, 4); grid(batPacing, 4);
 
   h2('Programmed Parameters');
   // 4 columns so the 8 programmed-parameter fields fit in 2 rows instead of 3.
@@ -1460,6 +1468,7 @@ function exportPDF() {
         + pf('Battery Status', r('bat-status'))
         + pf('Device Function', v('ap-devfx'))
         + pf('Pacing Dependency', v('ap-dep'))
+        + pf('Presenting Rhythm', v('ap-presenting'))
         + pf('Intrinsic Rhythm', v('ap-rhythm'))
         + pf('A Paced %', document.getElementById('pct-a') ? document.getElementById('pct-a').value : '')
         + pf('V Paced %', document.getElementById('pct-v') ? document.getElementById('pct-v').value : '')
@@ -1711,11 +1720,15 @@ function buildSummaryLines() {
     if (lonCur) l1.push('Longevity: ' + lonCur + ' ' + (nval('bat-lon-unit') || 'years'));
   }
   if (radio('bat-status')) l1.push('Battery: ' + radio('bat-status'));
-  // Function / Dependency / Rhythm on their own line, below Longevity/Battery
+  // Function / Dependency on their own line, below Longevity/Battery
   var l1b = [];
   if (val('ap-devfx'))     l1b.push('Function: ' + val('ap-devfx'));
   if (val('ap-dep'))       l1b.push('Dependency: ' + val('ap-dep'));
-  if (val('ap-rhythm'))    l1b.push('Rhythm: ' + val('ap-rhythm'));
+  // Rhythm on its own dedicated line between Function and Mode — Underlying (intrinsic) and
+  // Presenting rhythm are labeled distinctly since the clinical difference matters.
+  var lRhythm = [];
+  if (val('ap-presenting')) lRhythm.push('Presenting Rhythm: ' + val('ap-presenting'));
+  if (val('ap-rhythm'))     lRhythm.push('Underlying Rhythm: ' + val('ap-rhythm'));
   var l2 = [];
   if (val('p-mode')) l2.push('Mode: ' + val('p-mode'));
   if (val('p-lrl'))  l2.push('LRL: ' + val('p-lrl'));
@@ -1726,9 +1739,9 @@ function buildSummaryLines() {
   if (val('pct-v'))   l3.push('V Paced: '   + pct(val('pct-v')));
   if (val('pct-lv'))  l3.push('LV Paced: '  + pct(val('pct-lv')));
   if (val('pct-biv')) l3.push('BiV Paced: ' + pct(val('pct-biv')));
-  if (l1.length || l1b.length || l2.length || l3.length) {
+  if (l1.length || l1b.length || lRhythm.length || l2.length || l3.length) {
     lines.push('BATTERY / STATUS');
-    push(l1); push(l1b); push(l2); push(l3);
+    push(l1); push(l1b); push(lRhythm); push(l2); push(l3);
   }
 
   // MEASUREMENTS — "<lead>: imp Ω / sens mV / thr V @ pw ms" (labels implied by position)
