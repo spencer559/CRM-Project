@@ -1117,12 +1117,32 @@ function resetFormState() {
 function copyToClipboard() {
   var lines = buildSummaryLines();
   var text = lines.join('\n');
-  navigator.clipboard.writeText(text).then(function() {
+  var html = buildSummaryHtml(lines);
+
+  function flashCopied() {
     var btn = document.querySelector('.btn-ghost[onclick="copyToClipboard()"]');
     if (btn) { var orig = btn.innerHTML; btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Copied!'; setTimeout(function(){ btn.innerHTML = orig; }, 2000); }
-  }).catch(function() {
-    alert('Copy failed — please use Export .txt instead.');
-  });
+  }
+
+  // Write BOTH rich (text/html) and plain (text/plain) to the clipboard. Cerner's rich-text
+  // field takes the HTML → real bold headers in the same font; a plain-text field falls back
+  // to the identical text minus formatting. ClipboardItem isn't everywhere, so fall back to
+  // writeText when it's unavailable or blocked.
+  if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+    var item = new ClipboardItem({
+      'text/html':  new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([text], { type: 'text/plain' })
+    });
+    navigator.clipboard.write([item]).then(flashCopied).catch(function() {
+      navigator.clipboard.writeText(text).then(flashCopied).catch(function() {
+        alert('Copy failed — please use Export .txt instead.');
+      });
+    });
+  } else {
+    navigator.clipboard.writeText(text).then(flashCopied).catch(function() {
+      alert('Copy failed — please use Export .txt instead.');
+    });
+  }
 }
 
 // Build a real, SELECTABLE vector PDF of the report with vendored jsPDF + autotable.
@@ -1810,6 +1830,24 @@ function buildSummaryLines() {
   // (Device Technician block intentionally omitted, same as the Full report — the EHR stamps it.)
 
   return lines;
+}
+
+// Build an HTML version of the summary for the clipboard so Cerner's rich-text field
+// renders REAL bold headers (same font/size as body text, just heavier weight — unlike
+// Unicode "bold" glyphs, which paste as a different font). Header = any non-empty line
+// with 0 indentation. Leading spaces → &nbsp; so indentation survives; no font-family is
+// set, so the text inherits Cerner's paragraph font and stays consistent.
+function buildSummaryHtml(lines) {
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var html = lines.map(function(line) {
+    if (!line) return '';                                   // blank separator line
+    var indent = (line.match(/^ +/) || [''])[0];
+    var body = esc(line.slice(indent.length));
+    var lead = indent.replace(/ /g, '&nbsp;');
+    var isHeader = indent.length === 0;
+    return lead + (isHeader ? '<strong>' + body + '</strong>' : body);
+  }).join('<br>');
+  return '<div>' + html + '</div>';
 }
 
 // (The original "Full" text report was removed — the compact format above is now the only
