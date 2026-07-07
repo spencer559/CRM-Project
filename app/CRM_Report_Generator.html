@@ -1118,55 +1118,37 @@ function copyToClipboard() {
   var lines = buildSummaryLines();
   var text = lines.join('\n');
   var html = buildSummaryHtml(lines);
+  var rtf  = buildSummaryRtf(lines);
 
   function flashCopied() {
     var btn = document.querySelector('.btn-ghost[onclick="copyToClipboard()"]');
     if (btn) { var orig = btn.innerHTML; btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Copied!'; setTimeout(function(){ btn.innerHTML = orig; }, 2000); }
   }
 
-  // Copy from a real, selected DOM element via execCommand('copy'). Cerner PowerChart's
-  // editor reads RTF (and plain text), NOT text/html — so the async Clipboard API's HTML
-  // was dropped and bold was lost (Word worked because Word reads HTML). When the browser
-  // copies a rendered selection, Windows auto-generates the RTF flavor from the DOM, so
-  // RTF-based fields like PowerChart get true bold headers too.
-  function copyViaSelection() {
-    var holder = document.createElement('div');
-    holder.innerHTML = html;
-    holder.setAttribute('contenteditable', 'true');
-    holder.style.position = 'fixed';
-    holder.style.left = '-9999px';
-    holder.style.top = '0';
-    document.body.appendChild(holder);
-    var sel = window.getSelection();
-    sel.removeAllRanges();
-    var range = document.createRange();
-    range.selectNodeContents(holder);
-    sel.addRange(range);
-    var ok = false;
-    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-    sel.removeAllRanges();
-    document.body.removeChild(holder);
-    return ok;
+  // Intercept the copy event and write all three flavors ourselves: plain, HTML (for Word/
+  // Outlook), and hand-built RTF (for Cerner PowerChart, which reads RTF not HTML). We set
+  // the data explicitly instead of letting the browser serialize a DOM selection — its RTF
+  // output left bold turned on, which made Word bold everything. preventDefault() stops that.
+  function onCopy(e) {
+    e.preventDefault();
+    var cd = e.clipboardData || window.clipboardData;
+    cd.setData('text/plain', text);
+    cd.setData('text/html', html);
+    try { cd.setData('text/rtf', rtf); } catch (_) {}
+    try { cd.setData('application/rtf', rtf); } catch (_) {}
   }
 
-  if (copyViaSelection()) { flashCopied(); return; }
+  document.addEventListener('copy', onCopy);
+  var ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  document.removeEventListener('copy', onCopy);
 
-  // Fallbacks if execCommand is unavailable/blocked: rich write, then plain write.
-  if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
-    var item = new ClipboardItem({
-      'text/html':  new Blob([html], { type: 'text/html' }),
-      'text/plain': new Blob([text], { type: 'text/plain' })
-    });
-    navigator.clipboard.write([item]).then(flashCopied).catch(function() {
-      navigator.clipboard.writeText(text).then(flashCopied).catch(function() {
-        alert('Copy failed — please use Export .txt instead.');
-      });
-    });
-  } else {
-    navigator.clipboard.writeText(text).then(flashCopied).catch(function() {
-      alert('Copy failed — please use Export .txt instead.');
-    });
-  }
+  if (ok) { flashCopied(); return; }
+
+  // Fallback if execCommand is blocked: plain-text write via the async API.
+  navigator.clipboard.writeText(text).then(flashCopied).catch(function() {
+    alert('Copy failed — please use Export .txt instead.');
+  });
 }
 
 // Build a real, SELECTABLE vector PDF of the report with vendored jsPDF + autotable.
@@ -1872,6 +1854,32 @@ function buildSummaryHtml(lines) {
     return lead + (isHeader ? '<b>' + body + '</b>' : body);
   }).join('<br>');
   return '<div style="font-family:Arial,sans-serif;font-size:10pt">' + html + '</div>';
+}
+
+// Build an RTF version so Cerner PowerChart's editor (which reads RTF, not HTML) gets true
+// bold headers. Hand-built so bold is explicitly turned OFF after each header (\b0) — the
+// browser's own RTF serialization left bold on, which is why Word showed everything bold.
+// Font pinned to Arial 10pt (\fs20 = 10pt in half-points) to match Cerner's default.
+function buildSummaryRtf(lines) {
+  function esc(s) {
+    var out = '';
+    for (var i = 0; i < s.length; i++) {
+      var ch = s.charAt(i), code = s.charCodeAt(i);
+      if (ch === '\\' || ch === '{' || ch === '}') out += '\\' + ch;
+      else if (code > 127) out += '\\u' + code + '?';   // non-ASCII (Ω, →, —) → RTF unicode
+      else out += ch;
+    }
+    return out;
+  }
+  var body = lines.map(function(line) {
+    if (!line) return '';
+    var indent = (line.match(/^ +/) || [''])[0];
+    var rest = esc(line.slice(indent.length));
+    var lead = indent.replace(/ /g, '\\~');             // non-breaking space keeps indentation
+    var isHeader = indent.length === 0;
+    return lead + (isHeader ? '\\b ' + rest + '\\b0 ' : rest);
+  }).join('\\par\n');
+  return '{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0\\fnil\\fcharset0 Arial;}}\\f0\\fs20 ' + body + '}';
 }
 
 // (The original "Full" text report was removed — the compact format above is now the only
