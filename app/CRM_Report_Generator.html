@@ -1124,10 +1124,34 @@ function copyToClipboard() {
     if (btn) { var orig = btn.innerHTML; btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Copied!'; setTimeout(function(){ btn.innerHTML = orig; }, 2000); }
   }
 
-  // Write BOTH rich (text/html) and plain (text/plain) to the clipboard. Cerner's rich-text
-  // field takes the HTML → real bold headers in the same font; a plain-text field falls back
-  // to the identical text minus formatting. ClipboardItem isn't everywhere, so fall back to
-  // writeText when it's unavailable or blocked.
+  // Copy from a real, selected DOM element via execCommand('copy'). Cerner PowerChart's
+  // editor reads RTF (and plain text), NOT text/html — so the async Clipboard API's HTML
+  // was dropped and bold was lost (Word worked because Word reads HTML). When the browser
+  // copies a rendered selection, Windows auto-generates the RTF flavor from the DOM, so
+  // RTF-based fields like PowerChart get true bold headers too.
+  function copyViaSelection() {
+    var holder = document.createElement('div');
+    holder.innerHTML = html;
+    holder.setAttribute('contenteditable', 'true');
+    holder.style.position = 'fixed';
+    holder.style.left = '-9999px';
+    holder.style.top = '0';
+    document.body.appendChild(holder);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    var range = document.createRange();
+    range.selectNodeContents(holder);
+    sel.addRange(range);
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    sel.removeAllRanges();
+    document.body.removeChild(holder);
+    return ok;
+  }
+
+  if (copyViaSelection()) { flashCopied(); return; }
+
+  // Fallbacks if execCommand is unavailable/blocked: rich write, then plain write.
   if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
     var item = new ClipboardItem({
       'text/html':  new Blob([html], { type: 'text/html' }),
@@ -1832,11 +1856,11 @@ function buildSummaryLines() {
   return lines;
 }
 
-// Build an HTML version of the summary for the clipboard so Cerner's rich-text field
-// renders REAL bold headers (same font/size as body text, just heavier weight — unlike
-// Unicode "bold" glyphs, which paste as a different font). Header = any non-empty line
-// with 0 indentation. Leading spaces → &nbsp; so indentation survives; no font-family is
-// set, so the text inherits Cerner's paragraph font and stays consistent.
+// Build an HTML version of the summary for the clipboard so pasting into a rich-text field
+// gives REAL bold headers (same font/size as body text, just heavier weight — unlike Unicode
+// "bold" glyphs, which paste as a different font). Header = any non-empty line with 0
+// indentation. Leading spaces → &nbsp; so indentation survives. Font is pinned to Arial 10pt
+// to match Cerner's default, so headers and body stay visually consistent.
 function buildSummaryHtml(lines) {
   function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   var html = lines.map(function(line) {
@@ -1845,9 +1869,9 @@ function buildSummaryHtml(lines) {
     var body = esc(line.slice(indent.length));
     var lead = indent.replace(/ /g, '&nbsp;');
     var isHeader = indent.length === 0;
-    return lead + (isHeader ? '<strong>' + body + '</strong>' : body);
+    return lead + (isHeader ? '<b>' + body + '</b>' : body);
   }).join('<br>');
-  return '<div>' + html + '</div>';
+  return '<div style="font-family:Arial,sans-serif;font-size:10pt">' + html + '</div>';
 }
 
 // (The original "Full" text report was removed — the compact format above is now the only
