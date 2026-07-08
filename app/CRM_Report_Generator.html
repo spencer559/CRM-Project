@@ -2040,10 +2040,23 @@ loadSaved();
     if (RESULT['dtype'] && RESULT['dtype'].v) setField('dtype', RESULT['dtype'].v, merge);
     if (typeof updateConditionals === 'function') updateConditionals();
 
+    // 1b) Dynamic AV toggle is an auto-DERIVED flag, not user-entered data. The form hard-codes
+    // the radio to "No" (checked) as its default, so in MERGE mode setField() sees a radio that's
+    // already "checked" and skips it — the parser's "Yes" never lands. updateDynamicAV() then runs
+    // with the toggle still on "No" and CLEARS p-sav-hi / p-pav-hi, silently dropping the max bound
+    // of a parsed dynamic range (e.g. Boston's "260 - 300 ms"). Apply the parser's verdict here,
+    // BEFORE the scalar loop sets the hi fields, so those values survive. In merge mode only
+    // override toward "Yes" (a detected range is authoritative); never force a merge back to "No",
+    // which would wipe a range the user entered by hand.
+    if (RESULT['dyn-av'] && RESULT['dyn-av'].v && (!merge || RESULT['dyn-av'].v === 'Yes')) {
+      var dynV = RESULT['dyn-av'].v;
+      document.querySelectorAll('input[name="dyn-av"]').forEach(function(el){ el.checked = (el.value === dynV); });
+    }
+
     // 2) every other scalar field
     var filled = 0, review = [];
     Object.keys(RESULT).forEach(function(k){
-      if (k==='mfr' || k==='dtype') return;
+      if (k==='mfr' || k==='dtype' || k==='dyn-av') return;   // dyn-av handled above (1b)
       var f = RESULT[k]; if (!f || f.v===''|| f.v==null) return;
       if (setField(k, f.v, merge)) { filled++; if (f.status==='review') review.push(f.label||k); }
     });
