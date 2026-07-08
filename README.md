@@ -29,10 +29,9 @@ Supported inputs:
 ## Project layout
 
 ```
-index.html                          Landing page (links to the app + archive)
+index.html                          Landing page (links to the tools)
 app/
   CRM_Report_Generator.html         THE ACTIVE APP — edit this one
-  CRM_Report_Generator_TEST.html    Staging copy for trying changes (own autosave key, TEST badge)
 src/
   engine.js                         Shared PDF extraction engine + anchor helpers + cleaners
   parsers/
@@ -47,8 +46,6 @@ assets/
 tools/
   CIED PDF Extraction Harness.html  Dump a PDF's text items (parser authoring/debugging)
   CIED_Medtronic_Parser_Preview_v2.html   Older preview harness
-archive/
-  CRM_Report_Generator.html         Older variant, not maintained
 ```
 
 **Path conventions:** the app lives in `app/`, so its includes are relative — `../src/engine.js`,
