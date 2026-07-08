@@ -2,47 +2,1151 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<!-- Content-Security-Policy: this dashboard shares an origin with the CRM tool, which autosaves
+     PHI to localStorage. script-src 'self' blocks ALL third-party scripts so nothing external can
+     run and read that storage, and connect-src is limited to the two data feeds this page actually
+     uses (weather + Finnhub) so data cannot be exfiltrated anywhere else. Mirrors the CRM tool's
+     lockdown, with the two allowed API hosts as the only egress. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://finnhub.io; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard — Developer Deck</title>
-<link href="../vendor/fonts/fonts.css" rel="stylesheet">
-<link href="../assets/site.css" rel="stylesheet">
+<title>Spencer's Command Center</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2333;
+    --border: #2d333b;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --amber: #d29922;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    padding: 16px;
+    min-height: 100vh;
+  }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px; margin-bottom: 16px;
+  }
+  #clock { font-size: 2.2rem; font-weight: 600; letter-spacing: 1px; }
+  #date { color: var(--muted); font-size: 1rem; }
+  .hdr-menu { position: relative; }
+  .hdr-select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 14px; font-size: .9rem; font-family: inherit; cursor: pointer;
+  }
+  .hdr-select:hover { border-color: var(--accent); }
+  .storage-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: middle; }
+  .hdr-dropdown {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 50;
+    display: none; flex-direction: column; gap: 6px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; min-width: 250px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  }
+  .hdr-dropdown.open { display: flex; }
+  .hdr-status { font-size: .78rem; color: var(--muted); margin-bottom: 4px; line-height: 1.35; }
+  .hdr-status.ok { color: var(--green); }
+  .hdr-status.warn { color: var(--amber); }
+  .hdr-dropdown button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font-size: .82rem; cursor: pointer; font-family: inherit; text-align: left;
+  }
+  .hdr-dropdown button:hover { border-color: var(--accent); }
+  .hdr-select-arrow {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b949e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
+  }
+  .hdr-dropdown.left { right: auto; left: 0; min-width: 150px; }
+  .hidden-pane { display: none !important; }
+  #weather { text-align: right; font-size: 1.05rem; }
+  #weather .big { font-size: 1.6rem; font-weight: 600; }
+  #weather .sub { color: var(--muted); font-size: .85rem; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 820px) {
+    .grid { grid-template-columns: 1fr; }
+    .wide { grid-column: auto; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .panel h2 {
+    font-size: .8rem; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--muted); margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .wide { grid-column: 1 / -1; }
+
+  /* crypto rows */
+  .row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 7px 4px; border-bottom: 1px solid var(--border);
+  }
+  .row:last-child { border-bottom: none; }
+  .row .name { font-weight: 600; }
+  .row .px { font-variant-numeric: tabular-nums; }
+  .up { color: var(--green); }
+  .down { color: var(--red); }
+  .small { font-size: .8rem; color: var(--muted); }
+
+  /* finance */
+  .idx-strip { display: flex; flex-wrap: wrap; gap: 10px; }
+  .idx-card { flex: 1; min-width: 150px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .idx-name { font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+  .idx-val { font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .quote-table td { font-variant-numeric: tabular-nums; }
+  .quote-table td:first-child { font-weight: 600; }
+  @keyframes flashUp { from { background-color: rgba(63,185,80,.4); } to { background-color: transparent; } }
+  @keyframes flashDown { from { background-color: rgba(248,81,73,.4); } to { background-color: transparent; } }
+  .flash-up { animation: flashUp 1.2s ease-out; border-radius: 4px; }
+  .flash-down { animation: flashDown 1.2s ease-out; border-radius: 4px; }
+  #apiKey { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: .85rem; width: 200px; }
+  #financeSource { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: .8rem; font-family: inherit; cursor: pointer; }
+  .heat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+  .heat-tile { border-radius: 8px; padding: 12px 8px; text-align: center; background: var(--panel2); transition: background .3s; }
+  .heat-name { font-size: .78rem; font-weight: 600; color: rgba(255,255,255,.92); }
+  .heat-chg { font-size: 1.1rem; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; color: #fff; }
+
+  /* tally */
+  .tally { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .tcard { background: var(--panel2); border-radius: 8px; padding: 10px; text-align: center; }
+  .tcard .cnt { font-size: 1.9rem; font-weight: 700; }
+  .tcard .lbl { color: var(--muted); font-size: .8rem; margin-bottom: 6px; }
+  .tcard button {
+    background: var(--border); color: var(--text); border: none; border-radius: 6px;
+    width: 30px; height: 28px; font-size: 1rem; cursor: pointer; margin: 2px;
+  }
+  .tcard button:hover { background: var(--accent); color: #000; }
+  #tallyTotal { font-size: .85rem; color: var(--muted); margin-top: 10px; }
+  #tallyHist { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+
+  /* reference table */
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; }
+  .disclaimer { font-size: .72rem; color: var(--muted); margin-top: 8px; font-style: italic; }
+
+  /* watchlist chips */
+  .wl-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 3px 8px; font-size: .78rem; cursor: grab; user-select: none;
+    transition: border-color .12s, opacity .12s;
+  }
+  .wl-chip:active { cursor: grabbing; }
+  .wl-grip { color: var(--muted); font-size: .7rem; letter-spacing: -2px; }
+  .wl-chip.wl-dragging { opacity: .4; }
+  .wl-chip.wl-over { border-color: var(--accent); }
+
+  /* reference tabs */
+  .ref-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .ref-tab {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); font-family: inherit; font-size: .82rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1px; padding: 8px 12px; cursor: pointer;
+    transition: color .15s, border-color .15s;
+  }
+  .ref-tab:hover { color: var(--text); }
+  .ref-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .ref-panel { display: none; }
+  .ref-panel.active { display: block; }
+
+  /* marker glossary */
+  details.panel > summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+    font-size: .8rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted);
+  }
+  details.panel > summary::-webkit-details-marker { display: none; }
+  details.panel > summary::before {
+    content: '▸'; color: var(--accent); font-size: .9rem; transition: transform .15s;
+  }
+  details.panel[open] > summary::before { transform: rotate(90deg); }
+  details.panel > summary .small { text-transform: none; letter-spacing: 0; }
+  .marker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 24px; }
+  @media (max-width: 820px) { .marker-grid { grid-template-columns: 1fr; } }
+  .marker-col h3 {
+    font-size: .82rem; color: var(--accent); margin-bottom: 6px;
+    border-bottom: 1px solid var(--border); padding-bottom: 4px;
+  }
+  .marker-table td:first-child {
+    font-weight: 600; white-space: nowrap; color: var(--text);
+    font-family: "Consolas", "SF Mono", monospace; font-size: .82rem; width: 34%;
+  }
+  .marker-table td { padding: 3px 6px; font-size: .8rem; vertical-align: top; line-height: 1.3; }
+  .marker-table td:last-child { color: var(--muted); }
+  tr.mk-hidden { display: none; }
+
+  /* links */
+  .links { display: flex; flex-wrap: wrap; gap: 8px; }
+  .links a {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--accent);
+    text-decoration: none; padding: 8px 14px; border-radius: 8px; font-size: .9rem;
+  }
+  .links a:hover { border-color: var(--accent); }
+
+  /* portal list */
+  .portal-panel { display: flex; flex-direction: column; }
+  .portal-list { display: flex; flex-direction: column; flex: 1; gap: 8px; }
+  .portal-list a {
+    flex: 1; display: flex; align-items: center; justify-content: space-between;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; text-decoration: none; color: var(--text);
+    transition: border-color .15s, background .15s;
+  }
+  .portal-list a:hover { border-color: var(--accent); background: #202a3d; }
+  .portal-list .pname { display: block; font-weight: 600; font-size: .95rem; }
+  .portal-list .pdesc { display: block; color: var(--muted); font-size: .78rem; margin-top: 2px; }
+  .portal-list .parrow { color: var(--accent); font-size: 1.1rem; }
+
+  /* notes */
+  #notes {
+    width: 100%; min-height: 110px; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+    font-family: inherit; font-size: .9rem; resize: none; overflow: hidden;
+  }
+
+  /* to-do list */
+  #todoList li {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 4px; border-bottom: 1px solid var(--border);
+  }
+  #todoList li:last-child { border-bottom: none; }
+  #todoList input[type=checkbox] {
+    appearance: none; -webkit-appearance: none;
+    width: 17px; height: 17px; flex-shrink: 0;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 5px; cursor: pointer; position: relative;
+    transition: background .15s, border-color .15s;
+  }
+  #todoList input[type=checkbox]:hover { border-color: var(--accent); }
+  #todoList input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+  #todoList input[type=checkbox]:checked::after {
+    content: ''; position: absolute; left: 5px; top: 1px;
+    width: 4px; height: 9px;
+    border: solid #0d1117; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  #todoList .txt { flex: 1; font-size: .92rem; }
+  #todoList li.done .txt { text-decoration: line-through; color: var(--muted); }
+  #todoList .del {
+    background: none; border: none; color: var(--muted); cursor: pointer; font-size: .95rem;
+  }
+  #todoList .del:hover { color: var(--red); }
+  .err { color: var(--muted); font-size: .85rem; padding: 8px 0; }
+  .reset-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; padding: 2px 8px; font-size: .7rem; cursor: pointer;
+  }
+  .reset-btn:hover { color: var(--red); border-color: var(--red); }
+</style>
 </head>
 <body>
 
-<main class="stage">
-  <div class="compass" aria-hidden="true">
-    <div class="ring"></div>
-    <span class="card-pt n">N</span>
-    <span class="card-pt e">E</span>
-    <span class="card-pt s">S</span>
-    <span class="card-pt w">W</span>
-    <div class="star4"></div>
+<header>
+  <div>
+    <div id="clock">--:--</div>
+    <div id="date"></div>
+  </div>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div class="hdr-menu">
+      <button id="viewBtn" class="hdr-select hdr-select-arrow" onclick="toggleViewMenu()" title="Filter panels"><span id="viewLabel">All</span></button>
+      <div id="viewMenu" class="hdr-dropdown left">
+        <button onclick="setViewMode('all')">All</button>
+        <button onclick="setViewMode('devices')">Devices</button>
+        <button onclick="setViewMode('finance')">Finance</button>
+      </div>
+    </div>
+    <div class="hdr-menu">
+      <button id="storageBtn" class="hdr-select" onclick="toggleStorageMenu()"><span id="storageDot" class="storage-dot"></span>Storage ▾</button>
+      <div id="storageMenu" class="hdr-dropdown">
+        <div id="dataStatus" class="hdr-status">Storage: this browser only — connect a data file to make notes, to-do &amp; watchlist follow your USB</div>
+        <button id="openBtn" onclick="openDataFile()">Open USB data file</button>
+        <button id="newBtn" onclick="newDataFile()">New data file</button>
+        <button onclick="exportData()">Export</button>
+        <button onclick="importData()">Import</button>
+        <input id="importFile" type="file" accept="application/json,.json" style="display:none">
+      </div>
+    </div>
+    <div id="weather"><span class="sub">loading weather…</span></div>
+  </div>
+</header>
+
+<!-- finance ticker / indices (source-dependent, populated by JS) -->
+<div class="panel wide" data-cat="finance" style="padding:4px; margin-bottom:16px;">
+  <div id="financeTicker"></div>
+</div>
+
+<div class="grid">
+
+  <!-- Markets (source-dependent) -->
+  <div class="panel wide" data-cat="finance">
+    <h2>Markets
+      <span style="display:flex; gap:8px; align-items:center;">
+        <span id="finUpdated" class="small"></span>
+        <select id="financeSource" onchange="setFinanceSource(this.value)" title="Data source">
+          <option value="finnhub">Finnhub</option>
+        </select>
+        <span class="links" style="gap:6px;">
+          <a href="https://finviz.com/map.ashx" target="_blank" rel="noopener noreferrer" style="padding:4px 10px; font-size:.78rem;">FINVIZ Map</a>
+          <a href="https://finviz.com" target="_blank" rel="noopener noreferrer" style="padding:4px 10px; font-size:.78rem;">FINVIZ</a>
+          <a href="https://finance.yahoo.com" target="_blank" rel="noopener noreferrer" style="padding:4px 10px; font-size:.78rem;">Yahoo Finance</a>
+        </span>
+      </span>
+    </h2>
+    <div id="apiKeyRow" style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center;">
+      <input id="apiKey" type="password" placeholder="API key">
+      <button onclick="saveApiKey()" style="background:var(--border); color:var(--text); border:none; border-radius:6px; padding:6px 12px; cursor:pointer;">Save key</button>
+      <span id="apiKeyStatus" class="small"></span>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center;">
+      <input id="wlInput" placeholder="Add ticker e.g. NVDA or MDT" style="background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 10px; font-size:.85rem; width:240px;">
+      <button onclick="addTicker()" style="background:var(--border); color:var(--text); border:none; border-radius:6px; padding:6px 12px; cursor:pointer;">Add</button>
+      <span id="wlChips" style="display:flex; gap:6px; flex-wrap:wrap;"></span>
+    </div>
+    <div id="mktOverview"></div>
+    <div class="disclaimer">Finnhub powers the live quote tables and sector heatmap — add your free Finnhub API key above to load market data. (TradingView charts were removed for security: this page shares an origin with the PHI tool and must not load third-party scripts.)</div>
   </div>
 
-  <div class="eyebrow">Developer Deck — Crew Only</div>
+  <!-- Sector (source-dependent) -->
+  <div class="panel wide" data-cat="finance">
+    <h2 id="sectorTitle">Sector Heatmap</h2>
+    <div id="sectorArea"></div>
+  </div>
 
-  <h1>Dashboard</h1>
+  <!-- Device check tally -->
+  <div class="panel wide" data-cat="devices">
+    <h2>Today's Device Checks <button class="reset-btn" onclick="resetTally()">reset day</button></h2>
+    <div class="tally" id="tally"></div>
+    <div id="tallyTotal"></div>
+    <div id="tallyHist"></div>
+  </div>
 
-  <div class="rope" aria-hidden="true"></div>
+  <!-- Device reference tabs -->
+  <div class="panel wide" data-cat="devices">
+    <div class="ref-tabs">
+      <button class="ref-tab active" data-tab="portals">Clinic Portals</button>
+      <button class="ref-tab" data-tab="ranges">Measurement Ranges</button>
+      <button class="ref-tab" data-tab="discrim">SVT–VT Discriminators</button>
+      <button class="ref-tab" data-tab="alerts">Patient Alerts</button>
+      <button class="ref-tab" data-tab="trouble">Troubleshooting</button>
+      <button class="ref-tab" data-tab="mri">MRI Check</button>
+      <button class="ref-tab" data-tab="magnet">Magnet Rates</button>
+    </div>
 
-  <p class="dev-copy">
-    This is a placeholder for the dashboard. Drop the real page in at
-    <strong>/dev/dashboard.html</strong> to replace it — the styling, the
-    developer-deck link, and the Access sign-in gate are already wired up.
-  </p>
+    <div class="ref-panel active" data-panel="portals">
+      <div class="portal-list">
+        <a href="https://www.pacematelive.com/login.action" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">PaceMate</span><span class="pdesc">Remote monitoring platform</span></span><span class="parrow">↗</span>
+        </a>
+        <a href="https://clc.medtroniccarelink.net/carelink.web/about" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">CareLink</span><span class="pdesc">Medtronic</span></span><span class="parrow">↗</span>
+        </a>
+        <a href="https://www.latitudenxt.bostonscientific.com/clinic/login?locale=en_US" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">LATITUDE NXT</span><span class="pdesc">Boston Scientific</span></span><span class="parrow">↗</span>
+        </a>
+        <a href="https://www.merlin.net/web/chakravyuh/login?TYPE=33554433&REALMOID=06-000815af-68e6-1cb6-83e1-203dac180000&GUID=&SMAUTHREASON=0&METHOD=GET&SMAGENTNAME=-SM-nspH1IStW4seWjzbMUp5d%2b0DJh9ZZZxmW7lMbJOd%2b5csIPNiNYeqtVvK%2f76TelBL&TARGET=-SM-https%3a%2f%2fwww%2emerlin%2enet%2fgroup%2fmerlin--ep_b%2ftransmission#!" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">Merlin.net</span><span class="pdesc">Abbott / St. Jude</span></span><span class="parrow">↗</span>
+        </a>
+        <a href="https://www.biotronik-homemonitoring.com/hmsc_guiWeb/user/site/SignIn.jsf?_rtid=c3e0aa-01" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">Home Monitoring</span><span class="pdesc">BIOTRONIK</span></span><span class="parrow">↗</span>
+        </a>
+      </div>
+    </div>
 
-  <nav class="actions">
-    <a class="btn-sail locked" href="index.html">
-      <span class="b-icon"><span class="star4"></span></span>
-      <span class="b-text">
-        <span class="b-kicker">Return &mdash; To Port</span>
-        <span class="b-title">Back to Developer Deck</span>
-        <span class="b-bounty">&#9664; /dev/</span>
-      </span>
-      <span class="b-arrow">&#9658;</span>
-    </a>
-  </nav>
-</main>
+    <div class="ref-panel" data-panel="ranges">
+      <table>
+        <thead>
+          <tr><th>Parameter</th><th>Typical Acceptable</th><th>Red Flags</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>P-wave sensing</td><td>≥1.5 mV preferred (1.0 = minimum long-term)</td><td>&lt;1 mV or sudden drop from baseline</td></tr>
+          <tr><td>R-wave sensing</td><td>≥5 mV preferred (3.0 = minimum long-term)</td><td>&lt;3 mV; low R-wave in ICD = undersensing risk</td></tr>
+          <tr><td>At implant</td><td>P ≥1.2 mV, R ≥5 mV; amplitudes improve over first 20 min</td><td>Avoid premature repositioning</td></tr>
+          <tr><td>Pacing impedance</td><td>~300 – 1200 Ω (lead-dependent; trend vs baseline)</td><td>&lt;200 Ω = insulation break; &gt;1200 Ω = fracture or loose set-screw</td></tr>
+          <tr><td>HV shock impedance</td><td>25 – 100 Ω</td><td>Abrupt change from baseline</td></tr>
+          <tr><td>Capture threshold</td><td>≤1.0 V @ 0.5 ms at implant (up to 2.5 V acceptable)</td><td>≥2x rise from baseline; program 2:1 safety margin</td></tr>
+        </tbody>
+      </table>
+      <div class="disclaimer">Values per Clinical Cardiac Pacing — trend vs. the patient's own baseline matters more than absolutes. Verify per lead model.</div>
+    </div>
 
+    <div class="ref-panel" data-panel="discrim">
+      <table>
+        <thead>
+          <tr><th>Manufacturer</th><th>Algorithms</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Medtronic</td><td>PR Logic + Wavelet</td><td>PR Logic = AV/VA interval pattern; Wavelet = morphology vs. stored sinus template</td></tr>
+          <tr><td>Boston Scientific</td><td>Rhythm ID</td><td>Vector timing &amp; correlation morphology; Onset/Stability on older Guidant</td></tr>
+          <tr><td>Abbott / St. Jude</td><td>A-V Rate Branch + Morphology Discrimination</td><td>Rate branch (V&gt;A / V=A / V&lt;A) then far-field MD, onset, stability; SecureSense = RV lead-noise discrimination</td></tr>
+          <tr><td>Biotronik</td><td>SMART</td><td>Dual-chamber algorithm, structure similar to SJM rate branch</td></tr>
+        </tbody>
+      </table>
+      <div class="disclaimer">Morphology templates can be distorted for minutes after a shock — re-verify template if misclassification suspected.</div>
+    </div>
+
+    <div class="ref-panel" data-panel="alerts">
+      <table>
+        <thead>
+          <tr><th>Manufacturer</th><th>Alert Type</th><th>Meaning / Action</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Medtronic</td><td>Audible tones (daily at set time)</td><td>High/low alternating = urgent, call clinic; steady tone = non-urgent alert. Interrogate to identify.</td></tr>
+          <tr><td>Boston Scientific</td><td>Beeping tones</td><td>R-wave synchronous beeps with magnet = therapy suspended; repeating tones = alert condition. Interrogate.</td></tr>
+          <tr><td>Abbott / St. Jude</td><td>Vibratory notifier</td><td>Device vibrates instead of beeping. Patient should transmit / contact clinic.</td></tr>
+          <tr><td>Biotronik</td><td>Home Monitoring alerts</td><td>No audible tones on most models — alerts arrive via HMSC. Check daily transmissions.</td></tr>
+        </tbody>
+      </table>
+      <div class="disclaimer">Reference only — verify against current manufacturer manuals.</div>
+    </div>
+
+    <div class="ref-panel" data-panel="trouble">
+      <table>
+        <thead>
+          <tr><th>Finding</th><th>Likely Causes</th><th>What to Check</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Loss of capture</td><td>Threshold rise (fibrosis, meds, electrolytes, MI), micro/macro-dislodgement, exit block</td><td>Threshold trend vs baseline, impedance trend, CXR for lead position</td></tr>
+          <tr><td>No output / pauses</td><td>Oversensing → inhibition, crosstalk, open circuit (fracture, loose set-screw), battery depletion</td><td>EGM at pause, impedance (&gt;1200 Ω = fracture/connection), battery status, magnet response</td></tr>
+          <tr><td>Undersensing</td><td>Low EGM amplitude (fibrosis, new BBB, lead maturation), lead failure, sensitivity too low</td><td>Measured P/R-wave vs baseline (P &lt;1, R &lt;3 mV = concern), impedance, sensitivity setting</td></tr>
+          <tr><td>Oversensing</td><td>T-wave OS, myopotentials, EMI, lead noise/chatter (make-break contact)</td><td>EGM morphology: T-wave OS follows every R; noise = non-physiologic rapid signals; provocative maneuvers (arm motion, pocket manipulation); impedance trend</td></tr>
+          <tr><td>Inappropriate ICD therapy</td><td>SVT misclassified (AF with RVR, sinus tach into VT zone), lead noise, T-wave OS, EMI</td><td>Episode EGM: A-V relationship, onset (sudden vs gradual), stability, morphology match; lead-noise alerts (SecureSense / Lead Integrity)</td></tr>
+          <tr><td>Impedance change &gt;30%</td><td>&lt;200 Ω = insulation break (often subclavian crush); &gt;1200 Ω = conductor fracture or loose set-screw</td><td>Trend vs baseline, varies with posture/manipulation, CXR/fluoro (absence doesn't exclude), pocket manipulation during live EGM</td></tr>
+        </tbody>
+      </table>
+      <div class="disclaimer">Per Clinical Cardiac Pacing — trend vs. the patient's own baseline is the key signal. Verify device-specific behavior in manufacturer manuals.</div>
+    </div>
+
+    <div class="ref-panel" data-panel="mri">
+      <div class="portal-list">
+        <a href="https://www.medtronic.com/en-us/healthcare-professionals/mri-resources/mr-conditional-search-tool.html" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">Medtronic — MR Conditional Search</span><span class="pdesc">SureScan device &amp; lead lookup</span></span><span class="parrow">↗</span>
+        </a>
+        <a href="https://www.bostonscientific.com/imageready/uk/en/crm-device-model-list.html" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">Boston Scientific — ImageReady</span><span class="pdesc">MR-conditional CRM model list</span></span><span class="parrow">↗</span>
+        </a>
+        <a href="https://mri.merlin.net/" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">Abbott / St. Jude — Merlin MRI</span><span class="pdesc">MRI Ready system check</span></span><span class="parrow">↗</span>
+        </a>
+        <a href="https://www.promricheck.com/spring/main?execution=e1s1" target="_blank" rel="noopener noreferrer">
+          <span><span class="pname">Biotronik — ProMRI Check</span><span class="pdesc">ProMRI eligibility lookup</span></span><span class="parrow">↗</span>
+        </a>
+      </div>
+      <div class="disclaimer">Confirm the generator AND every lead are MR-conditional, and follow each manufacturer's scan conditions (field strength, SAR, exclusion zone). Reference only — verify against current labeling.</div>
+    </div>
+
+    <div class="ref-panel" data-panel="magnet">
+      <table id="refTable">
+        <thead>
+          <tr><th>Manufacturer</th><th>Magnet Rate (BOL)</th><th>Magnet Rate (ERI)</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Medtronic</td><td>100 bpm × 3 beats, then 85 bpm</td><td>65 bpm (at EOL)</td><td>First 3 beats = threshold margin test; not programmable off</td></tr>
+          <tr><td>Boston Scientific</td><td>100 bpm</td><td>85 bpm (ERT)</td><td>90 = replace within 1 yr; &lt;85 = EOL; may be programmed off</td></tr>
+          <tr><td>Abbott / St. Jude</td><td>100 bpm (older models 98.6)</td><td>85 bpm (older 86.3); 80.7 at EOL</td><td>Model-dependent; may be programmed off</td></tr>
+          <tr><td>Biotronik</td><td>90 bpm</td><td>80 bpm</td><td>Programmable ASYNC / SYNC (no effect) / AUTO (90 × 10 cycles, then sync)</td></tr>
+          <tr><td>MicroPort</td><td>96 bpm</td><td>80 bpm (gradual decline)</td><td>Not programmable off</td></tr>
+          <tr><td>ICDs (all mfrs)</td><td>—</td><td>—</td><td>Magnet suspends tachy detection only; pacing does NOT go asynchronous</td></tr>
+          <tr><td>Boston Sci S-ICD</td><td>—</td><td>—</td><td>QRS-synchronous beeping × 60 sec on magnet application; therapy suspended</td></tr>
+        </tbody>
+      </table>
+      <div class="disclaimer">Values per Clinical Cardiac Pacing (Table 41-2) — verify against current manufacturer manuals before clinical use.</div>
+    </div>
+  </div>
+
+  <!-- EGM marker glossary -->
+  <details class="panel wide" data-cat="devices">
+    <summary><span>EGM Marker Annotations</span><span class="small">by manufacturer — per Fig. 37-13 (click to expand)</span></summary>
+    <div style="display:flex; gap:8px; margin:12px 0 10px; flex-wrap:wrap;">
+      <input id="markerSearch" placeholder="Filter markers… (e.g. RVP, refractory, fallback)" style="flex:1; min-width:220px; background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px 10px; font-size:.9rem;">
+    </div>
+    <div class="marker-grid">
+
+      <div class="marker-col">
+        <h3>Boston Scientific</h3>
+        <table class="marker-table"><tbody>
+          <tr><td>AS</td><td>Atrial sense</td></tr>
+          <tr><td>(AS)</td><td>Atrial refractory sense</td></tr>
+          <tr><td>[AS]</td><td>Atrial sense during blanking</td></tr>
+          <tr><td>AS-Hy</td><td>Atrial sense — in hysteresis offset</td></tr>
+          <tr><td>AP</td><td>Atrial pace — lower rate</td></tr>
+          <tr><td>AP-Sr</td><td>Atrial pace — sensor rate</td></tr>
+          <tr><td>AP-Ns</td><td>Atrial pace — noise (asynchronous pacing)</td></tr>
+          <tr><td>AP↓ / AP↑</td><td>Atrial pace — rate smoothing down / up</td></tr>
+          <tr><td>AP-FB</td><td>Atrial pace — fallback (in ATR)</td></tr>
+          <tr><td>RVS</td><td>Right ventricular sense</td></tr>
+          <tr><td>[RVS]</td><td>RV sense during blanking</td></tr>
+          <tr><td>RVP</td><td>RV pace — lower rate or atrial tracked</td></tr>
+          <tr><td>RVP-Sr</td><td>RV pace at sensor rate</td></tr>
+          <tr><td>RVP-FB</td><td>RV pacing during fallback (modeswitch)</td></tr>
+          <tr><td>RVP-MT</td><td>RV pace — atrial tracked at max tracking rate</td></tr>
+          <tr><td>RVP-Ns</td><td>RV pace — noise (asynchronous pacing)</td></tr>
+          <tr><td>RVP-VRR</td><td>RV pace — ventricular rate regulation</td></tr>
+          <tr><td>RVP↓ / RVP↑</td><td>RV pace — rate smoothing down / up</td></tr>
+          <tr><td>LV</td><td>Left ventricle (annotations as for RV)</td></tr>
+          <tr><td>PVC</td><td>Premature ventricular contraction</td></tr>
+          <tr><td>ATR↑ / ATR↓</td><td>Atrial tachy sense — count up / down</td></tr>
+          <tr><td>ATR-Dur</td><td>Atrial tachy duration started</td></tr>
+          <tr><td>ATR-FB</td><td>Atrial fallback started (modeswitch)</td></tr>
+          <tr><td>FB</td><td>ATR in progress (modeswitch)</td></tr>
+          <tr><td>ATR-End</td><td>ATR ended</td></tr>
+          <tr><td>PVP→</td><td>Post-PVC PVARP extension</td></tr>
+          <tr><td>PMT-B</td><td>Pacemaker-mediated tachycardia termination</td></tr>
+        </tbody></table>
+      </div>
+
+      <div class="marker-col">
+        <h3>Medtronic</h3>
+        <table class="marker-table"><tbody>
+          <tr><td>AS / AP</td><td>Atrial sensing / pacing</td></tr>
+          <tr><td>AR</td><td>Atrial refractory sense</td></tr>
+          <tr><td>Ab</td><td>Atrial event in blanking period</td></tr>
+          <tr><td>VS / VP</td><td>Ventricular sensing / pacing</td></tr>
+          <tr><td>BV</td><td>Biventricular pace</td></tr>
+          <tr><td>VR</td><td>Ventricular refractory sense</td></tr>
+          <tr><td>VS (safety)</td><td>Ventricular safety pacing</td></tr>
+          <tr><td>FS</td><td>Sensing in VF zone (interval &lt;320 ms)</td></tr>
+          <tr><td>TS</td><td>Sensing in VT zone</td></tr>
+        </tbody></table>
+      </div>
+
+      <div class="marker-col">
+        <h3>Abbott / St. Jude</h3>
+        <table class="marker-table"><tbody>
+          <tr><td>AS / AP</td><td>Atrial sense / pace</td></tr>
+          <tr><td>VS / VP</td><td>Ventricular sense / pace</td></tr>
+          <tr><td>% match</td><td>Morphology match (SVT–VT discrimination)</td></tr>
+          <tr><td>A-A / A-V / V-V</td><td>Interval measurements</td></tr>
+          <tr><td>BP</td><td>Biventricular pace (simultaneous / LV-first / RV-first)</td></tr>
+          <tr><td>AMS</td><td>Modeswitch (auto mode switch)</td></tr>
+          <tr><td>LOC</td><td>Loss of capture</td></tr>
+          <tr><td>VPP</td><td>Ventricular backup pacing</td></tr>
+        </tbody></table>
+        <h3 style="margin-top:14px;">Biotronik</h3>
+        <table class="marker-table"><tbody>
+          <tr><td>As / Ap</td><td>Atrial sensing / pacing</td></tr>
+          <tr><td>Vs / Vp</td><td>Ventricular sensing / pacing</td></tr>
+          <tr><td>LVp / LVs</td><td>Left ventricular pacing / sensing</td></tr>
+          <tr><td>RVp / RVs</td><td>Right ventricular pacing / sensing</td></tr>
+          <tr><td>Ars</td><td>Atrial refractory sensing</td></tr>
+          <tr><td>Ars (FFP)</td><td>Ars in far-field protection window</td></tr>
+          <tr><td>Vrs</td><td>Ventricular refractory sensing</td></tr>
+          <tr><td>Aflut</td><td>Atrial flutter detected</td></tr>
+          <tr><td>Afib</td><td>Atrial fibrillation detected</td></tr>
+          <tr><td>Msw.DDI</td><td>Modeswitch to DDI</td></tr>
+        </tbody></table>
+      </div>
+
+    </div>
+    <div class="disclaimer">Per Clinical Cardiac Pacing, Fig. 37-13 — annotations vary by model; verify in the device manual. Markers differ on ICDs (FS/TS zones, etc.).</div>
+  </details>
+
+  <!-- Notes -->
+  <div class="panel">
+    <h2>Notes <span class="small">(auto-saved)</span></h2>
+    <textarea id="notes" placeholder="Scratchpad — follow-ups, ERI devices to watch, ideas…"></textarea>
+  </div>
+
+  <!-- To-do list -->
+  <div class="panel">
+    <h2>To-Do <span class="small">(auto-saved)</span></h2>
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <input id="todoInput" placeholder="Add an item…" style="flex:1; background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px 10px; font-size:.9rem;">
+      <button onclick="addTodo()" style="background:var(--border); color:var(--text); border:none; border-radius:6px; padding:8px 14px; cursor:pointer;">Add</button>
+    </div>
+    <ul id="todoList" style="list-style:none;"></ul>
+  </div>
+
+</div>
+
+<script>
+/* ---------- clock ---------- */
+function tick() {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    n.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  document.getElementById('date').textContent =
+    n.toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+}
+tick(); setInterval(tick, 15000);
+
+/* ---------- weather (Open-Meteo, no key) ---------- */
+const WMO = {0:'Clear',1:'Mostly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Fog',
+  51:'Drizzle',53:'Drizzle',55:'Drizzle',61:'Rain',63:'Rain',65:'Heavy rain',
+  71:'Snow',73:'Snow',75:'Heavy snow',80:'Showers',81:'Showers',82:'Heavy showers',
+  95:'Thunderstorm',96:'Thunderstorm',99:'Thunderstorm'};
+function loadWeather(lat, lon) {
+  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=1`)
+    .then(r => r.json())
+    .then(d => {
+      const c = d.current, dy = d.daily;
+      document.getElementById('weather').innerHTML =
+        `<span class="big">${Math.round(c.temperature_2m)}°F</span> ${WMO[c.weather_code] || ''}<br>` +
+        `<span class="sub">H ${Math.round(dy.temperature_2m_max[0])}° / L ${Math.round(dy.temperature_2m_min[0])}°</span>`;
+    })
+    .catch(() => document.getElementById('weather').innerHTML = '<span class="sub">weather unavailable</span>');
+}
+loadWeather(34.05, -118.24); // Los Angeles
+
+/* ---------- finance: Finnhub (live quotes + sector heatmap) ---------- */
+const FINN_URL = 'https://finnhub.io/api/v1/quote';
+const INDICES = [
+  {s: 'SPY', d: 'S&P 500'}, {s: 'QQQ', d: 'Nasdaq 100'},
+  {s: 'DIA', d: 'Dow 30'}, {s: 'VIXY', d: 'Volatility'}
+];
+const SECTORS = [
+  {s: 'XLK', d: 'Technology'}, {s: 'XLC', d: 'Comm. Svcs'}, {s: 'XLY', d: 'Cons. Disc.'},
+  {s: 'XLF', d: 'Financials'}, {s: 'XLV', d: 'Health Care'}, {s: 'XLI', d: 'Industrials'},
+  {s: 'XLP', d: 'Cons. Staples'}, {s: 'XLE', d: 'Energy'}, {s: 'XLU', d: 'Utilities'},
+  {s: 'XLB', d: 'Materials'}, {s: 'XLRE', d: 'Real Estate'}
+];
+
+/* watchlist model */
+const DEFAULT_WL = ['AAPL', 'MSFT', 'NVDA', 'MDT', 'BSX', 'ABT'];
+function getWL() { return JSON.parse(localStorage.getItem('watchlist') || JSON.stringify(DEFAULT_WL)); }
+function saveWL(wl) { localStorage.setItem('watchlist', JSON.stringify(wl)); renderFinance(); }
+function addTicker() {
+  const inp = document.getElementById('wlInput');
+  let sym = inp.value.trim().toUpperCase();
+  if (!sym) return;
+  const wl = getWL();
+  if (!wl.includes(sym)) { wl.push(sym); saveWL(wl); }
+  inp.value = '';
+}
+function removeTicker(sym) { saveWL(getWL().filter(s => s !== sym)); }
+function moveTicker(from, to) {
+  const wl = getWL();
+  if (from < 0 || to < 0 || from >= wl.length || to >= wl.length || from === to) return;
+  const [item] = wl.splice(from, 1);
+  wl.splice(to, 0, item);
+  saveWL(wl);
+}
+document.getElementById('wlInput').addEventListener('keydown', e => { if (e.key === 'Enter') addTicker(); });
+let dragIdx = null;
+function renderChips() {
+  const wl = getWL();
+  document.getElementById('wlChips').innerHTML = wl.map((s, i) =>
+    `<span class="wl-chip" draggable="true" data-idx="${i}" title="Drag to reorder">` +
+    `<span class="wl-grip">⠿</span>${s.split(':').pop()} ` +
+    `<a href="#" onclick="removeTicker('${s}');return false;" style="color:var(--red); text-decoration:none;">✕</a></span>`
+  ).join('');
+  document.querySelectorAll('.wl-chip').forEach(chip => {
+    chip.addEventListener('dragstart', e => { dragIdx = +chip.dataset.idx; chip.classList.add('wl-dragging'); e.dataTransfer.effectAllowed = 'move'; });
+    chip.addEventListener('dragend', () => chip.classList.remove('wl-dragging'));
+    chip.addEventListener('dragover', e => { e.preventDefault(); document.querySelectorAll('.wl-chip').forEach(c => c.classList.remove('wl-over')); chip.classList.add('wl-over'); });
+    chip.addEventListener('dragleave', () => chip.classList.remove('wl-over'));
+    chip.addEventListener('drop', e => { e.preventDefault(); const to = +chip.dataset.idx; if (dragIdx !== null && dragIdx !== to) moveTicker(dragIdx, to); dragIdx = null; });
+  });
+}
+
+/* ---- API key (Finnhub) ---- */
+function getKey() { return localStorage.getItem('finnhubKey') || ''; }
+function setFinStatus(msg) { const s = document.getElementById('apiKeyStatus'); if (s) s.textContent = msg; }
+function updateKeyStatus() {
+  const inp = document.getElementById('apiKey');
+  if (inp) inp.placeholder = 'Finnhub API key';
+  setFinStatus(getKey() ? 'Finnhub key saved ✓' : 'no key set — paste your Finnhub key');
+}
+function saveApiKey() {
+  const inp = document.getElementById('apiKey');
+  const v = inp.value.trim();
+  if (v) localStorage.setItem('finnhubKey', v);
+  inp.value = '';
+  updateKeyStatus();
+  renderFinance();
+}
+/* Rate-limit-friendly quote layer: paced request queue + cache + 429 retry.
+   Free Finnhub is 60 calls/min, so we space calls out and reuse cached
+   values instead of re-fetching on every re-render. */
+const CALL_GAP_MS = 250;      // spacing between Finnhub calls (~5s for 21 symbols, well under 60/min)
+const quoteCache = {};        // symbol -> last good quote
+const quoteTime = {};         // symbol -> ms timestamp of that quote
+const inFlight = {};          // symbol -> pending promise (dedupe)
+let rateLimited = false;
+const _q = [];
+let _qRunning = false;
+function enqueue(sym) {
+  return new Promise(resolve => { _q.push({ sym, resolve }); runQ(); });
+}
+async function runQ() {
+  if (_qRunning) return;
+  _qRunning = true;
+  while (_q.length) {
+    const { sym, resolve } = _q.shift();
+    let r = null;
+    try { r = await fetchQuoteRaw(sym); } catch (e) { r = null; }
+    resolve(r);
+    if (_q.length) await new Promise(res => setTimeout(res, CALL_GAP_MS));
+  }
+  _qRunning = false;
+}
+async function fetchQuoteRaw(sym, isRetry) {
+  const key = getKey();
+  if (!key) throw new Error('no key');
+  const res = await fetch(`${FINN_URL}?symbol=${encodeURIComponent(sym)}&token=${key}`);
+  if (res.status === 429) {            // rate limited
+    if (!isRetry) {
+      rateLimited = true;
+      setStatus('Finnhub rate limit hit — pacing requests, data will fill in', 'warn');
+      await new Promise(r => setTimeout(r, 4000));
+      return fetchQuoteRaw(sym, true);
+    }
+    throw new Error('429');
+  }
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (rateLimited) { rateLimited = false; updateKeyStatus(); }
+  return res.json();
+}
+async function getQuote(sym, maxAgeMs) {
+  const now = Date.now();
+  if (quoteCache[sym] && now - (quoteTime[sym] || 0) < maxAgeMs) return quoteCache[sym];
+  if (inFlight[sym]) return inFlight[sym];
+  const p = enqueue(sym).then(q => {
+    if (q && q.c != null) { quoteCache[sym] = q; quoteTime[sym] = Date.now(); }
+    delete inFlight[sym];
+    return quoteCache[sym] || q;
+  });
+  inFlight[sym] = p;
+  return p;
+}
+function cssId(t) { return t.replace(/[^A-Za-z0-9]/g, '_'); }
+function fmtChange(q) {
+  const dp = (q.dp == null) ? 0 : q.dp, d = (q.d == null) ? 0 : q.d;
+  const cls = dp >= 0 ? 'up' : 'down', ar = dp >= 0 ? '▲' : '▼';
+  return `<span class="${cls}">${ar} ${Math.abs(d).toFixed(2)} (${Math.abs(dp).toFixed(2)}%)</span>`;
+}
+function heatColor(dp) {
+  const x = Math.max(-3, Math.min(3, dp)) / 3;
+  const a = Math.min(0.85, Math.abs(x) * 0.75 + 0.12);
+  return x >= 0 ? `rgba(63,185,80,${a})` : `rgba(248,81,73,${a})`;
+}
+function buildFinnhubIndices() {
+  const el = document.getElementById('financeTicker'); el.style.height = '';
+  if (!getKey()) { el.innerHTML = '<div class="err" style="padding:10px;">Enter your API key in the Markets panel to load market data…</div>'; return; }
+  el.innerHTML = '<div class="idx-strip" style="padding:8px;">' + INDICES.map(x =>
+    `<div class="idx-card"><div class="idx-name">${x.d} <span class="small">${x.s}</span></div><div class="idx-val" id="idx-${x.s}">…</div></div>`
+  ).join('') + '</div>';
+}
+function buildFinnhubTable() {
+  const c = document.getElementById('mktOverview'); c.style.height = '';
+  if (!getKey()) { c.innerHTML = '<div class="err">Enter your API key above to load quotes.</div>'; return; }
+  const wl = getWL();
+  c.innerHTML = '<table class="quote-table"><thead><tr><th>Symbol</th><th>Last</th><th>Change (today)</th></tr></thead><tbody>' +
+    wl.map(s => { const t = s.split(':').pop(); return `<tr id="q-${cssId(t)}"><td>${t}</td><td class="q-last">…</td><td class="q-chg"></td></tr>`; }).join('') +
+    '</tbody></table>';
+}
+function buildFinnhubHeatmap() {
+  const el = document.getElementById('sectorArea'); el.style.height = '';
+  document.getElementById('sectorTitle').textContent = 'Sector Heatmap';
+  if (!getKey()) { el.innerHTML = '<div class="err">Enter your API key to load the sector heatmap…</div>'; return; }
+  el.innerHTML = '<div class="heat-grid">' + SECTORS.map(x =>
+    `<div class="heat-tile" id="ht-${x.s}"><div class="heat-name">${x.d} <span class="small">${x.s}</span></div><div class="heat-chg" id="ht-${x.s}-c">…</div></div>`
+  ).join('') + '</div>';
+}
+const AGE_QUOTE = 25000;    // indices + watchlist: refresh on the ~30s tick
+const AGE_SECTOR = 300000;  // sectors move slowly: refresh every 5 min
+const shownPx = {};         // key -> last close shown (for change flash)
+function flashCell(el, up) {
+  if (!el) return;
+  el.classList.remove('flash-up', 'flash-down');
+  void el.offsetWidth;       // restart the CSS animation
+  el.classList.add(up ? 'flash-up' : 'flash-down');
+}
+async function refreshFinnhub() {
+  if (!getKey()) return;
+  for (const x of INDICES) {
+    const q = await getQuote(x.s, AGE_QUOTE);
+    const n = document.getElementById('idx-' + x.s);
+    if (!n) continue;
+    if (q && q.c != null) {
+      const prev = shownPx['i:' + x.s];
+      n.innerHTML = `$${q.c.toFixed(2)} ${fmtChange(q)}`;
+      if (prev != null && prev !== q.c) flashCell(n, q.c > prev);
+      shownPx['i:' + x.s] = q.c;
+    } else n.innerHTML = '<span class="small">unavailable</span>';
+  }
+  for (const s of getWL()) {
+    const t = s.split(':').pop();
+    const row = document.getElementById('q-' + cssId(t));
+    if (!row) continue;
+    const q = await getQuote(t, AGE_QUOTE);
+    const lastCell = row.querySelector('.q-last');
+    if (q && q.c != null) {
+      const prev = shownPx['w:' + t];
+      lastCell.textContent = '$' + q.c.toFixed(2);
+      row.querySelector('.q-chg').innerHTML = fmtChange(q);
+      if (prev != null && prev !== q.c) flashCell(lastCell, q.c > prev);
+      shownPx['w:' + t] = q.c;
+    } else { lastCell.textContent = 'n/a'; row.querySelector('.q-chg').innerHTML = '<span class="small">unavailable</span>'; }
+  }
+  for (const x of SECTORS) {
+    const q = await getQuote(x.s, AGE_SECTOR);
+    const tile = document.getElementById('ht-' + x.s);
+    const c = document.getElementById('ht-' + x.s + '-c');
+    if (q && q.dp != null) { if (tile) tile.style.background = heatColor(q.dp); if (c) c.textContent = (q.dp >= 0 ? '+' : '') + q.dp.toFixed(2) + '%'; }
+    else if (c) c.textContent = 'n/a';
+  }
+  const upd = document.getElementById('finUpdated');
+  if (upd) upd.textContent = 'updated ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+function renderFinnhub() { buildFinnhubIndices(); buildFinnhubTable(); buildFinnhubHeatmap(); refreshFinnhub(); }
+
+/* TradingView source removed for security — no third-party scripts are loaded on this origin. */
+
+/* toggle + orchestration */
+function getFinanceSource() { return 'finnhub'; }  /* TradingView removed; Finnhub only */
+function setFinanceSource(v) { renderFinance(); }
+function renderFinance() {
+  const sel = document.getElementById('financeSource'); if (sel) sel.value = 'finnhub';
+  const keyRow = document.getElementById('apiKeyRow'); if (keyRow) keyRow.style.display = 'flex';
+  updateKeyStatus();
+  renderChips();
+  renderFinnhub();
+}
+function refreshFinance() { if (getFinanceSource() === 'finnhub') refreshFinnhub(); }
+renderFinance();
+setInterval(refreshFinance, 30000);
+
+/* ---------- device check tally (localStorage) ---------- */
+const TYPES = ['PPM', 'ICD', 'CRT', 'ILR'];
+const todayKey = () => 'tally-' + new Date().toISOString().slice(0, 10);
+function getTally() {
+  return JSON.parse(localStorage.getItem(todayKey()) || '{"PPM":0,"ICD":0,"CRT":0,"ILR":0}');
+}
+function saveTally(t) { localStorage.setItem(todayKey(), JSON.stringify(t)); renderTally(); }
+function bump(type, delta) {
+  const t = getTally();
+  t[type] = Math.max(0, (t[type] || 0) + delta);
+  saveTally(t);
+}
+function resetTally() { localStorage.removeItem(todayKey()); renderTally(); }
+function renderTally() {
+  const t = getTally();
+  document.getElementById('tally').innerHTML = TYPES.map(ty =>
+    `<div class="tcard"><div class="lbl">${ty}</div><div class="cnt">${t[ty] || 0}</div>` +
+    `<button onclick="bump('${ty}',1)">+</button><button onclick="bump('${ty}',-1)">−</button></div>`
+  ).join('');
+  const total = TYPES.reduce((s, ty) => s + (t[ty] || 0), 0);
+  document.getElementById('tallyTotal').textContent = `Total today: ${total}`;
+  // last 7 days history
+  const hist = [];
+  for (let i = 1; i <= 7; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const k = 'tally-' + d.toISOString().slice(0, 10);
+    const v = localStorage.getItem(k);
+    if (v) {
+      const o = JSON.parse(v);
+      const tot = TYPES.reduce((s, ty) => s + (o[ty] || 0), 0);
+      if (tot) hist.push(`${d.toLocaleDateString([], {weekday: 'short'})}: ${tot}`);
+    }
+  }
+  document.getElementById('tallyHist').textContent = hist.length ? 'Past week — ' + hist.join(' · ') : '';
+}
+renderTally();
+
+/* ---------- notes (localStorage, auto-grow) ---------- */
+const notes = document.getElementById('notes');
+function growNotes() {
+  notes.style.height = 'auto';
+  notes.style.height = Math.max(110, notes.scrollHeight) + 'px';
+}
+notes.value = localStorage.getItem('notes') || '';
+notes.addEventListener('input', () => { localStorage.setItem('notes', notes.value); growNotes(); });
+growNotes();
+
+/* ---------- to-do list (localStorage) ---------- */
+function getTodos() { return JSON.parse(localStorage.getItem('todos') || '[]'); }
+function saveTodos(t) { localStorage.setItem('todos', JSON.stringify(t)); renderTodos(); }
+function addTodo() {
+  const inp = document.getElementById('todoInput');
+  const txt = inp.value.trim();
+  if (!txt) return;
+  const t = getTodos();
+  t.push({txt: txt, done: false});
+  saveTodos(t);
+  inp.value = '';
+  inp.focus();
+}
+function toggleTodo(i) { const t = getTodos(); t[i].done = !t[i].done; saveTodos(t); }
+function delTodo(i) { const t = getTodos(); t.splice(i, 1); saveTodos(t); }
+document.getElementById('todoInput').addEventListener('keydown', e => { if (e.key === 'Enter') addTodo(); });
+function esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function renderTodos() {
+  const t = getTodos();
+  document.getElementById('todoList').innerHTML = t.map((item, i) =>
+    `<li class="${item.done ? 'done' : ''}">` +
+    `<input type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleTodo(${i})">` +
+    `<span class="txt">${esc(item.txt)}</span>` +
+    `<button class="del" onclick="delTodo(${i})">✕</button></li>`
+  ).join('');
+}
+renderTodos();
+
+/* ---------- reference tabs ---------- */
+document.querySelectorAll('.ref-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const target = tab.dataset.tab;
+    document.querySelectorAll('.ref-tab').forEach(t => t.classList.toggle('active', t === tab));
+    document.querySelectorAll('.ref-panel').forEach(p =>
+      p.classList.toggle('active', p.dataset.panel === target));
+    localStorage.setItem('refTab', target);
+  });
+});
+(() => {
+  const saved = localStorage.getItem('refTab');
+  if (saved) { const t = document.querySelector(`.ref-tab[data-tab="${saved}"]`); if (t) t.click(); }
+})();
+
+/* ---------- marker search filter ---------- */
+const markerSearch = document.getElementById('markerSearch');
+if (markerSearch) {
+  markerSearch.addEventListener('input', () => {
+    const q = markerSearch.value.trim().toLowerCase();
+    document.querySelectorAll('.marker-table tr').forEach(tr => {
+      tr.classList.toggle('mk-hidden', q && !tr.textContent.toLowerCase().includes(q));
+    });
+  });
+}
+
+/* ---------- view filter (custom dropdown) ---------- */
+function getViewMode() { return localStorage.getItem('viewMode') || 'all'; }
+function applyFilter() {
+  const mode = getViewMode();
+  document.querySelectorAll('[data-cat]').forEach(el => {
+    el.classList.toggle('hidden-pane', mode !== 'all' && el.dataset.cat !== mode);
+  });
+}
+function labelFor(v) { return v.charAt(0).toUpperCase() + v.slice(1); }
+function setViewMode(v) {
+  localStorage.setItem('viewMode', v);
+  const lbl = document.getElementById('viewLabel'); if (lbl) lbl.textContent = labelFor(v);
+  applyFilter();
+  const m = document.getElementById('viewMenu'); if (m) m.classList.remove('open');
+}
+function toggleViewMenu() { const m = document.getElementById('viewMenu'); if (m) m.classList.toggle('open'); }
+(function initViewFilter() {
+  const lbl = document.getElementById('viewLabel'); if (lbl) lbl.textContent = labelFor(getViewMode());
+  applyFilter();
+})();
+
+/* ---------- portable data file (USB persistence) ---------- */
+/* All app state lives in localStorage. When a data file is connected,
+   we mirror the full localStorage snapshot to that file on every change,
+   and load it back on open — so data follows the USB across machines. */
+let dataFileHandle = null;
+let syncTimer = null;
+
+// wrap localStorage writes so any change schedules a file sync
+const _rawSet = localStorage.setItem.bind(localStorage);
+const _rawRemove = localStorage.removeItem.bind(localStorage);
+localStorage.setItem = (k, v) => { _rawSet(k, v); scheduleSync(); };
+localStorage.removeItem = (k) => { _rawRemove(k); scheduleSync(); };
+
+function snapshot() {
+  const o = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    o[k] = localStorage.getItem(k);
+  }
+  return o;
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('dataStatus');
+  if (el) { el.textContent = msg; el.className = 'hdr-status' + (cls ? ' ' + cls : ''); }
+  const dot = document.getElementById('storageDot');
+  if (dot) dot.style.background = cls === 'ok' ? 'var(--green)' : (cls === 'warn' ? 'var(--amber)' : 'var(--muted)');
+}
+function toggleStorageMenu() { const m = document.getElementById('storageMenu'); if (m) m.classList.toggle('open'); }
+document.addEventListener('click', e => {
+  [['storageMenu', 'storageBtn'], ['viewMenu', 'viewBtn']].forEach(([mid, bid]) => {
+    const m = document.getElementById(mid);
+    const b = document.getElementById(bid);
+    if (m && m.classList.contains('open') && !m.contains(e.target) && b && !b.contains(e.target)) m.classList.remove('open');
+  });
+});
+
+function scheduleSync() {
+  if (!dataFileHandle) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(writeDataFile, 400);
+}
+
+async function writeDataFile() {
+  if (!dataFileHandle) return;
+  try {
+    const w = await dataFileHandle.createWritable();
+    await w.write(JSON.stringify(snapshot(), null, 2));
+    await w.close();
+    setStatus('Saved to ' + dataFileHandle.name + ' ✓', 'ok');
+  } catch (e) {
+    setStatus('Save failed: ' + e.message + ' — reconnect the data file', 'warn');
+  }
+}
+
+function loadState(obj) {
+  if (!obj || typeof obj !== 'object') return;
+  Object.keys(obj).forEach(k => _rawSet(k, obj[k]));
+  // re-render everything from the loaded state
+  renderFinance();
+  renderTally();
+  renderTodos();
+  const n = document.getElementById('notes');
+  if (n) { n.value = localStorage.getItem('notes') || ''; growNotes(); }
+  const vlbl = document.getElementById('viewLabel'); if (vlbl) vlbl.textContent = labelFor(getViewMode());
+  applyFilter();
+  const rt = localStorage.getItem('refTab');
+  if (rt) { const t = document.querySelector(`.ref-tab[data-tab="${rt}"]`); if (t) t.click(); }
+}
+
+async function openDataFile() {
+  if (!window.showOpenFilePicker) { fsUnsupported(); return; }
+  try {
+    const [h] = await window.showOpenFilePicker({
+      types: [{ description: 'Dashboard data', accept: { 'application/json': ['.json'] } }]
+    });
+    dataFileHandle = h;
+    try { await idbSet('handle', h); } catch (e) {}
+    const txt = await (await h.getFile()).text();
+    if (txt.trim()) loadState(JSON.parse(txt));
+    setStatus('Connected: ' + h.name + ' — auto-saving', 'ok');
+    document.getElementById('openBtn').textContent = 'Reconnect data file';
+  } catch (e) { if (e.name !== 'AbortError') setStatus('Open failed: ' + e.message, 'warn'); }
+}
+
+async function newDataFile() {
+  if (!window.showSaveFilePicker) { fsUnsupported(); return; }
+  try {
+    const h = await window.showSaveFilePicker({
+      suggestedName: 'dashboard-data.json',
+      types: [{ description: 'Dashboard data', accept: { 'application/json': ['.json'] } }]
+    });
+    dataFileHandle = h;
+    try { await idbSet('handle', h); } catch (e) {}
+    await writeDataFile(); // seed it with current state
+    setStatus('Created: ' + h.name + ' — auto-saving', 'ok');
+    document.getElementById('openBtn').textContent = 'Reconnect data file';
+  } catch (e) { if (e.name !== 'AbortError') setStatus('Create failed: ' + e.message, 'warn'); }
+}
+
+function fsUnsupported() {
+  setStatus('This browser can\'t open files directly — use Export/Import instead (Chrome or Edge works best).', 'warn');
+}
+
+/* Fallback: manual export / import for browsers without file access */
+function exportData() {
+  const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'dashboard-data.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function importData() { document.getElementById('importFile').click(); }
+document.getElementById('importFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try { loadState(JSON.parse(await f.text())); setStatus('Imported ' + f.name, 'ok'); }
+  catch (err) { setStatus('Import failed: ' + err.message, 'warn'); }
+  e.target.value = '';
+});
+
+/* ---------- auto-import on open ---------- */
+/* Tiny IndexedDB store to remember the data file handle across sessions. */
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('dashboardFS', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(v, k);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbGet(k) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readonly');
+    const rq = tx.objectStore('kv').get(k);
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function loadFromHandle(h) {
+  const txt = await (await h.getFile()).text();
+  if (txt.trim()) loadState(JSON.parse(txt));
+}
+function offerReconnect(h) {
+  setStatus('Found your saved data file "' + h.name + '" — click Reconnect to load it', 'warn');
+  const btn = document.getElementById('openBtn');
+  btn.textContent = 'Reconnect ' + h.name;
+  btn.onclick = async () => {
+    try {
+      const p = await h.requestPermission({ mode: 'readwrite' });
+      if (p === 'granted') {
+        dataFileHandle = h;
+        await loadFromHandle(h);
+        setStatus('Connected ' + h.name + ' — auto-saving', 'ok');
+        btn.textContent = 'Reconnect data file';
+        btn.onclick = openDataFile;
+      } else {
+        setStatus('Permission denied — pick the file manually with Open USB data file', 'warn');
+      }
+    } catch (e) { setStatus('Reconnect failed: ' + e.message, 'warn'); }
+  };
+}
+async function autoConnect() {
+  // 1) Remembered file handle (works on the same machine)
+  try {
+    const h = await idbGet('handle');
+    if (h) {
+      const perm = await h.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        dataFileHandle = h;
+        await loadFromHandle(h);
+        setStatus('Auto-loaded ' + h.name + ' — auto-saving', 'ok');
+        document.getElementById('openBtn').textContent = 'Reconnect data file';
+        return;
+      }
+      offerReconnect(h);   // permission lapsed — one click to restore
+      return;
+    }
+  } catch (e) { /* no handle or unsupported — fall through */ }
+  // 2) If the page is served over http(s), auto-load the sibling file (read-only)
+  if (location.protocol === 'http:' || location.protocol === 'https:') {
+    try {
+      const r = await fetch('./dashboard-data.json', { cache: 'no-store' });
+      if (r.ok) {
+        loadState(await r.json());
+        setStatus('Loaded dashboard-data.json (read-only — click New/Open data file to enable saving)', 'warn');
+      }
+    } catch (e) { /* no sibling file */ }
+  }
+}
+autoConnect();
+</script>
 </body>
 </html>
