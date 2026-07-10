@@ -43,6 +43,12 @@
     background:var(--panel2); border:1px solid var(--border);
     border-radius:6px; padding:7px 10px; font-size:.82rem; text-align:left;
   }
+  .hdr-dropdown a {
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:7px 10px; font-size:.82rem; cursor:pointer; font-family:inherit; text-align:left;
+    text-decoration:none; display:block;
+  }
+  .hdr-dropdown a:hover { border-color:var(--accent); }
   .datebar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
   .datebar input[type=date] { background:var(--panel2); border:1px solid var(--border); color:var(--text);
       border-radius:8px; padding:7px 10px; font:inherit; font-size:.9rem; color-scheme:dark; }
@@ -93,6 +99,15 @@
     <h1>Patient Schedule</h1>
   </div>
   <div class="hdr-actions">
+    <div class="hdr-menu">
+      <button id="navBtn" onclick="toggleNavMenu()" title="Jump to another module">Modules &#9662;</button>
+      <div id="navMenu" class="hdr-dropdown" style="min-width:220px;">
+        <a href="../app/CRM_Report_Generator.html">CRM Report Generator</a>
+        <a href="../app/Mileage_Calculator.html">Mileage Calculator</a>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="index.html">Developer Deck</a>
+      </div>
+    </div>
     <div class="hdr-menu">
       <button id="storageBtn" onclick="toggleStorageMenu()"><span id="storageDot" class="storage-dot"></span>Schedule file &#9662;</button>
       <div id="storageMenu" class="hdr-dropdown">
@@ -384,9 +399,12 @@
     $("storageDot").style.background = cls === "ok" ? "var(--green)" : (cls === "warn" ? "var(--amber)" : "var(--muted)");
   }
   window.toggleStorageMenu = function () { $("storageMenu").classList.toggle("open"); };
+  window.toggleNavMenu = function () { $("navMenu").classList.toggle("open"); };
   document.addEventListener("click", function (e) {
-    var m = $("storageMenu"), b = $("storageBtn");
-    if (m.classList.contains("open") && !m.contains(e.target) && !b.contains(e.target)) m.classList.remove("open");
+    [["storageMenu", "storageBtn"], ["navMenu", "navBtn"]].forEach(function (p) {
+      var m = $(p[0]), b = $(p[1]);
+      if (m.classList.contains("open") && !m.contains(e.target) && !b.contains(e.target)) m.classList.remove("open");
+    });
   });
   function scheduleFileSync() {
     if (!dataFileHandle) return;
