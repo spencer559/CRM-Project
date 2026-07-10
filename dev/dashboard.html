@@ -181,6 +181,29 @@
     border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; }
   .sim-status { font-size: .85rem; color: var(--accent); margin-top: 8px; font-variant-numeric: tabular-nums; }
 
+  /* tachy lab */
+  .tz-inputs td input { background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 5px 8px; font: inherit; font-size: .85rem; }
+  .tz-inputs td input[type=text] { width: 100%; }
+  .tz-inputs td input.n { width: 64px; font-variant-numeric: tabular-nums; }
+  .tz-inputs select { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 6px; font-size: .82rem; }
+  .tz-ladder { position: relative; height: 56px; margin: 22px 0 34px; border-radius: 6px; background: var(--panel2); }
+  .tz-band { position: absolute; top: 0; height: 100%; display: flex; align-items: center; justify-content: center;
+    font-size: .78rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.55); overflow: hidden; }
+  .tz-band.first { border-radius: 6px 0 0 6px; }
+  .tz-band.last { border-radius: 0 6px 6px 0; }
+  .tz-svt { position: absolute; top: 0; height: 100%; pointer-events: none; border-right: 2px solid var(--accent);
+    background: repeating-linear-gradient(45deg, rgba(88,166,255,.22) 0 6px, transparent 6px 12px); border-radius: 6px 0 0 6px; }
+  .tz-svt-lbl { position: absolute; top: -17px; font-size: .68rem; color: var(--accent);
+    transform: translateX(-100%); white-space: nowrap; padding-right: 4px; }
+  .tz-tick { position: absolute; top: 100%; margin-top: 3px; font-size: .7rem; color: var(--muted);
+    transform: translateX(-50%); text-align: center; line-height: 1.25; white-space: nowrap; }
+  .tz-probe { position: absolute; top: -6px; bottom: -6px; width: 2px; background: #fff;
+    box-shadow: 0 0 4px rgba(255,255,255,.7); pointer-events: none; }
+  #tzOut { font-size: .88rem; color: var(--accent); margin-top: 8px; font-variant-numeric: tabular-nums; line-height: 1.5; }
+  #tzWarn { color: var(--amber); font-size: .8rem; margin-top: 6px; }
+
   /* marker glossary */
   details.panel > summary {
     list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
@@ -356,6 +379,7 @@
     <div class="ref-tabs">
       <button class="ref-tab active" data-tab="portals">Clinic Portals</button>
       <button class="ref-tab" data-tab="timing">Timing Lab</button>
+      <button class="ref-tab" data-tab="tachy">Tachy Lab</button>
       <button class="ref-tab" data-tab="ranges">Measurement Ranges</button>
       <button class="ref-tab" data-tab="discrim">SVT–VT Discriminators</button>
       <button class="ref-tab" data-tab="alerts">Patient Alerts</button>
@@ -414,6 +438,43 @@
       <canvas id="simCanvas" class="sim-canvas" width="800" height="170"></canvas>
       <div class="sim-status" id="simStatus"></div>
       <div class="disclaimer">DDD atrial tracking, no intrinsic conduction. Markers: AS / AP / AR (atrial sensed / paced / refractory-sensed), VP (ventricular paced); amber band = PVARP; blue line = tracked AV. Illustrative only &mdash; real devices add blanking periods, rate smoothing, mode switch, and vendor-specific upper-rate behavior.</div>
+    </div>
+
+    <div class="ref-panel" data-panel="tachy">
+      <table class="tz-inputs">
+        <thead><tr><th style="width:36px">On</th><th style="width:56px">Zone</th><th style="width:170px">From (bpm)</th><th style="width:190px">Detection</th><th>Therapy sequence</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><input type="checkbox" id="tz-vt1-on"></td><td style="color:var(--amber);font-weight:700;">VT-1</td>
+            <td><input class="n" id="tz-vt1-from" inputmode="decimal" value="150"> <span class="small" id="tz-vt1-ms"></span></td>
+            <td><input class="n" id="tz-vt1-det" inputmode="decimal" value="32"> <select id="tz-vt1-detu"><option value="beats">beats</option><option value="s">s</option></select></td>
+            <td><input type="text" id="tz-vt1-rx" value="Monitor only"></td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" id="tz-vt-on" checked></td><td style="color:#e0662f;font-weight:700;">VT</td>
+            <td><input class="n" id="tz-vt-from" inputmode="decimal" value="170"> <span class="small" id="tz-vt-ms"></span></td>
+            <td><input class="n" id="tz-vt-det" inputmode="decimal" value="24"> <select id="tz-vt-detu"><option value="beats">beats</option><option value="s">s</option></select></td>
+            <td><input type="text" id="tz-vt-rx" value="ATP burst ×2 → 25 J → 36 J ×4"></td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" id="tz-vf-on" checked></td><td style="color:var(--red);font-weight:700;">VF</td>
+            <td><input class="n" id="tz-vf-from" inputmode="decimal" value="250"> <span class="small" id="tz-vf-ms"></span></td>
+            <td><input class="n" id="tz-vf-det" inputmode="decimal" value="30"> <select id="tz-vf-detu"><option value="beats">beats</option><option value="s">s</option></select></td>
+            <td><input type="text" id="tz-vf-rx" value="36 J ×6 — ATP during charging"></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="timing-bar" style="margin-top:12px;">
+        <span class="tb-item"><label style="margin:0;"><input type="checkbox" id="tz-svt-on" checked style="margin-right:7px;vertical-align:-1px;">SVT discriminators</label></span>
+        <span class="tb-item"><label>apply up to</label><input id="tz-svt-lim" inputmode="decimal" value="200"><span class="tb-out">bpm</span></span>
+      </div>
+      <div class="tz-ladder" id="tzLadder"></div>
+      <div class="timing-bar">
+        <span class="tb-item" style="flex:1;"><label>Rate probe</label><input type="range" id="tzProbe" min="100" max="350" step="1" value="195" style="flex:1;width:auto;"></span>
+      </div>
+      <div id="tzOut"></div>
+      <div id="tzWarn"></div>
+      <div class="disclaimer">Zone upper bound = the next zone's lower bound (contiguous, as programmed). Discriminator behavior is vendor-specific — most devices do not apply SVT discrimination in the VF zone, and timeout/override features vary. Detection in beats is converted to seconds at the probed rate (NID-style; probabilistic X-of-Y counters run slightly longer). Illustrative — verify against the programmer.</div>
     </div>
 
     <div class="ref-panel" data-panel="ranges">
@@ -1035,6 +1096,7 @@ if (markerSearch) {
   const cv = document.getElementById('simCanvas');
   if (!cv) return;
   const ctx = cv.getContext('2d');
+  if (!ctx) return;
   const $ = id => document.getElementById(id);
   const clampNum = (el, min, max, dflt) => {
     const n = parseFloat(el.value);
@@ -1148,6 +1210,109 @@ if (markerSearch) {
   render();
 })();
 
+/* ---------- tachy therapy planner ---------- */
+(function initTachyLab() {
+  const $ = id => document.getElementById(id);
+  if (!$('tzLadder')) return;
+  const ZONES = [
+    { k: 'vt1', label: 'VT-1', color: '#d29922' },
+    { k: 'vt',  label: 'VT',   color: '#e0662f' },
+    { k: 'vf',  label: 'VF',   color: '#f85149' },
+  ];
+  const RMIN = 100, RMAX = 350, KEY = 'tachyLab';
+  const el = (z, f) => $('tz-' + z + '-' + f);
+  const num = v => { const n = parseFloat(v); return isFinite(n) && n > 0 ? n : null; };
+  function saveCfg() {
+    const o = { svtOn: $('tz-svt-on').checked, svtLim: $('tz-svt-lim').value };
+    ZONES.forEach(z => {
+      o[z.k] = { on: el(z.k, 'on').checked, from: el(z.k, 'from').value, det: el(z.k, 'det').value,
+                 detu: el(z.k, 'detu').value, rx: el(z.k, 'rx').value };
+    });
+    localStorage.setItem(KEY, JSON.stringify(o));
+  }
+  function loadCfg() {
+    let o = null;
+    try { o = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    if (!o) return;
+    if (o.svtOn !== undefined) $('tz-svt-on').checked = !!o.svtOn;
+    if (o.svtLim !== undefined) $('tz-svt-lim').value = o.svtLim;
+    ZONES.forEach(z => {
+      const s = o[z.k]; if (!s) return;
+      el(z.k, 'on').checked = !!s.on;
+      ['from', 'det', 'detu', 'rx'].forEach(f => { if (s[f] !== undefined) el(z.k, f).value = s[f]; });
+    });
+  }
+  function activeZones() {   // enabled zones with a valid bound, ascending
+    return ZONES.map(z => ({
+      k: z.k, label: z.label, color: z.color,
+      on: el(z.k, 'on').checked, from: num(el(z.k, 'from').value),
+      det: num(el(z.k, 'det').value), detu: el(z.k, 'detu').value, rx: el(z.k, 'rx').value.trim()
+    })).filter(z => z.on && z.from).sort((a, b) => a.from - b.from);
+  }
+  const X = bpm => Math.max(0, Math.min(100, (bpm - RMIN) / (RMAX - RMIN) * 100));
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function render() {
+    ZONES.forEach(z => {   // live ms label beside each bound
+      const f = num(el(z.k, 'from').value), ms = $('tz-' + z.k + '-ms');
+      if (ms) ms.textContent = f ? '= ' + Math.round(60000 / f) + ' ms' : '';
+    });
+    const zs = activeZones(), lad = $('tzLadder');
+    let h = '';
+    if (!zs.length) {
+      lad.innerHTML = '<div class="tz-band first last" style="left:0;width:100%;background:var(--panel2);color:var(--muted);">no zones enabled</div>';
+    } else {
+      h += '<div class="tz-band first" style="left:0;width:' + X(zs[0].from) + '%;background:#2a3140;color:var(--muted);">no detection</div>';
+      zs.forEach((z, i) => {
+        const to = i + 1 < zs.length ? zs[i + 1].from : RMAX;
+        h += '<div class="tz-band' + (i === zs.length - 1 ? ' last' : '') + '" style="left:' + X(z.from) +
+             '%;width:' + (X(to) - X(z.from)) + '%;background:' + z.color + ';">' + z.label + '</div>';
+        h += '<div class="tz-tick" style="left:' + X(z.from) + '%;">' + z.from + ' bpm<br>' + Math.round(60000 / z.from) + ' ms</div>';
+      });
+      if ($('tz-svt-on').checked) {
+        const lim = num($('tz-svt-lim').value);
+        if (lim) h += '<div class="tz-svt" style="left:0;width:' + X(lim) + '%;"></div>' +
+                      '<div class="tz-svt-lbl" style="left:' + X(lim) + '%;">SVT discrimination ≤ ' + lim + '</div>';
+      }
+      h += '<div class="tz-probe" style="left:' + X(+$('tzProbe').value) + '%;"></div>';
+      lad.innerHTML = h;
+    }
+    // boundary-order warning (VT-1 < VT < VF as programmed)
+    const raw = ZONES.filter(z => el(z.k, 'on').checked && num(el(z.k, 'from').value)).map(z => num(el(z.k, 'from').value));
+    $('tzWarn').textContent = raw.some((v, i) => i && v <= raw[i - 1])
+      ? 'Zone boundaries are out of order — expected VT-1 < VT < VF.' : '';
+    probeOut(zs);
+  }
+  function probeOut(zs) {
+    const r = +$('tzProbe').value, cl = Math.round(60000 / r);
+    let z = null;
+    zs.forEach(x => { if (r >= x.from) z = x; });
+    let s = 'Probe: ' + r + ' bpm (' + cl + ' ms) → ';
+    if (!z) s += 'below all zones — monitored only, no detection';
+    else {
+      const i = zs.indexOf(z), to = i + 1 < zs.length ? (zs[i + 1].from - 1) + ' bpm' : 'max';
+      s += z.label + ' zone (' + z.from + '–' + to + ')';
+      const lim = num($('tz-svt-lim').value);
+      if ($('tz-svt-on').checked && lim && z.k !== 'vf')
+        s += r <= lim ? ' · SVT discriminators ACTIVE' : ' · above discriminator limit — rate-only detection';
+      if (z.det) {
+        const secs = z.detu === 's' ? z.det : z.det * cl / 1000;
+        s += ' · detection ' + z.det + ' ' + z.detu + (z.detu === 'beats' ? ' ≈ ' + (Math.round(secs * 10) / 10) + ' s' : '');
+      }
+      if (z.rx) s += ' · therapy: ' + z.rx;
+    }
+    $('tzOut').textContent = s;
+  }
+  ZONES.forEach(z => ['on', 'from', 'det', 'detu', 'rx'].forEach(f => {
+    const e = el(z.k, f);
+    if (e) ['input', 'change'].forEach(ev => e.addEventListener(ev, () => { saveCfg(); render(); }));
+  }));
+  ['tz-svt-on', 'tz-svt-lim'].forEach(id => ['input', 'change'].forEach(ev =>
+    $(id).addEventListener(ev, () => { saveCfg(); render(); })));
+  $('tzProbe').addEventListener('input', render);
+  loadCfg();
+  render();
+})();
+
 /* ---------- view filter (custom dropdown) ---------- */
 function getViewMode() { return localStorage.getItem('viewMode') || 'all'; }
 function applyFilter() {
@@ -1177,7 +1342,7 @@ function toggleViewMenu() { const m = document.getElementById('viewMenu'); if (m
    tool's PHI autosave ('crm-digital') and the mileage tool's data + auth
    token. Only the whitelisted keys below are ever snapshotted/exported —
    a full-localStorage mirror would write PHI into the data file. */
-const OWNED_KEYS = ['watchlist', 'finnhubKey', 'notes', 'todos', 'viewMode', 'refTab'];
+const OWNED_KEYS = ['watchlist', 'finnhubKey', 'notes', 'todos', 'viewMode', 'refTab', 'tachyLab'];
 const OWNED_PREFIXES = ['tally-'];
 function ownedKey(k) {
   return OWNED_KEYS.includes(k) || OWNED_PREFIXES.some(p => k.startsWith(p));
