@@ -59,6 +59,13 @@
     border-radius: 6px; padding: 7px 10px; font-size: .82rem; cursor: pointer; font-family: inherit; text-align: left;
   }
   .hdr-dropdown button:hover { border-color: var(--accent); }
+  .hdr-dropdown a {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font-size: .82rem; cursor: pointer; font-family: inherit; text-align: left;
+    text-decoration: none; display: block;
+  }
+  .hdr-dropdown a:hover { border-color: var(--accent); }
+  .hdr-dropdown a .mod-role { color: var(--muted); font-size: .72rem; margin-left: 6px; }
   .hdr-select-arrow {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b949e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
@@ -301,6 +308,15 @@
     <div id="date"></div>
   </div>
   <div style="display:flex; align-items:center; gap:12px;">
+    <div class="hdr-menu">
+      <button id="navBtn" class="hdr-select hdr-select-arrow" onclick="toggleNavMenu()" title="Jump to another module">Modules</button>
+      <div id="navMenu" class="hdr-dropdown left" style="min-width:220px;">
+        <a href="../app/CRM_Report_Generator.html">CRM Report Generator<span class="mod-role">The Flagship</span></a>
+        <a href="../app/Mileage_Calculator.html">Mileage Calculator<span class="mod-role">The Log Pose</span></a>
+        <a href="Patient_Schedule.html">Patient Schedule<span class="mod-role">The Crew Manifest</span></a>
+        <a href="index.html">Developer Deck<span class="mod-role">Home</span></a>
+      </div>
+    </div>
     <div class="hdr-menu">
       <button id="viewBtn" class="hdr-select hdr-select-arrow" onclick="toggleViewMenu()" title="Filter panels"><span id="viewLabel">All</span></button>
       <div id="viewMenu" class="hdr-dropdown left">
@@ -1329,6 +1345,7 @@ function setViewMode(v) {
   const m = document.getElementById('viewMenu'); if (m) m.classList.remove('open');
 }
 function toggleViewMenu() { const m = document.getElementById('viewMenu'); if (m) m.classList.toggle('open'); }
+function toggleNavMenu() { const m = document.getElementById('navMenu'); if (m) m.classList.toggle('open'); }
 (function initViewFilter() {
   const lbl = document.getElementById('viewLabel'); if (lbl) lbl.textContent = labelFor(getViewMode());
   applyFilter();
@@ -1373,7 +1390,7 @@ function setStatus(msg, cls) {
 }
 function toggleStorageMenu() { const m = document.getElementById('storageMenu'); if (m) m.classList.toggle('open'); }
 document.addEventListener('click', e => {
-  [['storageMenu', 'storageBtn'], ['viewMenu', 'viewBtn']].forEach(([mid, bid]) => {
+  [['storageMenu', 'storageBtn'], ['viewMenu', 'viewBtn'], ['navMenu', 'navBtn']].forEach(([mid, bid]) => {
     const m = document.getElementById(mid);
     const b = document.getElementById(bid);
     if (m && m.classList.contains('open') && !m.contains(e.target) && b && !b.contains(e.target)) m.classList.remove('open');

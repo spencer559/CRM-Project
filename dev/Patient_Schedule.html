@@ -27,10 +27,23 @@
   .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:16px; }
   .panel h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:2px; color:var(--muted); margin-bottom:10px;
               display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
-  .filebar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  #fileStatus { font-size:.8rem; color:var(--muted); flex:1; min-width:240px; }
-  #fileStatus.ok { color:var(--green); }
-  #fileStatus.warn { color:var(--amber); }
+  /* header dropdown — same pattern as the dashboard's Storage menu */
+  .hdr-menu { position:relative; }
+  .storage-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--muted); margin-right:6px; vertical-align:middle; }
+  .hdr-dropdown {
+    position:absolute; right:0; top:calc(100% + 6px); z-index:50;
+    display:none; flex-direction:column; gap:6px;
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:10px; min-width:260px; box-shadow:0 8px 24px rgba(0,0,0,.45);
+  }
+  .hdr-dropdown.open { display:flex; }
+  .hdr-status { font-size:.78rem; color:var(--muted); margin-bottom:4px; line-height:1.35; }
+  .hdr-status.ok { color:var(--green); }
+  .hdr-status.warn { color:var(--amber); }
+  .hdr-dropdown button {
+    background:var(--panel2); border:1px solid var(--border);
+    border-radius:6px; padding:7px 10px; font-size:.82rem; text-align:left;
+  }
   .datebar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
   .datebar input[type=date] { background:var(--panel2); border:1px solid var(--border); color:var(--text);
       border-radius:8px; padding:7px 10px; font:inherit; font-size:.9rem; color-scheme:dark; }
@@ -44,6 +57,7 @@
       border-radius:6px; padding:6px 8px; font:inherit; font-size:.88rem; width:100%; }
   td input:focus, td select:focus { outline:2px solid var(--accent); outline-offset:0; }
   td.time input { width:110px; color-scheme:dark; }
+  td.lo input { width:150px; color-scheme:dark; }
   td.pt input { width:76px; text-transform:uppercase; }
   td.del { width:36px; text-align:center; }
   td.del button { border:none; background:none; color:var(--muted); font-size:1rem; padding:4px 6px; }
@@ -68,7 +82,7 @@
     #printView td { border:1px solid #999; padding:4px 6px; vertical-align:top; }
     #printView tr:nth-child(even) td { background:#fafafa; }
     /* every column except Notes shrinks to its content — Notes gets all remaining width */
-    #printView .p-time, #printView .p-pt, #printView .p-dev, #printView .p-chk, #printView .p-rm {
+    #printView .p-time, #printView .p-pt, #printView .p-dev, #printView .p-chk, #printView .p-lo, #printView .p-rm {
       white-space:nowrap; width:1%; font-size:9pt; }
     #printView .p-time { font-weight:bold; }
   }
@@ -83,28 +97,34 @@
       (<code>connect-src 'none'</code>); data lives in this browser and, if connected, in your schedule file.</div>
   </div>
   <div class="hdr-actions">
+    <div class="hdr-menu">
+      <button id="storageBtn" onclick="toggleStorageMenu()"><span id="storageDot" class="storage-dot"></span>Schedule file &#9662;</button>
+      <div id="storageMenu" class="hdr-dropdown">
+        <div id="fileStatus" class="hdr-status">Not connected &mdash; data is in this browser only. Connect the file in your OneDrive folder once &mdash; it auto-saves on every change.</div>
+        <button id="openBtn" onclick="openDataFile()">Connect schedule file</button>
+        <button onclick="newDataFile()">New schedule file</button>
+        <button onclick="exportJson()">Export JSON</button>
+        <button onclick="importJson()">Import JSON</button>
+        <input id="importFile" type="file" accept="application/json,.json" style="display:none">
+      </div>
+    </div>
     <button class="primary" onclick="printSchedule()">Print schedule</button>
     <button class="danger" onclick="walkAway()" title="Flush to the connected file, then wipe this browser's copy">Walk away &mdash; clear this station</button>
   </div>
 </header>
 
 <div class="panel">
-  <h2>Schedule file <span class="sub" style="margin:0;">connect the file in your OneDrive folder once &mdash; it auto-saves on every change</span></h2>
-  <div class="filebar">
-    <span id="fileStatus">Not connected &mdash; data is in this browser only</span>
-    <button id="openBtn" onclick="openDataFile()">Connect schedule file</button>
-    <button onclick="newDataFile()">New schedule file</button>
-    <button onclick="exportJson()">Export JSON</button>
-    <button onclick="importJson()">Import JSON</button>
-    <input id="importFile" type="file" accept="application/json,.json" style="display:none">
-  </div>
-</div>
-
-<div class="panel">
   <div class="datebar">
     <span id="dayLabel"></span>
     <input type="date" id="schedDate">
     <button onclick="goToday()">Today</button>
+    <button onclick="moveDayStart()" title="Entered this day under the wrong date? Move every appointment to the right one.">Move day&hellip;</button>
+    <span id="moveBar" style="display:none; align-items:center; gap:8px;">
+      <span style="color:var(--muted); font-size:.85rem;">to</span>
+      <input type="date" id="moveDate">
+      <button class="primary" onclick="moveDayConfirm()">Move</button>
+      <button onclick="moveDayCancel()">Cancel</button>
+    </span>
     <span id="counts"></span>
   </div>
   <div class="twrap">
@@ -115,6 +135,7 @@
         <th style="width:150px">Manufacturer</th>
         <th style="width:130px">Device</th>
         <th style="width:130px">Check type</th>
+        <th style="width:150px">Last in-office check</th>
         <th style="width:140px">Remote</th>
         <th>Notes</th>
         <th></th>
@@ -155,9 +176,13 @@
     purge(s); migrate(s);
     return s;
   }
-  function migrate(s) { // renames from older saves
+  function migrate(s) { // renames/new fields from older saves
     Object.keys(s.dates).forEach(function (k) {
-      (s.dates[k] || []).forEach(function (r) { if (r && r.rm === "Needs setup") r.rm = "External clinic"; });
+      (s.dates[k] || []).forEach(function (r) {
+        if (!r) return;
+        if (r.rm === "Needs setup") r.rm = "External clinic";
+        if (r.lastOff === undefined) r.lastOff = ""; // added Jul 2026
+      });
     });
   }
   function purge(s) {   // retention limit: keep the last 7 days only
@@ -195,6 +220,10 @@
     var h = +m[1], ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
     return h + ":" + m[2] + " " + ap;
   }
+  function fmtDate(iso) { // "2026-07-10" -> "7/10/26" on the printout; anything else prints as-is
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    return m ? (+m[2]) + "/" + (+m[3]) + "/" + m[1].slice(2) : (iso || "");
+  }
   function timeVal(t) {   // lenient parse for sorting; also handles legacy free-text values
     if (!t || !String(t).trim()) return 1e9;
     var m = String(t).trim().toLowerCase().match(/^(\d{1,2})(?::?(\d{2}))?\s*(a|p)?/);
@@ -220,6 +249,7 @@
         '<td><select data-i="' + i + '" data-f="mfr">' + opts(MFRS, r.mfr) + "</select></td>" +
         '<td><select data-i="' + i + '" data-f="dtype">' + opts(DEVS, r.dtype) + "</select></td>" +
         '<td><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
+        '<td class="lo"><input type="date" title="Date of the last in-office check" data-i="' + i + '" data-f="lastOff" value="' + esc(r.lastOff) + '"></td>' +
         '<td><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
         '<td><input placeholder="e.g. post-shock, ERI watch, needs interpreter" data-i="' + i + '" data-f="notes" value="' + esc(r.notes) + '"></td>' +
         '<td class="del"><button title="Remove" data-del="' + i + '">&#10005;</button></td>';
@@ -251,7 +281,7 @@
     rows().splice(+b.dataset.del, 1); save(); render();
   });
   window.addRow = function () {
-    rows().push({ time: "", pt: "", mfr: "", dtype: "", check: "In-clinic", rm: "", notes: "" });
+    rows().push({ time: "", pt: "", mfr: "", dtype: "", check: "In-clinic", lastOff: "", rm: "", notes: "" });
     save(); render();
     var t = $("schedBody").querySelectorAll("td.time input");
     if (t.length) t[t.length - 1].focus();
@@ -264,6 +294,29 @@
     if (rows().length && confirm("Remove all appointments for this day?")) { state.dates[curDate] = []; save(); render(); }
   };
   window.goToday = function () { curDate = localISO(); render(); };
+
+  /* ---------- move day: fix a schedule entered under the wrong date ---------- */
+  window.moveDayStart = function () {
+    if (!rows().length) { alert("Nothing on this day to move."); return; }
+    $("moveDate").value = curDate;
+    $("moveBar").style.display = "inline-flex";
+  };
+  window.moveDayCancel = function () { $("moveBar").style.display = "none"; };
+  window.moveDayConfirm = function () {
+    var target = $("moveDate").value;
+    if (!target || target === curDate) { alert("Pick a different date to move this day to."); return; }
+    var cut = new Date(); cut.setDate(cut.getDate() - 7);
+    if (target < localISO(cut)) { alert("That date is outside the 7-day retention window — it would be purged immediately."); return; }
+    var moving = rows();
+    var existing = Array.isArray(state.dates[target]) ? state.dates[target] : [];
+    if (existing.length && !confirm("That day already has " + existing.length + " appointment" + (existing.length === 1 ? "" : "s") +
+        ". Merge this day's " + moving.length + " into it?")) return;
+    state.dates[target] = existing.concat(moving);
+    delete state.dates[curDate];
+    curDate = target;             // follow the schedule to its corrected date
+    $("moveBar").style.display = "none";
+    save(); render();
+  };
   $("schedDate").addEventListener("change", function () {
     if (this.value) { curDate = this.value; render(); }
   });
@@ -288,7 +341,7 @@
         '<div class="p-date">' + dt.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" }) + "</div>" +
         '<div class="p-meta">' + esc(meta) + "</div>" +
       "</div>" +
-      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Check</th><th>Remote</th><th>Notes</th></tr></thead><tbody>" +
+      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Check</th><th>Last Office</th><th>Remote</th><th>Notes</th></tr></thead><tbody>" +
       rs.map(function (r) {
         var dev = [abMfr[r.mfr] || r.mfr, r.dtype].filter(Boolean).join(" ");
         return "<tr>" +
@@ -296,6 +349,7 @@
           '<td class="p-pt">' + esc(r.pt) + "</td>" +
           '<td class="p-dev">' + esc(dev) + "</td>" +
           '<td class="p-chk">' + esc(abChk[r.check] || r.check) + "</td>" +
+          '<td class="p-lo">' + esc(fmtDate(r.lastOff)) + "</td>" +
           '<td class="p-rm">' + esc(abRm[r.rm] || r.rm || "") + "</td>" +
           "<td>" + esc(r.notes) + "</td></tr>";
       }).join("") +
@@ -332,8 +386,14 @@
   var dataFileHandle = null, syncTimer = null;
   function setStatus(msg, cls) {
     var el = $("fileStatus");
-    el.textContent = msg; el.className = cls || "";
+    el.textContent = msg; el.className = "hdr-status" + (cls ? " " + cls : "");
+    $("storageDot").style.background = cls === "ok" ? "var(--green)" : (cls === "warn" ? "var(--amber)" : "var(--muted)");
   }
+  window.toggleStorageMenu = function () { $("storageMenu").classList.toggle("open"); };
+  document.addEventListener("click", function (e) {
+    var m = $("storageMenu"), b = $("storageBtn");
+    if (m.classList.contains("open") && !m.contains(e.target) && !b.contains(e.target)) m.classList.remove("open");
+  });
   function scheduleFileSync() {
     if (!dataFileHandle) return;
     clearTimeout(syncTimer);
