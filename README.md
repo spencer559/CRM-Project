@@ -42,8 +42,7 @@ Supported inputs:
 
 ```
 index.html                          Public landing page (self-contained static page, single file)
-home.js                             Landing renderer for the dev deck — the TOOLS card array lives here
-assets/site.css                     Landing-page theme (+ background image)
+assets/                             Background images for the landing pages
 app/
   CRM_Report_Generator.html         THE ACTIVE APP — edit this one
   Mileage_Calculator.html           Mileage log → expense-form .xlsx (fully self-contained)
@@ -235,11 +234,12 @@ Unifying tricks:
 
 ## The other tools
 
-### Landing pages (`index.html`, `dev/index.html`, `home.js`)
+### Landing pages (`index.html`, `dev/index.html`)
 
-The **public index** (`index.html`, redesigned Jul 2026) is a single self-contained static page: no scripts, cards hardcoded in the HTML, inline styles, and fonts self-hosted in `vendor/fonts` (Public Sans + JetBrains Mono woff2 — no Google Fonts at runtime). It ships its own CSP (`script-src 'none'; connect-src 'none'`, no external origins) per the per-page-CSP rule below. **Adding/editing a public tool card is now an edit in `index.html` itself.**
+Both landing pages were redesigned Jul 2026 as **single self-contained static pages**: no scripts, cards hardcoded in the HTML, inline styles, fonts self-hosted in `vendor/fonts` (no Google Fonts at runtime), and each ships its own CSP (`script-src 'none'; connect-src 'none'`, no external origins) per the per-page-CSP rule below. **Adding/editing a tool card is an edit in the page itself.** The old shared renderer (`home.js`) and theme (`assets/site.css`) were removed with this redesign (git history has them).
 
-The **developer deck** (`dev/index.html`) still renders from the `TOOLS` array in `home.js` (`renderHome({ includeDev:true, base:"../" })`); tools flagged `dev:true` appear only there. Card hrefs are relative (the page passes `base` for folder depth), so it works from `file://` and from the web root. The `/dev/*` gate is Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces it.
+- `index.html` — public index (Public Sans + JetBrains Mono). Shows the two public tools plus a locked "Developer Deck" card.
+- `dev/index.html` — developer deck, pirate-themed (Pirata One / Cinzel / Spectral, background `assets/dev-bg-crew.webp`). Lists all four tools. Card hrefs are relative (`../app/…`), so it works from `file://` and from the web root. The `/dev/*` gate is Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces it.
 
 ### Mileage Calculator (`app/Mileage_Calculator.html` + `app/mileage-sync.js`)
 

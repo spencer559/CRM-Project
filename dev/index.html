@@ -3,16 +3,131 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Content-Security-Policy: this page shares an origin with the CRM tool, which autosaves
+     PHI to localStorage — so like every page on this origin it ships its own CSP.
+     connect-src 'none' blocks all network egress; fonts come from ../vendor/fonts (no
+     Google Fonts / CDN at runtime); the page is static, so script-src is 'none'. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'">
 <title>Developer Deck — Cardiac CRM Toolkit</title>
 <link href="../vendor/fonts/fonts.css" rel="stylesheet">
-<link href="../assets/site.css" rel="stylesheet">
+<style>
+  :root{
+    --gold:#e8c059;
+    --gold-hi:#f8db7e;
+    --gold-deep:#f0c85a;
+    --cream:#f5ead0;
+    --wax:#c0392b;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{min-height:100%;}
+  body{
+    font-family:'Spectral',Georgia,serif;color:var(--cream);
+    min-height:100vh;min-height:100dvh;
+    display:flex;flex-direction:column;align-items:center;text-align:center;
+    padding:clamp(36px,7vh,64px) clamp(20px,5vw,52px) clamp(28px,6vh,52px);
+    position:relative;overflow-x:hidden;
+    background:#2a1420 url("../assets/dev-bg-crew.webp") center 52% / cover no-repeat fixed;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(20,6,9,.86) 0%,rgba(20,6,9,.5) 22%,rgba(20,6,9,.12) 42%,rgba(20,6,9,0) 62%,rgba(20,6,9,.10) 100%);
+  }
+  .wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;width:100%;max-width:960px;}
+
+  /* masthead */
+  .eyebrow{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
+  .seal{
+    width:44px;height:44px;border-radius:50%;flex-shrink:0;
+    background:radial-gradient(circle at 38% 30%,#c0392b,#7a1e15 74%,#571209);
+    box-shadow:inset 0 2px 5px rgba(255,175,155,.4),inset 0 -3px 7px rgba(0,0,0,.55),0 4px 12px rgba(0,0,0,.6);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .seal .star{width:22px;height:22px;background:linear-gradient(135deg,var(--gold-hi),#d9a83e);opacity:.92;
+    clip-path:polygon(50% 0,59% 41%,100% 50%,59% 59%,50% 100%,41% 59%,0 50%,41% 41%);}
+  .eyebrow .label{font:600 12px 'Cinzel',serif;letter-spacing:.36em;text-transform:uppercase;color:var(--gold-hi);text-shadow:0 1px 8px rgba(0,0,0,.95);}
+
+  h1{
+    font-family:'Pirata One',cursive;font-weight:400;
+    font-size:clamp(46px,9vw,72px);line-height:.96;letter-spacing:.5px;margin:0;
+    background:linear-gradient(180deg,#ffd27a,#f4682c 52%,#b81a0e);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    -webkit-text-stroke:.015em var(--gold-hi);
+    filter:drop-shadow(0 .03em 0 #3d0e04) drop-shadow(0 10px 24px rgba(0,0,0,.72));
+  }
+  .rule{display:flex;align-items:center;gap:14px;margin:22px 0 12px;width:300px;max-width:80vw;}
+  .rule .line{height:1px;flex:1;}
+  .rule .line.l{background:linear-gradient(90deg,rgba(232,192,89,0),var(--gold));}
+  .rule .line.r{background:linear-gradient(90deg,var(--gold),rgba(232,192,89,0));}
+  .rule .diamond{width:9px;height:9px;background:var(--gold);transform:rotate(45deg);box-shadow:0 0 8px rgba(232,192,89,.5);flex-shrink:0;}
+  .tagline{font:italic 400 15px 'Spectral';color:#f0dcc4;text-shadow:0 1px 6px rgba(0,0,0,.9);max-width:460px;margin-bottom:30px;}
+
+  /* buttons */
+  .deck{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;width:100%;}
+  .tool{
+    width:214px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;
+    padding:16px 14px;text-decoration:none;border-radius:12px;
+    background:rgba(20,6,9,.58);border:1px solid rgba(232,192,89,.30);
+    box-shadow:0 10px 26px rgba(0,0,0,.5);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+    transition:transform .22s ease,border-color .22s ease,box-shadow .22s ease;
+  }
+  .tool:hover{transform:translateY(-4px);border-color:var(--gold-hi);box-shadow:0 16px 36px rgba(0,0,0,.6),0 0 0 1px rgba(248,219,126,.45);}
+  .coin{
+    width:42px;height:42px;border-radius:50%;
+    background:radial-gradient(circle at 38% 30%,var(--gold-hi),#c99a34 68%,#8f6a1e);
+    border:2px solid rgba(255,242,205,.5);
+    box-shadow:inset 0 1px 2px rgba(255,255,255,.55),inset 0 -2px 4px rgba(0,0,0,.35);
+    display:flex;align-items:center;justify-content:center;font:700 16px 'Cinzel',serif;color:#4a2f0e;
+  }
+  .tool .name{font:700 14px 'Cinzel',serif;color:var(--cream);margin-top:5px;line-height:1.15;}
+  .tool .role{font:italic 400 12px 'Spectral';color:var(--gold);}
+  .tool .bounty{font:600 11px 'Cinzel',serif;color:var(--gold-deep);margin-top:2px;}
+
+  @media (max-width:520px){
+    body{background-attachment:scroll;}
+    .tool{width:100%;max-width:320px;}
+  }
+</style>
 </head>
 <body>
+  <div class="wrap">
+    <div class="eyebrow">
+      <span class="seal" aria-hidden="true"><span class="star"></span></span>
+      <span class="label">Developer Deck · Crew Only</span>
+    </div>
 
-<main class="stage" id="stage"></main>
+    <h1>Cardiac CRM Toolkit</h1>
 
-<script src="../home.js"></script>
-<script>renderHome({ includeDev: true, base: "../", eyebrow: "Developer Deck — Crew Only" });</script>
+    <div class="rule" aria-hidden="true">
+      <span class="line l"></span><span class="diamond"></span><span class="line r"></span>
+    </div>
+    <p class="tagline">The full crew's instruments — sealed behind the sign-in.</p>
 
+    <nav class="deck">
+      <a class="tool" href="../app/CRM_Report_Generator.html">
+        <span class="coin">I</span>
+        <span class="name">CRM Report Generator</span>
+        <span class="role">The Flagship</span>
+        <span class="bounty">฿ 3,000,000,000</span>
+      </a>
+      <a class="tool" href="../app/Mileage_Calculator.html">
+        <span class="coin">II</span>
+        <span class="name">Mileage Calculator</span>
+        <span class="role">The Log Pose</span>
+        <span class="bounty">฿ 1,500,000,000</span>
+      </a>
+      <a class="tool" href="dashboard.html">
+        <span class="coin">III</span>
+        <span class="name">Dashboard</span>
+        <span class="role">The Command Deck</span>
+        <span class="bounty">฿ 5,000,000,000</span>
+      </a>
+      <a class="tool" href="Patient_Schedule.html">
+        <span class="coin">IV</span>
+        <span class="name">Patient Schedule</span>
+        <span class="role">The Crew Manifest</span>
+        <span class="bounty">฿ 2,000,000,000</span>
+      </a>
+    </nav>
+  </div>
 </body>
 </html>
