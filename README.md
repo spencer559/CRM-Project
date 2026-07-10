@@ -4,7 +4,7 @@ A small suite of browser tools for a cardiac device clinic, served as a static s
 
 | Page | What it is |
 |---|---|
-| `index.html` | Public landing page — tool cards rendered by `home.js` |
+| `index.html` | Public landing page — self-contained static page (own CSP, self-hosted fonts) |
 | `app/CRM_Report_Generator.html` | **The flagship** — CIED interrogation report generator (bulk of this README) |
 | `app/Mileage_Calculator.html` | Clinic-coverage mileage log → one-click expense-form .xlsx, optional cloud sync |
 | `dev/index.html` | Developer deck — landing page for dev-only tools (`/dev/*` is gated by Cloudflare Access) |
@@ -41,8 +41,8 @@ Supported inputs:
 ## Project layout
 
 ```
-index.html                          Public landing page (renders from home.js)
-home.js                             Shared landing renderer — the TOOLS card array lives here
+index.html                          Public landing page (self-contained static page, single file)
+home.js                             Landing renderer for the dev deck — the TOOLS card array lives here
 assets/site.css                     Landing-page theme (+ background image)
 app/
   CRM_Report_Generator.html         THE ACTIVE APP — edit this one
@@ -237,7 +237,9 @@ Unifying tricks:
 
 ### Landing pages (`index.html`, `dev/index.html`, `home.js`)
 
-Both landing pages render from the single `TOOLS` array in `home.js` (`renderHome({...})`), so adding or editing a tool card is a one-place change. Card hrefs are relative and each page passes `base` for its folder depth, so the same file works from `file://` and from the web root. Tools flagged `dev:true` appear only on the developer deck; the public index shows a locked "Developer Deck" card instead. The `/dev/*` gate is Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces it.
+The **public index** (`index.html`, redesigned Jul 2026) is a single self-contained static page: no scripts, cards hardcoded in the HTML, inline styles, and fonts self-hosted in `vendor/fonts` (Public Sans + JetBrains Mono woff2 — no Google Fonts at runtime). It ships its own CSP (`script-src 'none'; connect-src 'none'`, no external origins) per the per-page-CSP rule below. **Adding/editing a public tool card is now an edit in `index.html` itself.**
+
+The **developer deck** (`dev/index.html`) still renders from the `TOOLS` array in `home.js` (`renderHome({ includeDev:true, base:"../" })`); tools flagged `dev:true` appear only there. Card hrefs are relative (the page passes `base` for folder depth), so it works from `file://` and from the web root. The `/dev/*` gate is Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces it.
 
 ### Mileage Calculator (`app/Mileage_Calculator.html` + `app/mileage-sync.js`)
 

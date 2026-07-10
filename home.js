@@ -1,11 +1,11 @@
 /**
- * Shared landing-page renderer for the Cardiac CRM Toolkit.
+ * Landing-page renderer for the gated developer deck.
  * ---------------------------------------------------------
- * Define every tool card ONCE in the TOOLS array below. Both the public
- * index (/index.html) and the gated developer deck (/dev/index.html) render
- * from this same file, so adding or editing a tool is a one-place change.
+ * Since the Jul 2026 redesign, the PUBLIC index (/index.html) is a
+ * self-contained static page and no longer uses this file — only the
+ * developer deck (/dev/index.html) renders from the TOOLS array below.
+ * Editing a public card = edit index.html; editing a dev card = edit here.
  *
- *   renderHome({ includeDevLink:true });                    // public index (root)
  *   renderHome({ includeDev:true, base:"../", eyebrow:"…" }); // /dev/ deck
  *
  * PATHS: card/link targets below are RELATIVE (no leading slash). Each page
