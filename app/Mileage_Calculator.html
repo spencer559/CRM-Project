@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<!-- Content-Security-Policy: this page shares an origin with the CRM tool, which autosaves PHI to
+     localStorage. script-src 'self' blocks all third-party scripts (XLSX is embedded inline; the
+     sync client is same-origin), and connect-src permits egress ONLY to the mileage sync Worker —
+     mileage data by design, nothing else can be sent anywhere. Mirrors the CRM/dashboard lockdown. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://mileage-sync.spencer559.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mileage Calculator</title>
 <style>
@@ -383,7 +388,9 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     state.entries.splice(+b.dataset.edel,1); save(); renderEntries();
   });
   $("addEntry").addEventListener("click", function(){
-    var today = new Date().toISOString().slice(0,10);
+    // LOCAL date — toISOString() is UTC, which defaulted new rows to "tomorrow" after ~5pm Pacific
+    var d = new Date();
+    var today = d.getFullYear() + "-" + ("0"+(d.getMonth()+1)).slice(-2) + "-" + ("0"+d.getDate()).slice(-2);
     var base = state.settings.baseClinic;
     var other = (state.locations.find(function(l){return l.name!==base;})||{}).name || base;
     state.entries.push({date:today, am:base, pm:other, purpose:"Clinic Coverage"});

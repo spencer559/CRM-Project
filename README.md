@@ -1,14 +1,26 @@
-# CRM Interrogation Report Generator
+# Cardiac CRM Toolkit
 
-A browser-based tool for documenting **CIED** (cardiac implantable electronic device — pacemakers, ICDs, CRT) interrogation visits. It auto-fills a structured clinical form by reading the manufacturer's own export file locally in the browser, then produces a printable PDF report and a plain-text summary for pasting into an EHR.
+A small suite of browser tools for a cardiac device clinic, served as a static site on **Cloudflare Pages** (`device-tech.pages.dev`). The repo name `spencer559.github.io` is a leftover from the original GitHub Pages hosting, which is being retired.
 
-Everything runs **client-side** (no server, no upload). It is published as a static GitHub Pages site.
+| Page | What it is |
+|---|---|
+| `index.html` | Public landing page — tool cards rendered by `home.js` |
+| `app/CRM_Report_Generator.html` | **The flagship** — CIED interrogation report generator (bulk of this README) |
+| `app/Mileage_Calculator.html` | Clinic-coverage mileage log → one-click expense-form .xlsx, optional cloud sync |
+| `dev/index.html` | Developer deck — landing page for dev-only tools (`/dev/*` is gated by Cloudflare Access) |
+| `dev/dashboard.html` | Command center: markets, device-check tally, clinical reference, notes/to-do |
+| `dev/Patient_Schedule.html` | Daily clinic schedule — initials only, zero network egress, print-formatted day sheet |
+| `mileage-backend/` | Cloudflare Worker + D1 backend for mileage cloud sync (see its `DEPLOY.md`) |
 
 > This README doubles as a **project handoff / context document** — if you're an AI assistant (e.g. Claude in Cowork) being pointed here to continue the work, read the whole thing; it captures the architecture, conventions, and the vendor-specific gotchas that took real reports to discover.
 
 ---
 
-## What it does
+## CRM Interrogation Report Generator
+
+A browser-based tool for documenting **CIED** (cardiac implantable electronic device — pacemakers, ICDs, CRT) interrogation visits. It auto-fills a structured clinical form by reading the manufacturer's own export file locally in the browser, then produces a printable PDF report and a plain-text summary for pasting into an EHR. Everything runs **client-side** (no server, no upload).
+
+### What it does
 
 1. The user drops a vendor export onto the "Auto-fill" panel.
 2. The right parser reads it and produces a normalized result.
@@ -29,9 +41,19 @@ Supported inputs:
 ## Project layout
 
 ```
-index.html                          Landing page (links to the tools)
+index.html                          Public landing page (renders from home.js)
+home.js                             Shared landing renderer — the TOOLS card array lives here
+assets/site.css                     Landing-page theme (+ background image)
 app/
   CRM_Report_Generator.html         THE ACTIVE APP — edit this one
+  Mileage_Calculator.html           Mileage log → expense-form .xlsx (fully self-contained)
+  mileage-sync.js                   Optional cloud-sync client for the calculator
+dev/
+  index.html                        Developer deck (Cloudflare Access gates /dev/*)
+  dashboard.html                    Command-center dashboard (single file)
+mileage-backend/
+  src/worker.js  wrangler.toml      Cloudflare Worker + D1 sync backend
+  schema.sql  DEPLOY.md             (see DEPLOY.md for one-time setup)
 src/
   engine.js                         Shared PDF extraction engine + anchor helpers + cleaners
   parsers/
@@ -41,8 +63,8 @@ src/
     biotronik.js                    Biotronik PDF parser  → window.BIOTRONIK.runMap(LINES, META)
 vendor/
   pdf.min.js  pdf.worker.min.js     Vendored pdf.js 3.11.174 (self-hosted, not a CDN)
-assets/
-  wallpaperflare.com_wallpaper.jpg  Landing-page background
+  jspdf.umd.min.js (+ autotable)    Vector-PDF export
+  fonts/                            Self-hosted landing-page fonts
 tools/
   CIED PDF Extraction Harness.html  Dump a PDF's text items (parser authoring/debugging)
   CIED_Medtronic_Parser_Preview_v2.html   Older preview harness
@@ -211,11 +233,48 @@ Unifying tricks:
 
 ---
 
+## The other tools
+
+### Landing pages (`index.html`, `dev/index.html`, `home.js`)
+
+Both landing pages render from the single `TOOLS` array in `home.js` (`renderHome({...})`), so adding or editing a tool card is a one-place change. Card hrefs are relative and each page passes `base` for its folder depth, so the same file works from `file://` and from the web root. Tools flagged `dev:true` appear only on the developer deck; the public index shows a locked "Developer Deck" card instead. The `/dev/*` gate is Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces it.
+
+### Mileage Calculator (`app/Mileage_Calculator.html` + `app/mileage-sync.js`)
+
+Logs clinic-coverage days (AM clinic → PM clinic) and computes reimbursable miles by the home-adjustment method: `(home→AM) + (AM↔PM leg) + (PM→home) − normal round-trip commute to the base clinic`, floored at 0. Up to 5 locations with per-user distances, drag-to-reorder log, config/profile JSON import-export, and a one-click **expense-form .xlsx** (xlsx-js-style embedded inline — no CDN). State lives in localStorage (`mileageToolV1`); new rows default to the **local** date (not UTC — that bug put evening entries on tomorrow).
+
+**Cloud sync** is an optional layer in `mileage-sync.js`: username/passphrase accounts (invite-code gated), 12-hour JWT sessions, offline-first with a debounced push on every save, pull-then-reconcile on load, and last-write-wins conflict resolution keyed off a server-side version number. If `WORKER_URL` is blank the file does nothing and the page stays local-only.
+
+### Mileage sync backend (`mileage-backend/`)
+
+Cloudflare Worker + D1 (`mileage-sync.spencer559.workers.dev`). One JSON blob per user, PBKDF2-SHA256 password hashing, HS256 JWTs, optimistic-concurrency writes (stale version → 409 with the server copy; `force:true` for a client-resolved LWW push), CORS restricted to the origins in `wrangler.toml` `ALLOWED_ORIGIN`. Secrets (`JWT_SECRET`, `INVITE_CODE`) are set with `wrangler secret put`; setup steps are in `DEPLOY.md`. **It only ever touches mileage data — no PHI.** The local `.wrangler/` cache is git-ignored.
+
+### Developer dashboard (`dev/dashboard.html`)
+
+Single-file command center behind the `/dev/` gate: clock + Open-Meteo weather (currently hard-coded to LA coords); Finnhub-powered watchlist, index strip and sector heatmap (bring your own free key, stored locally; requests are queued/paced/cached to respect the 60-calls-per-minute free tier); a device-check tally with 7-day history; clinical reference tabs (portals, a **Timing Lab** — ms⇄bpm + TARP/upper-rate calculators, EGM gain/sweep box-scale calculators, and a DDD timing-cycle simulator (static canvas marker-channel strip — simulates to steady state and redraws on any change — showing 1:1 tracking / pseudo-Wenckebach / 2:1 block / LRL pacing) — measurement ranges, SVT–VT discriminators, patient alerts, troubleshooting, MRI lookups, magnet rates) plus an EGM marker glossary; notes and a to-do list.
+
+Persistence details worth knowing before editing:
+
+- All state is localStorage. An optional **portable data file** (File System Access API, with the handle remembered in IndexedDB) mirrors it to a JSON file — e.g. on a USB stick — and auto-reconnects on load.
+- The snapshot/restore is **whitelisted** to dashboard-owned keys (`watchlist`, `finnhubKey`, `notes`, `todos`, `viewMode`, `refTab`, `tally-*`). This matters: the dashboard shares an origin — and therefore localStorage — with the CRM tool's PHI autosave (`crm-digital`) and the mileage auth token, so an unfiltered mirror would write PHI into the data file. Don't widen the whitelist casually.
+- Tally keys use **local** dates (`localISO()`), not `toISOString()` (UTC), so evening checks don't land on tomorrow's tally.
+- Its CSP allows egress only to `api.open-meteo.com` and `finnhub.io`, and no third-party scripts run (TradingView widgets were removed for exactly this reason).
+
+### Patient Schedule (`dev/Patient_Schedule.html`)
+
+A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. **Data-minimized by design**: rows hold time, patient *initials only* (no MRN/DOB/name fields exist), manufacturer, device type, check type (in-clinic / remote / pre-op), a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
+
+Workflow/storage: localStorage per day (days older than 7 are auto-purged), an optional **schedule file** connected via the File System Access API (e.g. a JSON in OneDrive — remembered handle, auto-saves on every change, auto-reconnects), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Walk away — clear this station"** button that flushes to the connected file, wipes localStorage, and forgets the file handle. Storage is deliberately *not* encrypted (user decision: relies on the Access gate, workstation login, and the walk-away habit) — revisit if that assumption changes. Never wire this page to the mileage sync Worker or any other backend.
+
+---
+
 ## Security / hosting
 
 - **Self-hosted libraries** — `vendor/pdf.min.js` + `pdf.worker.min.js` (pdf.js v3.11.174) **and** `jspdf.umd.min.js` + `jspdf.plugin.autotable.min.js` (the vector-PDF generator) are committed to the repo; nothing is pulled from a CDN at runtime. `engine.js` derives the worker URL from the page's own `pdf.min.js` `<script>` tag (and respects a `workerSrc` the page set explicitly), so no third-party script ever runs in the same context as PHI.
 - **Content-Security-Policy** — the app HTML ships a `<meta http-equiv="Content-Security-Policy">` whose key directive is `connect-src 'none'`: the page cannot make *any* network request, so PHI cannot be exfiltrated. `script-src`/`style-src` keep `'unsafe-inline'` only because the form uses inline handlers + `<script>` blocks (that allowance grants no network egress); `worker-src 'self' blob:` lets the local pdf.js worker run.
-- **Still out of scope (deployment-level):** access controls, audit logging, encryption at rest (localStorage + downloaded files are plaintext), and the fact that public GitHub Pages is not a HIPAA-eligible host. See any compliance review before clinical use.
+- **Per-page CSPs across the origin** — every page on this origin shares localStorage with the CRM autosave, so each ships its own CSP: the Mileage Calculator's `connect-src` permits only the sync Worker, and the dashboard's only its two data feeds (Open-Meteo, Finnhub). No page may load third-party scripts.
+- **Hosting** — Cloudflare Pages (`device-tech.pages.dev`), with `/dev/*` behind Cloudflare Access. The old GitHub Pages origin is kept in the Worker's `ALLOWED_ORIGIN` during the transition; drop it once disabled.
+- **Still out of scope (deployment-level):** access controls on the public tools, audit logging, encryption at rest (localStorage + downloaded files are plaintext), and the fact that a public static host is not automatically HIPAA-eligible. See any compliance review before clinical use.
 
 ---
 
@@ -229,6 +288,8 @@ Unifying tricks:
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
 - **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
 - **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
+- **Patient Schedule** (initials-only day sheet, local-only, print view, OneDrive-file persistence, walk-away wipe) added behind the `/dev/` gate.
+- **Site passover (Jul 2026):** dashboard data-file snapshot/restore whitelisted to dashboard-owned keys (a full-localStorage mirror was writing the CRM PHI autosave into exports); tally + mileage "Add day" switched to local dates (UTC `toISOString` rolled evening entries to tomorrow); Mileage Calculator got a CSP matching the other pages; `mileage-backend/.wrangler/` untracked and git-ignored.
 
 **Known gaps / TODO ideas:**
 - Abbott PDF (scanned image) is **not** supported — `.log` only. (OCR would be the only PDF route.)
@@ -256,7 +317,7 @@ Unifying tricks:
 
 ## Privacy note
 
-This repo is a **public** GitHub Pages site.
-- Keep patient data (names, DOBs, device serial numbers, raw vendor exports) out of anything committed. Sample/scratch files used for testing should stay local or be `.gitignore`d (currently `Info.txt` and `Abbott Test Cases/`).
+This repo is **public** and the site is served from Cloudflare Pages (`device-tech.pages.dev`); only `/dev/*` sits behind Cloudflare Access.
+- Keep patient data (names, DOBs, device serial numbers, raw vendor exports) out of anything committed. Sample/scratch files used for testing should stay local or be `.gitignore`d (currently `Info.txt`, `Abbott Test Cases/`, and `mileage-backend/.wrangler/`).
 - The app itself never transmits data — all parsing happens in the browser, pdf.js is self-hosted, and the CSP's `connect-src 'none'` blocks every network request (see **Security / hosting**).
 - This covers only what the page controls. Hosting, access control, audit logging, and encryption at rest are deployment concerns a compliance review must address before clinical use.

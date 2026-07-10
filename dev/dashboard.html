@@ -165,6 +165,22 @@
   .ref-panel { display: none; }
   .ref-panel.active { display: block; }
 
+  /* timing quick-convert bar */
+  .timing-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 12px; }
+  .timing-bar label { color: var(--muted); font-size: .72rem; text-transform: uppercase;
+    letter-spacing: 1px; margin-right: 6px; white-space: nowrap; }
+  .timing-bar input { width: 64px; background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: .85rem; font-variant-numeric: tabular-nums; }
+  .tb-item { display: inline-flex; align-items: center; }
+  .tb-out { font-size: .85rem; color: var(--accent); font-variant-numeric: tabular-nums; margin-left: 8px; }
+  .tb-sep { width: 1px; align-self: stretch; background: var(--border); }
+  .timing-bar input[type=range] { width: 150px; padding: 0; border: none; background: transparent; }
+  .sim-canvas { width: 100%; height: 170px; display: block; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; }
+  .sim-status { font-size: .85rem; color: var(--accent); margin-top: 8px; font-variant-numeric: tabular-nums; }
+
   /* marker glossary */
   details.panel > summary {
     list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
@@ -339,6 +355,7 @@
   <div class="panel wide" data-cat="devices">
     <div class="ref-tabs">
       <button class="ref-tab active" data-tab="portals">Clinic Portals</button>
+      <button class="ref-tab" data-tab="timing">Timing Lab</button>
       <button class="ref-tab" data-tab="ranges">Measurement Ranges</button>
       <button class="ref-tab" data-tab="discrim">SVT–VT Discriminators</button>
       <button class="ref-tab" data-tab="alerts">Patient Alerts</button>
@@ -365,6 +382,38 @@
           <span><span class="pname">Home Monitoring</span><span class="pdesc">BIOTRONIK</span></span><span class="parrow">↗</span>
         </a>
       </div>
+    </div>
+
+    <div class="ref-panel" data-panel="timing">
+      <!-- interval converter + TARP (60,000 / x is its own inverse: one box does ms->bpm AND bpm->ms) -->
+      <div class="timing-bar">
+        <span class="tb-item"><label>ms &#8646; bpm</label><input id="tcVal" inputmode="decimal" placeholder="600" title="60,000 &divide; value &mdash; converts either direction"><span class="tb-out" id="tcOut"></span></span>
+        <span class="tb-sep"></span>
+        <span class="tb-item"><label>AV delay</label><input id="tcAV" inputmode="decimal" placeholder="180"></span>
+        <span class="tb-item"><label>PVARP</label><input id="tcPVARP" inputmode="decimal" placeholder="280"></span>
+        <span class="tb-item"><label>UTR bpm</label><input id="tcUTR" inputmode="decimal" placeholder="130"></span>
+        <span class="tb-out" id="tcTarp"></span>
+      </div>
+      <!-- EGM scale: what one small (1 mm) box is worth at a given autogain / sweep speed -->
+      <div class="timing-bar">
+        <span class="tb-item"><label>Gain mm/mV</label><input id="scGain" inputmode="decimal" placeholder="2.2" title="EGM autogain, e.g. 2.2 mm/mV"><span class="tb-out" id="scGainOut"></span></span>
+        <span class="tb-sep"></span>
+        <span class="tb-item"><label>Sweep mm/s</label><input id="scSweep" inputmode="decimal" placeholder="25"><span class="tb-out" id="scSweepOut"></span></span>
+        <span class="tb-sep"></span>
+        <span class="tb-item"><label>Boxes</label><input id="scBoxes" inputmode="decimal" placeholder="7" title="Small (1 mm) boxes measured on the strip &mdash; time uses sweep, amplitude uses gain"><span class="tb-out" id="scBoxOut"></span></span>
+      </div>
+      <!-- DDD timing-cycle simulator -->
+      <div class="timing-bar">
+        <span class="tb-item"><label>Atrial rate</label><input id="simArate" type="range" min="40" max="250" step="1" value="90"><span class="tb-out" id="simArateOut">90 bpm</span></span>
+        <span class="tb-sep"></span>
+        <span class="tb-item"><label>LRL</label><input id="simLRL" inputmode="decimal" value="60"></span>
+        <span class="tb-item"><label>UTR</label><input id="simUTR" inputmode="decimal" value="130"></span>
+        <span class="tb-item"><label>SAV</label><input id="simAV" inputmode="decimal" value="180"></span>
+        <span class="tb-item"><label>PVARP</label><input id="simPVARP" inputmode="decimal" value="280"></span>
+      </div>
+      <canvas id="simCanvas" class="sim-canvas" width="800" height="170"></canvas>
+      <div class="sim-status" id="simStatus"></div>
+      <div class="disclaimer">DDD atrial tracking, no intrinsic conduction. Markers: AS / AP / AR (atrial sensed / paced / refractory-sensed), VP (ventricular paced); amber band = PVARP; blue line = tracked AV. Illustrative only &mdash; real devices add blanking periods, rate smoothing, mode switch, and vendor-specific upper-rate behavior.</div>
     </div>
 
     <div class="ref-panel" data-panel="ranges">
@@ -823,7 +872,12 @@ setInterval(refreshFinance, 30000);
 
 /* ---------- device check tally (localStorage) ---------- */
 const TYPES = ['PPM', 'ICD', 'CRT', 'ILR'];
-const todayKey = () => 'tally-' + new Date().toISOString().slice(0, 10);
+/* LOCAL date key — toISOString() is UTC, which rolled the tally to "tomorrow" after ~5pm Pacific */
+function localISO(d) {
+  d = d || new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+const todayKey = () => 'tally-' + localISO();
 function getTally() {
   return JSON.parse(localStorage.getItem(todayKey()) || '{"PPM":0,"ICD":0,"CRT":0,"ILR":0}');
 }
@@ -846,7 +900,7 @@ function renderTally() {
   const hist = [];
   for (let i = 1; i <= 7; i++) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    const k = 'tally-' + d.toISOString().slice(0, 10);
+    const k = 'tally-' + localISO(d);
     const v = localStorage.getItem(k);
     if (v) {
       const o = JSON.parse(v);
@@ -924,6 +978,176 @@ if (markerSearch) {
   });
 }
 
+/* ---------- timing quick-convert bar ---------- */
+(function initTimingBar() {
+  const val = document.getElementById('tcVal'), out = document.getElementById('tcOut');
+  const av = document.getElementById('tcAV'), pvarp = document.getElementById('tcPVARP'), utr = document.getElementById('tcUTR');
+  const tarpOut = document.getElementById('tcTarp');
+  if (!val) return;
+  const f = v => { const n = parseFloat(v); return isFinite(n) && n > 0 ? n : null; };
+  const r1 = n => Math.round(n * 10) / 10;
+  function conv() {
+    const n = f(val.value);
+    out.textContent = n ? '= ' + r1(60000 / n) : '';
+  }
+  function tarp() {
+    const a = f(av.value), p = f(pvarp.value);
+    if (!a || !p) { tarpOut.textContent = ''; return; }
+    const t = a + p, blockRate = 60000 / t;
+    let s = 'TARP ' + r1(t) + ' ms \u00b7 2:1 block at ' + r1(blockRate) + ' bpm';
+    const u = f(utr.value);
+    if (u) s += (u < blockRate - 0.5)
+      ? ' \u00b7 Wenckebach ' + r1(u) + '\u2013' + r1(blockRate) + ' bpm'
+      : ' \u00b7 no Wenckebach window (2:1 at UTR)';
+    tarpOut.textContent = s;
+  }
+  val.addEventListener('input', conv);
+  [av, pvarp, utr].forEach(el => el.addEventListener('input', tarp));
+})();
+
+/* ---------- EGM scale calculators (autogain / sweep speed) ---------- */
+(function initScaleBar() {
+  const g = document.getElementById('scGain'), s = document.getElementById('scSweep'), b = document.getElementById('scBoxes');
+  if (!g) return;
+  const f = v => { const n = parseFloat(v); return isFinite(n) && n > 0 ? n : null; };
+  const r = (n, d) => { const p = Math.pow(10, d); return Math.round(n * p) / p; };
+  function upd() {
+    const gain = f(g.value), sweep = f(s.value), boxes = f(b.value);
+    document.getElementById('scGainOut').textContent = gain ? '1 mm = ' + r(1 / gain, 2) + ' mV \u00b7 5 mm = ' + r(5 / gain, 2) + ' mV' : '';
+    document.getElementById('scSweepOut').textContent = sweep ? '1 mm = ' + r(1000 / sweep, 1) + ' ms \u00b7 5 mm = ' + r(5000 / sweep, 0) + ' ms' : '';
+    const out = [];
+    if (boxes && sweep) { const ms = boxes * 1000 / sweep; out.push(r(ms, 0) + ' ms (' + r(60000 / ms, 1) + ' bpm)'); }
+    if (boxes && gain) out.push(r(boxes / gain, 2) + ' mV');
+    document.getElementById('scBoxOut').textContent = out.length ? '= ' + out.join(' \u00b7 ') : (boxes ? 'set gain / sweep' : '');
+  }
+  [g, s, b].forEach(el => el.addEventListener('input', upd));
+})();
+
+/* ---------- DDD timing-cycle simulator ----------
+   Event-driven device model: intrinsic A events at the slider rate; AS after
+   PVARP is tracked (VP at AS+SAV, held to the UTR interval — AV extension =
+   pseudo-Wenckebach); A inside PVARP or a pending AV = AR (not tracked; 2:1
+   and dropped beats fall out of this naturally); atrial escape pace at
+   LRL - SAV when nothing is sensed (paced beats overdrive-reset the intrinsic
+   clock). No intrinsic conduction modeled. STATIC strip — simulates ~10 s to
+   reach steady state, then draws one 5 s window; redraws on any change. */
+(function initTimingSim() {
+  const cv = document.getElementById('simCanvas');
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const clampNum = (el, min, max, dflt) => {
+    const n = parseFloat(el.value);
+    return (isFinite(n) && n >= min && n <= max) ? n : dflt;
+  };
+  function params() {
+    return {
+      arate: clampNum($('simArate'), 40, 250, 90),
+      lrl:   clampNum($('simLRL'), 30, 150, 60),
+      utr:   clampNum($('simUTR'), 80, 210, 130),
+      av:    clampNum($('simAV'), 50, 350, 180),
+      pvarp: clampNum($('simPVARP'), 125, 500, 280),
+    };
+  }
+  const WINDOW = 5000, SETTLE = 10000, YA = 52, YV = 128;
+  function simulate(P) {
+    const AA = 60000 / P.arate, uti = 60000 / P.utr, lri = 60000 / P.lrl;
+    const T1 = SETTLE + WINDOW + 500;
+    let lastV = -400, nextA = 300, pendingV = null, guard = 0;
+    const events = [], lines = [], bands = [];
+    while (guard++ < 5000) {
+      const apT = pendingV ? Infinity : lastV + Math.max(lri - P.av, 50);
+      const vT = pendingV ? pendingV.t : Infinity;
+      const t = Math.min(nextA, apT, vT);
+      if (t > T1) break;
+      if (t === vT) {                                   // ventricular pace fires
+        events.push({ t: t, ch: 'V', type: 'VP' });
+        if (pendingV.from != null) lines.push({ t0: pendingV.from, t1: t });
+        lastV = t; bands.push({ t0: t, t1: t + P.pvarp });
+        pendingV = null;
+      } else if (t === nextA) {                         // intrinsic atrial event
+        if (pendingV || t < lastV + P.pvarp) {
+          events.push({ t: t, ch: 'A', type: 'AR' });   // refractory — not tracked
+        } else {
+          events.push({ t: t, ch: 'A', type: 'AS' });
+          pendingV = { t: Math.max(t + P.av, lastV + uti), from: t };  // AV extension at UTR
+        }
+        nextA += AA;
+      } else {                                          // atrial escape pace (LRL)
+        events.push({ t: t, ch: 'A', type: 'AP' });
+        pendingV = { t: t + P.av, from: t };
+        nextA = t + AA;                                 // paced beat overdrive-resets the intrinsic clock
+      }
+    }
+    return { events: events, lines: lines, bands: bands };
+  }
+  function draw(P, sim) {
+    const pw = cv.parentElement.clientWidth - 2;
+    if (pw > 50 && cv.width !== pw) cv.width = pw;
+    const w = cv.width, h = cv.height;
+    ctx.clearRect(0, 0, w, h);
+    const px = w / WINDOW, t0 = SETTLE;
+    const X = t => (t - t0) * px;
+    ctx.strokeStyle = 'rgba(45,51,59,.55)'; ctx.lineWidth = 1;      // 1 s gridlines
+    for (let g = 0; g <= WINDOW; g += 1000) {
+      ctx.beginPath(); ctx.moveTo(g * px, 8); ctx.lineTo(g * px, h - 8); ctx.stroke();
+    }
+    ctx.fillStyle = '#8b949e'; ctx.font = '10px system-ui,sans-serif';
+    ctx.fillText('1 s / div', w - 52, h - 10);
+    ctx.fillStyle = 'rgba(210,153,34,.16)';                          // PVARP bands
+    sim.bands.forEach(bd => ctx.fillRect(X(bd.t0), YA - 18, (bd.t1 - bd.t0) * px, 26));
+    ctx.strokeStyle = '#2d333b'; ctx.lineWidth = 1;                  // channel baselines
+    [YA, YV].forEach(y => { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); });
+    ctx.fillStyle = '#8b949e'; ctx.font = '11px system-ui,sans-serif';
+    ctx.fillText('A', 6, YA - 24); ctx.fillText('V', 6, YV + 32);
+    ctx.strokeStyle = 'rgba(88,166,255,.7)'; ctx.lineWidth = 1.4;    // AV conduction lines
+    sim.lines.forEach(l => { ctx.beginPath(); ctx.moveTo(X(l.t0), YA); ctx.lineTo(X(l.t1), YV); ctx.stroke(); });
+    ctx.lineWidth = 2; ctx.font = '10px system-ui,sans-serif'; ctx.textAlign = 'center';
+    sim.events.forEach(e => {
+      const x = X(e.t);
+      if (x < -20 || x > w + 20) return;
+      if (e.ch === 'A') {
+        ctx.strokeStyle = e.type === 'AR' ? '#d29922' : (e.type === 'AP' ? '#3fb950' : '#e6edf3');
+        ctx.beginPath(); ctx.moveTo(x, YA); ctx.lineTo(x, YA - 22); ctx.stroke();
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fillText(e.type, x, YA - 26);
+      } else {
+        ctx.strokeStyle = '#3fb950';
+        ctx.beginPath(); ctx.moveTo(x, YV); ctx.lineTo(x, YV + 22); ctx.stroke();
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fillText('VP', x, YV + 34);
+      }
+    });
+    ctx.textAlign = 'start';
+  }
+  function status(P, sim) {
+    const tarp = P.av + P.pvarp, r21 = 60000 / tarp;
+    const r1 = n => Math.round(n * 10) / 10;
+    const zone = (P.utr < r21) ? 'Wenckebach ' + P.utr + '\u2013' + r1(r21) + ' bpm' : 'no Wenckebach zone (TARP \u2265 UTR interval)';
+    let s;
+    if (P.arate < P.lrl) s = 'atrial rate below LRL \u2192 AP\u2013VP pacing at ' + P.lrl + ' bpm';
+    else if (P.arate <= Math.min(P.utr, r21)) s = '1:1 P-synchronous tracking at ' + P.arate + ' bpm';
+    else if (P.arate < r21 && P.utr < r21) s = 'pseudo-Wenckebach \u2014 V held at the UTR interval with dropped beats';
+    else s = '2:1 block \u2192 V rate \u2248 ' + r1(P.arate / 2) + ' bpm';
+    const vp = sim.events.filter(e => e.type === 'VP' && e.t > 3000).map(e => e.t);
+    const mv = vp.length > 1 ? 60000 * (vp.length - 1) / (vp[vp.length - 1] - vp[0]) : null;
+    $('simStatus').textContent = 'TARP ' + tarp + ' ms \u00b7 2:1 at ' + r1(r21) + ' bpm \u00b7 ' + zone +
+      ' \u2014 ' + s + (mv ? ' \u00b7 mean V \u2248 ' + r1(mv) + ' bpm' : '');
+  }
+  function render() {
+    const P = params();
+    $('simArateOut').textContent = $('simArate').value + ' bpm';
+    const sim = simulate(P);
+    status(P, sim);
+    draw(P, sim);
+  }
+  ['simArate', 'simLRL', 'simUTR', 'simAV', 'simPVARP'].forEach(id => $(id).addEventListener('input', render));
+  // the canvas can only be sized when its tab is visible — re-render after tab switches and resizes
+  document.querySelectorAll('.ref-tab').forEach(t => t.addEventListener('click', () => setTimeout(render, 0)));
+  window.addEventListener('resize', () => { if (cv.offsetParent) render(); });
+  render();
+})();
+
 /* ---------- view filter (custom dropdown) ---------- */
 function getViewMode() { return localStorage.getItem('viewMode') || 'all'; }
 function applyFilter() {
@@ -946,9 +1170,18 @@ function toggleViewMenu() { const m = document.getElementById('viewMenu'); if (m
 })();
 
 /* ---------- portable data file (USB persistence) ---------- */
-/* All app state lives in localStorage. When a data file is connected,
-   we mirror the full localStorage snapshot to that file on every change,
-   and load it back on open — so data follows the USB across machines. */
+/* Dashboard state lives in localStorage. When a data file is connected,
+   we mirror the DASHBOARD-OWNED keys to that file on every change, and
+   load them back on open — so data follows the USB across machines.
+   IMPORTANT: this page shares an origin (and localStorage) with the CRM
+   tool's PHI autosave ('crm-digital') and the mileage tool's data + auth
+   token. Only the whitelisted keys below are ever snapshotted/exported —
+   a full-localStorage mirror would write PHI into the data file. */
+const OWNED_KEYS = ['watchlist', 'finnhubKey', 'notes', 'todos', 'viewMode', 'refTab'];
+const OWNED_PREFIXES = ['tally-'];
+function ownedKey(k) {
+  return OWNED_KEYS.includes(k) || OWNED_PREFIXES.some(p => k.startsWith(p));
+}
 let dataFileHandle = null;
 let syncTimer = null;
 
@@ -962,7 +1195,7 @@ function snapshot() {
   const o = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    o[k] = localStorage.getItem(k);
+    if (ownedKey(k)) o[k] = localStorage.getItem(k);
   }
   return o;
 }
@@ -1002,7 +1235,9 @@ async function writeDataFile() {
 
 function loadState(obj) {
   if (!obj || typeof obj !== 'object') return;
-  Object.keys(obj).forEach(k => _rawSet(k, obj[k]));
+  // Only restore dashboard-owned keys — never let an imported file plant
+  // CRM/mileage keys (older exports may contain them; they're skipped).
+  Object.keys(obj).forEach(k => { if (ownedKey(k)) _rawSet(k, obj[k]); });
   // re-render everything from the loaded state
   renderFinance();
   renderTally();

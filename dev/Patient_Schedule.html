@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- CSP: schedule rows are patient-identifying (initials) — treat as PHI-adjacent. connect-src 'none'
+     means this page cannot make ANY network request: nothing typed here can leave the browser.
+     Storage is localStorage plus an optional local file (e.g. in OneDrive) the user connects
+     explicitly via the File System Access API. Gated behind Cloudflare Access with the rest of /dev/. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patient Schedule</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --panel2:#1c2333; --border:#2d333b;
+          --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --green:#3fb950; --red:#f85149; --amber:#d29922; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:"Segoe UI",system-ui,sans-serif; padding:16px; min-height:100vh; }
+  header { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+  h1 { font-size:1.3rem; }
+  .sub { color:var(--muted); font-size:.83rem; margin-top:3px; max-width:560px; }
+  .hdr-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:8px;
+           padding:8px 14px; font:inherit; font-size:.88rem; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#04121f; border-color:var(--accent); font-weight:600; }
+  button.primary:hover { filter:brightness(1.1); }
+  button.danger:hover { border-color:var(--red); color:var(--red); }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:16px; }
+  .panel h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:2px; color:var(--muted); margin-bottom:10px;
+              display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+  .filebar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  #fileStatus { font-size:.8rem; color:var(--muted); flex:1; min-width:240px; }
+  #fileStatus.ok { color:var(--green); }
+  #fileStatus.warn { color:var(--amber); }
+  .datebar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .datebar input[type=date] { background:var(--panel2); border:1px solid var(--border); color:var(--text);
+      border-radius:8px; padding:7px 10px; font:inherit; font-size:.9rem; color-scheme:dark; }
+  #dayLabel { font-size:1.02rem; font-weight:600; }
+  #counts { color:var(--muted); font-size:.83rem; margin-left:auto; }
+  .twrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { padding:7px 8px; text-align:left; border-bottom:1px solid var(--border); vertical-align:middle; }
+  th { color:var(--muted); font-weight:600; font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; }
+  td input, td select { background:var(--panel2); border:1px solid var(--border); color:var(--text);
+      border-radius:6px; padding:6px 8px; font:inherit; font-size:.88rem; width:100%; }
+  td input:focus, td select:focus { outline:2px solid var(--accent); outline-offset:0; }
+  td.time input { width:110px; }
+  td.pt input { width:76px; text-transform:uppercase; }
+  td.del { width:36px; text-align:center; }
+  td.del button { border:none; background:none; color:var(--muted); font-size:1rem; padding:4px 6px; }
+  td.del button:hover { color:var(--red); }
+  .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+  .disclaimer { font-size:.74rem; color:var(--muted); margin-top:10px; font-style:italic; }
+  #printView { display:none; }
+
+  /* ---------- print: clean white formatted schedule ---------- */
+  @media print {
+    body { background:#fff; color:#000; padding:0; }
+    header, .panel, .noprint { display:none !important; }
+    #printView { display:block; font-family:"Segoe UI","Helvetica Neue",Calibri,Arial,sans-serif; color:#111; }
+    #printView .p-head { border-bottom:2px solid #111; padding-bottom:8px; margin-bottom:12px;
+                         display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+    #printView h1 { font-size:15pt; margin:0; color:#000; font-weight:650; letter-spacing:-.01em; }
+    #printView .p-date { font-size:11pt; margin-top:2px; color:#222; font-weight:600; }
+    #printView .p-meta { font-size:8.5pt; color:#555; text-align:right; }
+    #printView table { width:100%; border-collapse:collapse; font-size:10pt; }
+    #printView th { background:#f0f0f0; color:#000; border:1px solid #999; padding:3px 6px;
+                    text-align:left; font-size:7.5pt; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
+    #printView td { border:1px solid #999; padding:4px 6px; vertical-align:top; }
+    #printView tr:nth-child(even) td { background:#fafafa; }
+    /* every column except Notes shrinks to its content — Notes gets all remaining width */
+    #printView .p-time, #printView .p-pt, #printView .p-dev, #printView .p-chk, #printView .p-rm {
+      white-space:nowrap; width:1%; font-size:9pt; }
+    #printView .p-time { font-weight:bold; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Patient Schedule</h1>
+    <div class="sub">Initials only &mdash; no MRN, DOB, or full names. Nothing on this page can reach a network
+      (<code>connect-src 'none'</code>); data lives in this browser and, if connected, in your schedule file.</div>
+  </div>
+  <div class="hdr-actions">
+    <button class="primary" onclick="printSchedule()">Print schedule</button>
+    <button class="danger" onclick="walkAway()" title="Flush to the connected file, then wipe this browser's copy">Walk away &mdash; clear this station</button>
+  </div>
+</header>
+
+<div class="panel">
+  <h2>Schedule file <span class="sub" style="margin:0;">connect the file in your OneDrive folder once &mdash; it auto-saves on every change</span></h2>
+  <div class="filebar">
+    <span id="fileStatus">Not connected &mdash; data is in this browser only</span>
+    <button id="openBtn" onclick="openDataFile()">Connect schedule file</button>
+    <button onclick="newDataFile()">New schedule file</button>
+    <button onclick="exportJson()">Export JSON</button>
+    <button onclick="importJson()">Import JSON</button>
+    <input id="importFile" type="file" accept="application/json,.json" style="display:none">
+  </div>
+</div>
+
+<div class="panel">
+  <div class="datebar">
+    <span id="dayLabel"></span>
+    <input type="date" id="schedDate">
+    <button onclick="goToday()">Today</button>
+    <span id="counts"></span>
+  </div>
+  <div class="twrap">
+    <table>
+      <thead><tr>
+        <th style="width:120px">Time</th>
+        <th style="width:90px">Patient</th>
+        <th style="width:150px">Manufacturer</th>
+        <th style="width:130px">Device</th>
+        <th style="width:130px">Check type</th>
+        <th style="width:140px">Remote</th>
+        <th>Notes</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="schedBody"></tbody>
+    </table>
+  </div>
+  <div class="toolbar">
+    <button class="primary" onclick="addRow()">+ Add appointment</button>
+    <button onclick="sortByTime()">Sort by time</button>
+    <button class="danger" onclick="clearDay()">Clear this day</button>
+  </div>
+  <div class="disclaimer">Days older than 7 days are purged automatically. Initials only by design &mdash; if you need
+    to know more than initials + device, that lookup belongs in the EHR, not here.</div>
+</div>
+
+<div id="printView"></div>
+
+<script>
+(function () {
+  "use strict";
+  var KEY = "patientSchedV1";
+  var MFRS = ["", "Medtronic", "Boston Sci", "Abbott", "Biotronik", "MicroPort", "Other"];
+  var DEVS = ["", "PPM", "ICD", "CRT-P", "CRT-D", "ILR", "S-ICD", "Leadless"];
+  var CHECKS = ["In-clinic", "Remote", "Pre-op", "Other"];
+  var RMS = ["", "Connected", "Not connected", "External clinic", "N/A"];
+  var RM_ISSUES = ["Not connected"];
+
+  function localISO(d) {
+    d = d || new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function blank() { return { type: "patient-schedule", version: 1, dates: {} }; }
+  function normalize(s) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) return blank();
+    if (!s.dates || typeof s.dates !== "object") s.dates = {};
+    s.type = "patient-schedule"; s.version = 1;
+    purge(s); migrate(s);
+    return s;
+  }
+  function migrate(s) { // renames from older saves
+    Object.keys(s.dates).forEach(function (k) {
+      (s.dates[k] || []).forEach(function (r) { if (r && r.rm === "Needs setup") r.rm = "External clinic"; });
+    });
+  }
+  function purge(s) {   // retention limit: keep the last 7 days only
+    var cut = new Date(); cut.setDate(cut.getDate() - 7);
+    var cutISO = localISO(cut);
+    Object.keys(s.dates).forEach(function (k) {
+      if (k < cutISO || !Array.isArray(s.dates[k])) delete s.dates[k];
+    });
+  }
+  function load() {
+    try { var raw = localStorage.getItem(KEY); if (raw) return normalize(JSON.parse(raw)); } catch (e) {}
+    return blank();
+  }
+
+  var state = load();
+  var curDate = localISO();
+
+  function rows() { if (!Array.isArray(state.dates[curDate])) state.dates[curDate] = []; return state.dates[curDate]; }
+  function save() {
+    // drop empty day arrays so purge/export stay tidy
+    Object.keys(state.dates).forEach(function (k) { if (!state.dates[k].length) delete state.dates[k]; });
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    scheduleFileSync();
+  }
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function opts(list, sel) {
+    return list.map(function (v) {
+      return '<option value="' + esc(v) + '"' + (v === sel ? " selected" : "") + ">" + (v || "&mdash;") + "</option>";
+    }).join("");
+  }
+  function timeVal(t) {   // lenient parse for SORTING only ("8", "8:30", "0830", "1pm"); print shows what you typed
+    if (!t || !String(t).trim()) return 1e9;
+    var m = String(t).trim().toLowerCase().match(/^(\d{1,2})(?::?(\d{2}))?\s*(a|p)?/);
+    if (!m) return 1e9 - 1;
+    var h = +m[1], mm = +(m[2] || 0);
+    if (m[3] === "p" && h < 12) h += 12;
+    if (m[3] === "a" && h === 12) h = 0;
+    return h * 60 + mm;
+  }
+
+  /* ---------- render ---------- */
+  function render() {
+    var d = curDate.split("-");
+    var dt = new Date(+d[0], +d[1] - 1, +d[2]);
+    $("dayLabel").textContent = dt.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+    $("schedDate").value = curDate;
+    var tb = $("schedBody"); tb.innerHTML = "";
+    rows().forEach(function (r, i) {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td class="time"><input placeholder="8:00" data-i="' + i + '" data-f="time" value="' + esc(r.time) + '"></td>' +
+        '<td class="pt"><input maxlength="6" placeholder="J.S." data-i="' + i + '" data-f="pt" value="' + esc(r.pt) + '"></td>' +
+        '<td><select data-i="' + i + '" data-f="mfr">' + opts(MFRS, r.mfr) + "</select></td>" +
+        '<td><select data-i="' + i + '" data-f="dtype">' + opts(DEVS, r.dtype) + "</select></td>" +
+        '<td><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
+        '<td><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
+        '<td><input placeholder="e.g. post-shock, ERI watch, needs interpreter" data-i="' + i + '" data-f="notes" value="' + esc(r.notes) + '"></td>' +
+        '<td class="del"><button title="Remove" data-del="' + i + '">&#10005;</button></td>';
+      tb.appendChild(tr);
+    });
+    renderCounts();
+  }
+  function renderCounts() {
+    var rs = rows(), by = {};
+    rs.forEach(function (r) { by[r.check] = (by[r.check] || 0) + 1; });
+    var rmIssues = rs.filter(function (r) { return RM_ISSUES.indexOf(r.rm) !== -1; }).length;
+    $("counts").textContent = rs.length
+      ? rs.length + " appointment" + (rs.length === 1 ? "" : "s") + " · " +
+        CHECKS.filter(function (c) { return by[c]; }).map(function (c) { return by[c] + " " + c.toLowerCase(); }).join(" · ") +
+        (rmIssues ? " · " + rmIssues + " RM issue" + (rmIssues === 1 ? "" : "s") : "")
+      : "no appointments yet";
+  }
+
+  /* ---------- events ---------- */
+  $("schedBody").addEventListener("input", function (ev) {
+    var el = ev.target; if (el.dataset.i === undefined) return;
+    var r = rows()[+el.dataset.i]; if (!r) return;
+    r[el.dataset.f] = el.dataset.f === "pt" ? el.value.toUpperCase() : el.value;
+    save();
+    if (el.dataset.f === "check" || el.dataset.f === "rm") renderCounts();
+  });
+  $("schedBody").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-del]"); if (!b) return;
+    rows().splice(+b.dataset.del, 1); save(); render();
+  });
+  window.addRow = function () {
+    rows().push({ time: "", pt: "", mfr: "", dtype: "", check: "In-clinic", rm: "", notes: "" });
+    save(); render();
+    var t = $("schedBody").querySelectorAll("td.time input");
+    if (t.length) t[t.length - 1].focus();
+  };
+  window.sortByTime = function () {
+    rows().sort(function (a, b) { return timeVal(a.time) - timeVal(b.time); });
+    save(); render();
+  };
+  window.clearDay = function () {
+    if (rows().length && confirm("Remove all appointments for this day?")) { state.dates[curDate] = []; save(); render(); }
+  };
+  window.goToday = function () { curDate = localISO(); render(); };
+  $("schedDate").addEventListener("change", function () {
+    if (this.value) { curDate = this.value; render(); }
+  });
+
+  /* ---------- print ---------- */
+  function buildPrintView() {
+    var d = curDate.split("-");
+    var dt = new Date(+d[0], +d[1] - 1, +d[2]);
+    var rs = rows().slice().sort(function (a, b) { return timeVal(a.time) - timeVal(b.time); });
+    var abMfr = { "Medtronic": "MDT", "Boston Sci": "BSci", "Abbott": "ABT", "Biotronik": "BIO", "MicroPort": "MPT" };
+    var abChk = { "In-clinic": "Clinic", "Remote": "Remote", "Pre-op": "Pre-op", "Other": "Other" };
+    var abRm  = { "Connected": "Conn.", "Not connected": "NOT CONN", "External clinic": "Ext. clinic", "N/A": "N/A" };
+    var by = {};
+    rs.forEach(function (r) { by[r.check] = (by[r.check] || 0) + 1; });
+    var rmIssues = rs.filter(function (r) { return RM_ISSUES.indexOf(r.rm) !== -1; }).length;
+    var meta = rs.length + " appointment" + (rs.length === 1 ? "" : "s") +
+      (rs.length ? " — " + CHECKS.filter(function (c) { return by[c]; }).map(function (c) { return by[c] + " " + c.toLowerCase(); }).join(", ") : "") +
+      (rmIssues ? " — " + rmIssues + " remote-monitoring issue" + (rmIssues === 1 ? "" : "s") + " to address" : "");
+    $("printView").innerHTML =
+      '<div class="p-head">' +
+        "<h1>Device Clinic — Patient Schedule</h1>" +
+        '<div class="p-date">' + dt.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" }) + "</div>" +
+        '<div class="p-meta">' + esc(meta) + "</div>" +
+      "</div>" +
+      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Check</th><th>Remote</th><th>Notes</th></tr></thead><tbody>" +
+      rs.map(function (r) {
+        var dev = [abMfr[r.mfr] || r.mfr, r.dtype].filter(Boolean).join(" ");
+        return "<tr>" +
+          '<td class="p-time">' + esc(r.time) + "</td>" +
+          '<td class="p-pt">' + esc(r.pt) + "</td>" +
+          '<td class="p-dev">' + esc(dev) + "</td>" +
+          '<td class="p-chk">' + esc(abChk[r.check] || r.check) + "</td>" +
+          '<td class="p-rm">' + esc(abRm[r.rm] || r.rm || "") + "</td>" +
+          "<td>" + esc(r.notes) + "</td></tr>";
+      }).join("") +
+      "</tbody></table>";
+  }
+  window.printSchedule = function () { buildPrintView(); window.print(); };
+  window.addEventListener("beforeprint", buildPrintView);
+
+  /* ---------- JSON export / import ---------- */
+  window.exportJson = function () {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "patient-schedule-" + curDate + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1500);
+  };
+  window.importJson = function () { $("importFile").click(); };
+  $("importFile").addEventListener("change", function (ev) {
+    var f = ev.target.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var s = normalize(JSON.parse(r.result));
+        if (!confirm("Load this schedule? It REPLACES everything currently here.")) return;
+        state = s; save(); render();
+        setStatus("Imported " + f.name, "ok");
+      } catch (e) { alert("Could not read that schedule file."); }
+    };
+    r.readAsText(f); ev.target.value = "";
+  });
+
+  /* ---------- schedule file (File System Access, same pattern as the dashboard) ---------- */
+  var dataFileHandle = null, syncTimer = null;
+  function setStatus(msg, cls) {
+    var el = $("fileStatus");
+    el.textContent = msg; el.className = cls || "";
+  }
+  function scheduleFileSync() {
+    if (!dataFileHandle) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(writeDataFile, 400);
+  }
+  function writeDataFile() {
+    if (!dataFileHandle) return Promise.resolve();
+    return dataFileHandle.createWritable().then(function (w) {
+      return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); });
+    }).then(function () {
+      setStatus("Saved to " + dataFileHandle.name + " ✓", "ok");
+    }).catch(function (e) {
+      setStatus("Save failed: " + e.message + " — reconnect the schedule file", "warn");
+    });
+  }
+  function loadFromHandle(h) {
+    return h.getFile().then(function (f) { return f.text(); }).then(function (txt) {
+      if (txt.trim()) { state = normalize(JSON.parse(txt)); localStorage.setItem(KEY, JSON.stringify(state)); }
+      render();
+    });
+  }
+  function fsUnsupported() {
+    setStatus("This browser can't connect files directly — use Export/Import JSON instead (Chrome or Edge works best).", "warn");
+  }
+  window.openDataFile = function () {
+    if (!window.showOpenFilePicker) { fsUnsupported(); return; }
+    window.showOpenFilePicker({ types: [{ description: "Patient schedule", accept: { "application/json": [".json"] } }] })
+      .then(function (hs) {
+        dataFileHandle = hs[0];
+        idbSet("handle", dataFileHandle).catch(function () {});
+        return loadFromHandle(dataFileHandle);
+      })
+      .then(function () {
+        setStatus("Connected: " + dataFileHandle.name + " — auto-saving", "ok");
+        $("openBtn").textContent = "Reconnect schedule file";
+      })
+      .catch(function (e) { if (e && e.name !== "AbortError") setStatus("Open failed: " + e.message, "warn"); });
+  };
+  window.newDataFile = function () {
+    if (!window.showSaveFilePicker) { fsUnsupported(); return; }
+    window.showSaveFilePicker({
+      suggestedName: "patient-schedule.json",
+      types: [{ description: "Patient schedule", accept: { "application/json": [".json"] } }]
+    }).then(function (h) {
+      dataFileHandle = h;
+      idbSet("handle", h).catch(function () {});
+      return writeDataFile();
+    }).then(function () {
+      if (dataFileHandle) $("openBtn").textContent = "Reconnect schedule file";
+    }).catch(function (e) { if (e && e.name !== "AbortError") setStatus("Create failed: " + e.message, "warn"); });
+  };
+
+  /* tiny IndexedDB store to remember the file handle across sessions */
+  function idb() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open("patientSchedFS", 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore("kv"); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+  function idbSet(k, v) {
+    return idb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction("kv", "readwrite");
+        tx.objectStore("kv").put(v, k);
+        tx.oncomplete = function () { res(); };
+        tx.onerror = function () { rej(tx.error); };
+      });
+    });
+  }
+  function idbGet(k) {
+    return idb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction("kv", "readonly");
+        var rq = tx.objectStore("kv").get(k);
+        rq.onsuccess = function () { res(rq.result); };
+        rq.onerror = function () { rej(rq.error); };
+      });
+    });
+  }
+  function idbDel(k) {
+    return idb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction("kv", "readwrite");
+        tx.objectStore("kv").delete(k);
+        tx.oncomplete = function () { res(); };
+        tx.onerror = function () { rej(tx.error); };
+      });
+    });
+  }
+  function autoConnect() {
+    idbGet("handle").then(function (h) {
+      if (!h) return;
+      return h.queryPermission({ mode: "readwrite" }).then(function (perm) {
+        if (perm === "granted") {
+          dataFileHandle = h;
+          return loadFromHandle(h).then(function () {
+            setStatus("Auto-loaded " + h.name + " — auto-saving", "ok");
+            $("openBtn").textContent = "Reconnect schedule file";
+          });
+        }
+        setStatus('Found your schedule file "' + h.name + '" — click the button to reconnect it', "warn");
+        var btn = $("openBtn");
+        btn.textContent = "Reconnect " + h.name;
+        btn.onclick = function () {
+          h.requestPermission({ mode: "readwrite" }).then(function (p) {
+            if (p === "granted") {
+              dataFileHandle = h;
+              loadFromHandle(h).then(function () {
+                setStatus("Connected " + h.name + " — auto-saving", "ok");
+                btn.textContent = "Reconnect schedule file";
+                btn.onclick = window.openDataFile;
+              });
+            } else setStatus("Permission denied — use Connect schedule file to pick it manually", "warn");
+          }).catch(function (e) { setStatus("Reconnect failed: " + e.message, "warn"); });
+        };
+      });
+    }).catch(function () { /* unsupported or no handle */ });
+  }
+
+  /* flush pending writes if the tab is hidden mid-edit */
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden && dataFileHandle) { clearTimeout(syncTimer); writeDataFile(); }
+  });
+
+  /* ---------- walk away: flush to file, then wipe this station ---------- */
+  window.walkAway = function () {
+    var msg = dataFileHandle
+      ? "Save to " + dataFileHandle.name + ", then clear the schedule from this browser (and forget the file connection)?"
+      : "No schedule file is connected — clearing will DELETE the schedule from this browser entirely. Continue?";
+    if (!confirm(msg)) return;
+    clearTimeout(syncTimer);
+    var flush = dataFileHandle ? writeDataFile() : Promise.resolve();
+    flush.then(function () {
+      localStorage.removeItem(KEY);
+      return idbDel("handle").catch(function () {});
+    }).then(function () { location.reload(); });
+  };
+
+  /* ---------- go ---------- */
+  render();
+  autoConnect();
+})();
+</script>
+</body>
+</html>

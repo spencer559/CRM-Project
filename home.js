@@ -61,6 +61,14 @@
       icon: STAR,
       dev: true, // developer-only; lives under the gated /dev/ folder
     },
+    {
+      href: "dev/Patient_Schedule.html",
+      kicker: "Wanted &mdash; Dead or Alive",
+      title: "Patient Schedule",
+      bounty: "&#3647; 2,000,000,000 &middot; The Crew Manifest",
+      icon: STAR,
+      dev: true, // developer-only; lives under the gated /dev/ folder
+    },
   ];
 
   // The card shown on the PUBLIC index that leads into the gated deck.
