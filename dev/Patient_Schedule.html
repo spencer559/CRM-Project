@@ -16,7 +16,6 @@
   body { background:var(--bg); color:var(--text); font-family:"Segoe UI",system-ui,sans-serif; padding:16px; min-height:100vh; }
   header { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
   h1 { font-size:1.3rem; }
-  .sub { color:var(--muted); font-size:.83rem; margin-top:3px; max-width:560px; }
   .hdr-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   button { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:8px;
            padding:8px 14px; font:inherit; font-size:.88rem; cursor:pointer; }
@@ -63,7 +62,6 @@
   td.del button { border:none; background:none; color:var(--muted); font-size:1rem; padding:4px 6px; }
   td.del button:hover { color:var(--red); }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
-  .disclaimer { font-size:.74rem; color:var(--muted); margin-top:10px; font-style:italic; }
   #printView { display:none; }
 
   /* ---------- print: clean white formatted schedule ---------- */
@@ -93,8 +91,6 @@
 <header>
   <div>
     <h1>Patient Schedule</h1>
-    <div class="sub">Initials only &mdash; no MRN, DOB, or full names. Nothing on this page can reach a network
-      (<code>connect-src 'none'</code>); data lives in this browser and, if connected, in your schedule file.</div>
   </div>
   <div class="hdr-actions">
     <div class="hdr-menu">
@@ -109,7 +105,7 @@
       </div>
     </div>
     <button class="primary" onclick="printSchedule()">Print schedule</button>
-    <button class="danger" onclick="walkAway()" title="Flush to the connected file, then wipe this browser's copy">Walk away &mdash; clear this station</button>
+    <button class="danger" onclick="walkAway()" title="Saves to the connected schedule file first, then wipes this browser's copy and forgets the file connection">Leave Station</button>
   </div>
 </header>
 
@@ -148,8 +144,6 @@
     <button onclick="sortByTime()">Sort by time</button>
     <button class="danger" onclick="clearDay()">Clear this day</button>
   </div>
-  <div class="disclaimer">Days older than 7 days are purged automatically. Initials only by design &mdash; if you need
-    to know more than initials + device, that lookup belongs in the EHR, not here.</div>
 </div>
 
 <div id="printView"></div>
