@@ -237,23 +237,25 @@
      which mints this app's cookie if their account is authorized; a second probe
      then succeeds. Anonymous visitors: the chain parks on the (hidden) login page
      and the second probe fails too — card stays locked. */
-  function warmup(path) {
-    return new Promise(function (resolve) {
+  function probe(path, cls) {
+    check(path).then(function (ok) {
+      if (ok) { document.body.classList.add(cls); return; }
+      // Warm-up: the iframe stays alive while we poll, so the Access redirect chain
+      // is never aborted mid-mint (a fixed teardown here used to require refreshes).
       var f = document.createElement('iframe');
       f.src = path;
       f.style.display = 'none';
       f.setAttribute('aria-hidden', 'true');
       f.setAttribute('tabindex', '-1');
       document.body.appendChild(f);
-      setTimeout(function () { f.remove(); resolve(); }, 1800);
-    });
-  }
-  function probe(path, cls) {
-    check(path).then(function (ok) {
-      if (ok) { document.body.classList.add(cls); return; }
-      warmup(path).then(function () {
-        check(path).then(function (ok2) { if (ok2) document.body.classList.add(cls); });
-      });
+      var deadline = Date.now() + 7000;
+      (function poll() {
+        check(path).then(function (ok2) {
+          if (ok2) { document.body.classList.add(cls); f.remove(); }
+          else if (Date.now() > deadline) { f.remove(); }   // no session / not authorized
+          else { setTimeout(poll, 500); }
+        });
+      })();
     });
   }
   probe('dev/auth-check.json', 'auth-dev');       // Developer Deck Access app
