@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Content-Security-Policy: this page shares an origin with the CRM tool, which autosaves
      PHI to localStorage — so like every page on this origin it ships its own CSP.
-     connect-src 'none' blocks all network egress; fonts are self-hosted in ../vendor/fonts
-     (no Google Fonts / CDN at runtime); the page is static, so script-src is 'none'. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'">
+     The ONLY script is the inline Access-session probe at the bottom (it fetches
+     dev/auth-check.json to see if a Cloudflare Access session exists and unlocks the
+     Developer Deck card), so connect-src is 'self' (same-origin only — still no external
+     egress); fonts are self-hosted in vendor/fonts (no CDN at runtime). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'">
 <title>Cardiac CRM Toolkit</title>
 <style>
   /* Self-hosted fonts (vendor/fonts) — repo rule: nothing pulled from a CDN at runtime */
@@ -61,13 +63,13 @@
     display:flex;align-items:center;justify-content:center;flex-shrink:0;
   }
   .brand .name{font-weight:800;font-size:16px;letter-spacing:-.01em;line-height:1.1;}
-  .brand .sub{font-family:'JetBrains Mono',monospace;font-weight:500;font-size:11px;color:var(--dim);letter-spacing:.04em;margin-top:2px;}
-  .trust{
-    display:flex;align-items:center;gap:8px;
-    background:#122a25;border:1px solid #1f4a3f;border-radius:20px;padding:7px 15px;
+  .signin{
+    display:inline-flex;align-items:center;gap:8px;
+    border:1px solid var(--accent-solid);border-radius:10px;padding:8px 18px;
+    font-weight:600;font-size:13px;color:var(--accent);
+    transition:background .15s ease,color .15s ease;
   }
-  .trust .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(52,201,138,.2);}
-  .trust span{font-weight:600;font-size:12px;color:#6fdcae;}
+  .signin:hover{background:var(--accent-solid);color:#0e141a;}
 
   /* ===== main ===== */
   main{flex:1;width:100%;max-width:1180px;margin:0 auto;padding:clamp(36px,6vw,60px) clamp(20px,5vw,64px) 40px;}
@@ -91,6 +93,21 @@
   .card .arrow{color:var(--accent);font-size:17px;transition:transform .2s ease;}
   .card:hover .arrow{transform:translateX(4px);}
 
+  /* signed-in swaps: .s-in/.t-in show when body.authed, .s-out/.t-out hide */
+  .s-in, .t-in, .i-unlock{display:none;}
+  .authed .s-in, .authed .t-in{display:inline;}
+  .authed .s-out, .authed .t-out{display:none;}
+  .authed .devcard .i-unlock{display:block;}
+  .authed .devcard .i-lock{display:none;}
+  .authed .card.locked{background:var(--surface);border-style:solid;border-color:var(--line);}
+  .authed .card.locked:hover{border-color:var(--ok);box-shadow:0 16px 34px rgba(0,0,0,.5);}
+  .authed .card.locked .icon{background:#12261f;}
+  .authed .card.locked .kicker{color:var(--ok);}
+  .authed .card.locked h2{color:var(--ink);}
+  .authed .card.locked p{color:var(--muted);}
+  .authed .card.locked .meta{color:var(--dim);}
+  .authed .card.locked .arrow{color:var(--ok);}
+
   .card.locked{background:var(--surface-2);border-style:dashed;border-color:#2b3742;}
   .card.locked:hover{border-color:#3a4753;box-shadow:0 16px 34px rgba(0,0,0,.4);}
   .card.locked .icon{background:#1a222a;}
@@ -100,17 +117,8 @@
   .card.locked .meta{color:#6a7883;}
   .card.locked .arrow{color:#6a7883;}
 
-  /* ===== footer ===== */
-  footer{
-    display:flex;flex-wrap:wrap;gap:12px 26px;
-    padding:20px clamp(20px,5vw,64px);
-    border-top:1px solid var(--line-soft);background:var(--bar);
-    font-family:'JetBrains Mono',monospace;font-weight:600;font-size:12px;color:#6a7883;
-  }
-
   @media (max-width:860px){
     .cards{grid-template-columns:1fr;}
-    .trust{display:none;}
   }
 </style>
 </head>
@@ -123,13 +131,9 @@
       </span>
       <span>
         <span class="name">Cardiac CRM Toolkit</span>
-        <span class="sub">CIED follow-up · clinic tools</span>
       </span>
     </a>
-    <div class="trust">
-      <span class="dot" aria-hidden="true"></span>
-      <span>All data stays in your browser</span>
-    </div>
+    <a class="signin" href="dev/index.html"><span class="s-out">Sign in <span aria-hidden="true">&rarr;</span></span><span class="s-in">Open deck <span aria-hidden="true">&rarr;</span></span></a>
   </nav>
 
   <main>
@@ -164,26 +168,33 @@
         </div>
       </a>
 
-      <a class="card locked" href="dev/index.html">
+      <a class="card locked devcard" href="dev/index.html">
         <span class="icon" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7d8b95" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <svg class="i-lock" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7d8b95" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <svg class="i-unlock" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#34c98a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.5-2"/></svg>
         </span>
-        <div class="kicker">RESTRICTED</div>
+        <div class="kicker"><span class="t-out">RESTRICTED</span><span class="t-in">UNLOCKED</span></div>
         <h2>Developer Deck</h2>
         <p>Dashboard, patient schedule, and clinical reference — gated behind sign-in.</p>
         <div class="foot">
-          <span class="meta">Requires sign-in</span>
-          <span class="arrow" aria-hidden="true">🔒</span>
+          <span class="meta"><span class="t-out">Requires sign-in</span><span class="t-in">Signed in — enter</span></span>
+          <span class="arrow" aria-hidden="true"><span class="t-out">🔒</span><span class="t-in">&rarr;</span></span>
         </div>
       </a>
     </div>
   </main>
 
-  <footer>
-    <span>■ Client-side only</span>
-    <span>■ No uploads</span>
-    <span>■ CSP connect-src: none</span>
-  </footer>
-
+<script>
+/* Access-session probe: dev/auth-check.json sits behind the same Cloudflare Access gate as
+   the Developer Deck. Signed in -> 200 and the page flips to its unlocked state; signed out
+   -> Access answers with a login redirect (opaqueredirect / error) and nothing changes.
+   Same-origin request only — the CSP forbids any other destination. */
+(function () {
+  if (!window.fetch) return;
+  fetch('dev/auth-check.json', { redirect: 'manual', cache: 'no-store' })
+    .then(function (r) { if (r.ok) document.body.classList.add('authed'); })
+    .catch(function () { /* signed out or offline — stay locked */ });
+})();
+</script>
 </body>
 </html>
