@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- Sign-in bounce target. This page sits behind the CRM Access application (add its path to
+     that app in Zero Trust). Access authenticates the visitor, lands them here, and the
+     meta-refresh immediately returns them to the index — which then probes their session and
+     lights up the tools their account can open. No script, no data, no network. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'">
+<meta http-equiv="refresh" content="0;url=../index.html">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signed in</title>
+<style>
+  body{background:#0f151b;color:#93a1ad;font-family:system-ui,sans-serif;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;font-size:15px;}
+</style>
+</head>
+<body>Signed in — returning to the toolkit…</body>
+</html>
