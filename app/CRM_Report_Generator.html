@@ -1002,6 +1002,7 @@ function collectFormData() {
 
 function doSave() {
   var d = collectFormData();
+  d.__savedAt = Date.now();   // retention stamp — loadSaved() refuses saves older than 24h
   try {
     localStorage.setItem('crm-digital', JSON.stringify(d));
     var t = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
@@ -1018,6 +1019,14 @@ function loadSaved() {
   if (!raw) return;
   var d;
   try { d = JSON.parse(raw); } catch(e) { return; }
+  // Retention limit: the autosave exists to survive a refresh mid-visit, not to store
+  // records — PHI shouldn't sit in localStorage indefinitely. Stamped saves older than
+  // 24h are cleared instead of restored. Legacy saves without a stamp load once and
+  // pick up a stamp on their next save.
+  if (d.__savedAt && Date.now() - d.__savedAt > 24 * 60 * 60 * 1000) {
+    try { localStorage.removeItem('crm-digital'); } catch(e) {}
+    return;
+  }
   applyFormData(d);
 }
 
