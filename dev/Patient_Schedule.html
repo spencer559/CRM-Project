@@ -627,6 +627,38 @@
       }
     });
   })();
+  /* Editing time/initials changes the slot folder name — without a migration the row
+     would point at an empty new folder and orphan the old one. Stash the slot BEFORE the
+     edit (focusin fires pre-mutation), then on commit (change) move the folder's files.
+     (Kept out of row data on purpose — it must never be persisted to schedule.json.) */
+  var preSlot = {};
+  $("schedBody").addEventListener("focusin", function (ev) {
+    var el = ev.target;
+    if (!el.dataset || (el.dataset.f !== "time" && el.dataset.f !== "pt")) return;
+    var r = rows()[+el.dataset.i];
+    if (r && WS) preSlot[el.dataset.i] = WS.slotName(r.time, r.pt);
+  });
+  $("schedBody").addEventListener("change", function (ev) {
+    var el = ev.target;
+    if (!el.dataset || (el.dataset.f !== "time" && el.dataset.f !== "pt")) return;
+    var i = el.dataset.i;
+    var r = rows()[+i];
+    var oldSlot = preSlot[i];
+    delete preSlot[i];
+    if (!r || !WS || !oldSlot) return;
+    var newSlot = WS.slotName(r.time, r.pt);
+    if (oldSlot === newSlot) return;
+    if (!wsRoot) { scanSlots(); return; }   // stick not connected — nothing reachable to move
+    WS.moveSlot(wsRoot, curDate, oldSlot, newSlot)
+      .then(function (moved) {
+        if (moved) setWsStatus("Moved patient files " + oldSlot + " → " + newSlot, "ok");
+        scanSlots();
+      })
+      .catch(function (e) {
+        setWsStatus("Could not move files " + oldSlot + " → " + newSlot + ": " + e.message + " — the old folder still has them", "warn");
+        scanSlots();
+      });
+  });
   function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scanSlots, 600); }
   function scanSlots() {
     var cells = document.querySelectorAll("td.fbadges");

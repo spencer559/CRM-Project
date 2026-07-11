@@ -132,6 +132,34 @@
     return out;
   }
 
+  /** Rename a slot folder (time/initials changed on the schedule): move every file from
+   *  oldSlot to newSlot, then remove the old folder. Uses FileSystemFileHandle.move()
+   *  when available, byte-copy + delete otherwise. Returns true if anything moved. */
+  async function moveSlot(root, dateISO, oldSlot, newSlot) {
+    if (!oldSlot || !newSlot || oldSlot === newSlot) return false;
+    var patients = await root.getDirectoryHandle("patients", { create: true });
+    var day = await patients.getDirectoryHandle(dateISO, { create: true });
+    var oldDir;
+    try { oldDir = await day.getDirectoryHandle(oldSlot); }
+    catch (e) { return false; }                    // no old folder — nothing to move
+    var files = await listFiles(oldDir);           // snapshot BEFORE mutating the dir
+    if (!files.length) { await day.removeEntry(oldSlot, { recursive: true }); return false; }
+    var newDir = await day.getDirectoryHandle(newSlot, { create: true });
+    for (var i = 0; i < files.length; i++) {
+      var fh = files[i], moved = false;
+      if (typeof fh.move === "function") {
+        try { await fh.move(newDir); moved = true; } catch (e) { /* fall back to copy */ }
+      }
+      if (!moved) {
+        var buf = await (await fh.getFile()).arrayBuffer();
+        await writeFile(newDir, fh.name, buf);
+        await oldDir.removeEntry(fh.name);
+      }
+    }
+    await day.removeEntry(oldSlot, { recursive: true });
+    return true;
+  }
+
   async function readText(dir, name) {
     var fh = await dir.getFileHandle(name);
     return (await fh.getFile()).text();
@@ -156,6 +184,7 @@
     setUsbOnly: setUsbOnly,
     slotName: slotName,
     slotDir: slotDir,
+    moveSlot: moveSlot,
     listFiles: listFiles,
     readText: readText,
     writeFile: writeFile
