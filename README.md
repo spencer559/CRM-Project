@@ -54,6 +54,7 @@ mileage-backend/
   src/worker.js  wrangler.toml      Cloudflare Worker + D1 sync backend
   schema.sql  DEPLOY.md             (see DEPLOY.md for one-time setup)
 src/
+  workspace.js                      Shared USB-workspace module ("CRM Toolkit" folder; see below)
   engine.js                         Shared PDF extraction engine + anchor helpers + cleaners
   parsers/
     medtronic.js                    Medtronic PDF parser  → window.MEDTRONIC.runMap(LINES, META)
@@ -267,6 +268,41 @@ Persistence details worth knowing before editing:
 A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. **Data-minimized by design**: rows hold time, patient *initials only* (no MRN/DOB/name fields exist), manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…"** button beside the date picker reassigns an entire day to a different date (merge-confirm if the target day already has rows, blocked past the 7-day retention window) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
 
 Workflow/storage: localStorage per day (days older than 7 are auto-purged), an optional **schedule file** connected via the File System Access API (e.g. a JSON in OneDrive — remembered handle, auto-saves on every change, auto-reconnects), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** button (the walk-away action) that flushes to the connected file, wipes localStorage, and forgets the file handle — the file keeps the data; only the browser is cleaned. Storage is deliberately *not* encrypted (user decision: relies on the Access gate, workstation login, and the walk-away habit) — revisit if that assumption changes. Never wire this page to the mileage sync Worker or any other backend.
+
+### USB workspace (`src/workspace.js` — shared by the Schedule and the CRM tool)
+
+The workspace is a **"CRM Toolkit"** folder on the tech's USB stick (the module auto-descends
+into / creates that folder even if the user picks the drive root — everything stays
+compartmentalized):
+
+```
+CRM Toolkit/
+  schedule.json                          the Patient Schedule's data file
+  patients/<YYYY-MM-DD>/<HHMM>_<INITIALS>/
+    report.json  report.txt  report.pdf  (CRM tool exports)
+    <vendor export>.pdf / .log           (raw programmer files, optional)
+```
+
+The directory handle lives in IndexedDB (`crmWorkspace` db) so **both pages — same origin —
+share one connected folder** (one permission click per page per browser session). On the
+Schedule, connecting the workspace makes `schedule.json` the schedule's data file and gives
+every row a **Files** cell: chips for each file in its slot folder (`slotName = HHMM_INITIALS`,
+click to open) plus a **CRM** chip that opens the Report Generator with `#slot=<date>/<slot>`.
+On the CRM tool, the app bar is menu-driven (the old drag-drop panel is hidden; its importer
+is driven from the menus): **Patient List** connects/unlocks the workspace (connect
+auto-creates + scaffolds a fresh stick — there is no separate "create" action) and lists the
+USB schedule's patients grouped by date — picking one loads its `report.json` (or starts a
+fresh record) and shows "Patient: <time> <initials>" on the button; **New Patient** clears
+(wrapped: disarms sync + strips the `#slot` hash first); **Import** offers Import Database
+(the active slot's files: load `report.json` / auto-fill from a stored vendor export),
+Import PDF/Log, Merge PDF/Log (both drive the hidden importer via its merge checkbox), and
+Import JSON; **Export** offers PDF (save), Print, .txt, JSON, Copy to Clipboard, plus "Save
+all to patient folder" when a slot is active. **Live sync:** while a slot is armed, every
+form edit debounce-rewrites the slot's `report.json` (flushed on tab hide/close; "USB ✓
+<time>" indicator in the app bar) — `.txt`/`.pdf` are outputs, refreshed only by the explicit
+save. A cleared form can never live-sync over a saved patient. All of it
+is the File System Access API — no network, CSPs unchanged, Chrome/Edge desktop only. The
+Schedule's "Leave Station" button forgets the workspace handle along with everything else.
 
 ---
 

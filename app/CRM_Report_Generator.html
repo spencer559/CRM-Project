@@ -215,38 +215,34 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="divider"></div>
   <span class="save-status" id="save-status">No data saved</span>
   <div class="app-bar-actions">
+    <button class="btn btn-ghost" id="patient-btn" onclick="togglePatientMenu(event)">Patient List <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn btn-danger" onclick="clearForm()">New Patient</button>
-    <button class="btn btn-ghost" onclick="copyToClipboard()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="1" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="4" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4" fill="white"/></svg>
-      Copy to Clipboard
-    </button>
-    <button class="btn btn-ghost" onclick="exportSummary()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0L5 7m3 3l3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="2" y="11" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
-      Export .txt
-    </button>
-    <button class="btn btn-ghost" onclick="toggleJsonMenu(event)">
-      JSON
-      <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
-    <button class="btn btn-primary" onclick="togglePdfMenu(event)">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 1h6l3 3v10a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4"/><path d="M9 1v4h3" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5 9h6M5 11.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-      PDF
-      <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+    <button class="btn btn-ghost" onclick="toggleImportMenu(event)">Import <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button class="btn btn-primary" onclick="toggleExportMenu(event)">Export <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
 </header>
 
 <!-- JSON menu lives outside the app bar (which gets overflow:auto on mobile and would clip a
      fixed-position descendant in WebKit). As a body child it stacks above everything. -->
-<div id="pdf-dropdown" class="json-dd" style="display:none;" onclick="event.stopPropagation()">
+<div id="patient-dropdown" class="json-dd" style="display:none; min-width:240px; max-height:60vh; overflow:auto;" onclick="event.stopPropagation()"></div>
+<div id="import-dropdown" class="json-dd" style="display:none; min-width:240px;" onclick="event.stopPropagation()"></div>
+<div id="export-dropdown" class="json-dd" style="display:none; min-width:200px;" onclick="event.stopPropagation()">
+  <button class="json-dd-item" onclick="savePDF()">PDF (save file)</button>
   <button class="json-dd-item" onclick="exportPDF()">Print</button>
-  <button class="json-dd-item" onclick="savePDF()">Save (PDF file)</button>
-</div>
-<div id="json-dropdown" class="json-dd" style="display:none;" onclick="event.stopPropagation()">
-  <button class="json-dd-item" onclick="importJSON()">Import JSON…</button>
-  <button class="json-dd-item" onclick="exportJSON()">Export JSON</button>
+  <button class="json-dd-item" onclick="exportSummary()">.txt</button>
+  <button class="json-dd-item" onclick="exportJSON()">JSON</button>
+  <button class="json-dd-item" onclick="closeMenus(); copyToClipboard();">Copy to Clipboard</button>
+  <div id="export-usb-extra"></div>
 </div>
 <input type="file" id="json-import-file" accept="application/json,.json" style="display:none" onchange="onJsonFileChosen(event)">
+<!-- relocated auto-fill status: the drop panel below is hidden (its importer is driven from
+     the Import menu now); its status line floats as a toast under the app bar instead -->
+<div id="pdp-status"></div>
+<style>
+  #pdp-status{ position:fixed; top:52px; right:14px; z-index:900; background:#fff;
+    border:1px solid #cfd6dd; border-radius:6px; padding:7px 11px; max-width:340px;
+    box-shadow:0 6px 18px rgba(20,40,60,.18); margin-top:0; }
+</style>
 
 <!-- SIDEBAR -->
 <nav class="sidebar">
@@ -268,7 +264,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- PDF/.log auto-fill panel. Desktop: position:fixed top-right (DOM location irrelevant).
      Mobile/tablet: flows inline here at the top of the form. -->
-<div id="pdf-drop-panel">
+<div id="pdf-drop-panel" style="display:none">
   <div class="pdp-title">⬇ Auto-fill from PDF / .log</div>
   <div id="pdp-drop">
     <div class="pdp-big">Drop PDF or Abbott .log</div>
@@ -276,7 +272,13 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   </div>
   <input type="file" id="pdp-file" accept="application/pdf,.log,.txt" style="display:none">
   <label class="cbl" style="margin-top:8px; font-size:9px; color:#556;"><input type="checkbox" id="pdp-merge"> Merge — keep what I've already entered</label>
-  <div id="pdp-status"></div>
+  <div id="usb-slot" style="display:none; margin-top:10px; border-top:1px solid #dfe3e8; padding-top:8px;">
+    <div style="font-size:9.5px; font-weight:700; text-transform:uppercase; color:#556;">USB patient slot</div>
+    <div id="usb-slot-label" style="font-family:monospace; font-size:10px; color:#334; margin:3px 0 6px;"></div>
+    <div id="usb-slot-status" style="font-size:9.5px; color:#556; margin-bottom:6px;"></div>
+    <div id="usb-slot-sync" style="font-size:9.5px; color:#2e7d32; margin-bottom:6px; display:none;"></div>
+    <div id="usb-slot-actions" style="display:flex; flex-direction:column; gap:4px;"></div>
+  </div>
 </div>
 
 <!-- §1 PATIENT & DEVICE -->
@@ -1644,8 +1646,9 @@ function toggleMenu(e, id) {
   dd.style.left = 'auto';
   dd.style.display = 'block';
 }
-function toggleJsonMenu(e){ toggleMenu(e, 'json-dropdown'); }
-function togglePdfMenu(e){ toggleMenu(e, 'pdf-dropdown'); }
+function togglePatientMenu(e){ toggleMenu(e, 'patient-dropdown'); if (window.buildPatientMenu) window.buildPatientMenu(); }
+function toggleImportMenu(e){ toggleMenu(e, 'import-dropdown'); if (window.buildImportMenu) window.buildImportMenu(); }
+function toggleExportMenu(e){ toggleMenu(e, 'export-dropdown'); if (window.buildExportExtra) window.buildExportExtra(); }
 document.addEventListener('click', closeMenus);
 
 function importJSON() {
@@ -1974,6 +1977,7 @@ loadSaved();
 <script src="../src/parsers/boston.js"></script>
 <script src="../src/parsers/abbott.js"></script>
 <script src="../src/parsers/biotronik.js"></script>
+<script src="../src/workspace.js"></script>
 <script>
 /* PDF → CRM form auto-fill. Reuses the form's own update functions so toggles,
    lead rows and pacing-% visibility behave exactly as for manual entry. */
@@ -2094,12 +2098,14 @@ loadSaved();
     return { filled: filled, review: review };
   }
   window.prefillForm = prefillForm;   // exposed for testing
+  setTimeout(function(){ window.handleFile = handleFile; }, 0);   // exposed for the USB slot panel
 
   // vendor name (from Engine.guessVendor) -> parser module
   var PARSERS = { 'Medtronic': window.MEDTRONIC, 'Boston Scientific': window.BOSTON, 'Biotronik': window.BIOTRONIK };
 
   async function handleFile(file){
     if (!file) return;
+
 
     // Abbott / SJM Merlin ".log" (flat key/value text) — not a PDF, so it takes a separate path.
     var fname = (file.name || '').toLowerCase();
@@ -2173,5 +2179,325 @@ loadSaved();
 })();
 </script>
 
+<script>
+/* ── USB workspace + app-bar menus ──────────────────────────────────────────────
+   Patient List: connect/unlock the "CRM Toolkit" USB workspace (connect auto-creates
+   and scaffolds a fresh stick), pick a patient from the USB schedule.json, disconnect.
+   Import: Import Database (files in the active patient's slot folder), Import PDF/Log,
+   Merge PDF/Log (both drive the hidden auto-fill importer via its merge checkbox),
+   Import JSON. Export extra: save .json/.txt/.pdf into the active slot.
+   LIVE SYNC: once a slot is active (opened / saved / auto-filled), every form edit
+   debounce-rewrites the slot's report.json; New Patient / reset disarms it first and
+   clears the #slot hash so a blank form can never overwrite a saved patient.
+   All File System Access API — no network; CSP stays connect-src 'none'. */
+(function () {
+  "use strict";
+  var WS = window.CRMWorkspace;
+  var supported = !!(WS && WS.supported);
+  var slotDate = null, slotName = null, slotLabel = "", slotRoot = null;
+  var syncArmed = false, syncTimer = null;
+  var patientBtn = document.getElementById('patient-btn');
+  var pdMenu = document.getElementById('patient-dropdown');
+  var imMenu = document.getElementById('import-dropdown');
+  var exExtra = document.getElementById('export-usb-extra');
+  var CARET = ' <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function escT(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function item(label, fn, dim) {
+    var b = document.createElement('button');
+    b.className = 'json-dd-item';
+    b.textContent = label;
+    if (dim) b.style.color = '#889';
+    b.onclick = function () { closeMenus(); fn(); };
+    return b;
+  }
+  function headerEl(text) {
+    var d = document.createElement('div');
+    d.textContent = text;
+    d.style.cssText = 'font-size:8.5px;font-weight:700;text-transform:uppercase;color:#889;padding:5px 10px 2px;';
+    return d;
+  }
+  function noteEl(text) {
+    var d = document.createElement('div');
+    d.textContent = text;
+    d.style.cssText = 'font-size:9.5px;color:#889;padding:4px 10px 6px;max-width:230px;line-height:1.4;';
+    return d;
+  }
+  function divEl() {
+    var d = document.createElement('div');
+    d.style.cssText = 'border-top:1px solid #e2e6ea;margin:4px 0;';
+    return d;
+  }
+  function toast(msg, cls) {
+    var el = document.getElementById('pdp-status');
+    if (!el) return;
+    el.className = 'show ' + (cls || '');
+    el.textContent = msg;
+    if (cls !== 'err') setTimeout(function () { if (el.textContent === msg) el.className = ''; }, 6000);
+  }
+  function setPatientBtn() {
+    patientBtn.innerHTML = escT(slotName ? 'Patient: ' + (slotLabel || slotName) : 'Patient List') + CARET;
+  }
+
+  /* ---- live sync indicator (small text next to the save status) ---- */
+  var syncEl = (function () {
+    var s = document.createElement('span');
+    s.className = 'save-status';
+    s.style.display = 'none';
+    var anchor = document.getElementById('save-status');
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(s, anchor.nextSibling);
+    return s;
+  })();
+  function setSync(msg, isErr) {
+    if (!msg) { syncEl.style.display = 'none'; return; }
+    syncEl.style.display = '';
+    syncEl.style.color = isErr ? '#b03030' : '';
+    syncEl.className = 'save-status' + (isErr ? '' : ' saved');
+    syncEl.textContent = msg;
+  }
+
+  /* ---- live sync core ---- */
+  function arm() { syncArmed = true; setSync('USB sync ON'); }
+  function disarm() { syncArmed = false; clearTimeout(syncTimer); syncTimer = null; setSync(''); }
+  function writeJsonNow() {
+    clearTimeout(syncTimer); syncTimer = null;
+    if (!syncArmed || !slotRoot || !slotDate || !slotName) return Promise.resolve();
+    return WS.slotDir(slotRoot, slotDate, slotName, true)
+      .then(function (dir) { return WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2)); })
+      .then(function () {
+        setSync('USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      })
+      .catch(function (e) { setSync('USB sync failed — reconnect', true); });
+  }
+  document.addEventListener('input', function () {
+    if (!syncArmed) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(writeJsonNow, 1500);
+  }, true);
+  document.addEventListener('visibilitychange', function () { if (document.hidden && syncTimer) writeJsonNow(); });
+  window.addEventListener('beforeunload', function () { if (syncTimer) writeJsonNow(); });
+  // A cleared form must never live-sync over a saved patient. clearForm also reloads the
+  // page, so strip the #slot hash first or the same patient would auto-reopen.
+  (function () {
+    var origReset = window.resetFormState, origClear = window.clearForm;
+    if (typeof origReset === 'function') {
+      window.resetFormState = function () { disarm(); return origReset.apply(this, arguments); };
+    }
+    if (typeof origClear === 'function') {
+      window.clearForm = function () {
+        disarm();
+        slotDate = slotName = null; slotLabel = ''; setPatientBtn();
+        if (location.hash) history.replaceState('', document.title, location.pathname + location.search);
+        return origClear.apply(this, arguments);
+      };
+    }
+  })();
+
+  /* ---- open a patient slot ---- */
+  function openSlot(dt, slot, label, allowReset) {
+    slotDate = dt; slotName = slot; slotLabel = (label || '').trim();
+    setPatientBtn();
+    disarm();
+    if (!slotRoot) { toast('Connect the USB workspace (Patient List) to load this patient.', 'err'); return; }
+    WS.slotDir(slotRoot, dt, slot, false)
+      .then(function (dir) { return WS.readText(dir, 'report.json'); })
+      .then(function (text) {
+        var d = JSON.parse(text);
+        if (typeof resetFormState === 'function') resetFormState();
+        applyFormData(d);
+        arm();
+        toast('Loaded ' + (label || slot) + ' from USB — live sync ON', 'ok');
+      })
+      .catch(function () {
+        if (allowReset && typeof resetFormState === 'function') resetFormState();
+        arm();
+        toast('New record for ' + (label || slot) + ' — report.json will be created as you type', 'ok');
+      });
+  }
+  function switchTo(dt, slot, label) {
+    if (!confirm('Open ' + (label || slot) + ' from the USB?\n\nThe current form will be replaced.')) return;
+    history.replaceState('', document.title, location.pathname + location.search + '#slot=' + dt + '/' + slot);
+    openSlot(dt, slot, label, true);
+  }
+
+  /* ---- Patient List menu ---- */
+  function connectFlow() {
+    WS.connect()
+      .then(function (r) { return WS.initScaffold(r); })   // fresh stick: creates + seeds; never overwrites
+      .then(function (r) { slotRoot = r; toast('USB workspace connected', 'ok'); })
+      .catch(function (e) { if (e && e.name !== 'AbortError') toast('Connect failed: ' + e.message, 'err'); });
+  }
+  window.buildPatientMenu = function () {
+    pdMenu.innerHTML = '';
+    if (!supported) { pdMenu.appendChild(noteEl('USB workspace needs Chrome or Edge on desktop.')); return; }
+    pdMenu.appendChild(noteEl('Loading…'));
+    WS.stored().then(function (root) {
+      pdMenu.innerHTML = '';
+      if (!root) {
+        pdMenu.appendChild(item('Connect USB workspace…', connectFlow));
+        pdMenu.appendChild(noteEl('Pick your USB drive — a "' + WS.FOLDER + '" folder is created inside it if new.'));
+        return;
+      }
+      WS.permission(root, false).then(function (p) {
+        if (p !== 'granted') {
+          pdMenu.appendChild(item('Unlock USB workspace', function () {
+            WS.permission(root, true).then(function (p2) {
+              if (p2 === 'granted') { slotRoot = root; toast('USB workspace unlocked', 'ok'); }
+              else toast('Permission denied.', 'err');
+            });
+          }));
+          pdMenu.appendChild(divEl());
+          pdMenu.appendChild(item('Disconnect workspace', doDisconnect, true));
+          return;
+        }
+        slotRoot = root;
+        root.getFileHandle('schedule.json')
+          .then(function (fh) { return fh.getFile(); })
+          .then(function (f) { return f.text(); })
+          .then(function (t) {
+            var sched = {};
+            try { sched = JSON.parse(t || '{}'); } catch (e) {}
+            var dates = Object.keys((sched && sched.dates) || {}).sort().reverse();
+            var any = false;
+            dates.forEach(function (dt) {
+              var dayRows = (sched.dates[dt] || []).slice()
+                .sort(function (a, b) { return String(a.time || '').localeCompare(String(b.time || '')); });
+              if (!dayRows.length) return;
+              any = true;
+              pdMenu.appendChild(headerEl(dt));
+              dayRows.forEach(function (row) {
+                var slot = WS.slotName(row.time, row.pt);
+                var label = ((row.time || '—') + ' ' + (row.pt || '??')).trim();
+                var full = label + ' · ' + ([row.mfr, row.dtype].filter(Boolean).join(' ') || 'device n/s');
+                pdMenu.appendChild(item(full, function () { switchTo(dt, slot, label); }));
+              });
+            });
+            if (!any) pdMenu.appendChild(noteEl('The USB schedule has no patients yet — build it on the Patient Schedule page.'));
+            pdMenu.appendChild(divEl());
+            pdMenu.appendChild(item('Disconnect workspace', doDisconnect, true));
+          })
+          .catch(function () {
+            pdMenu.appendChild(noteEl('No schedule.json on the USB yet — build the schedule first.'));
+            pdMenu.appendChild(divEl());
+            pdMenu.appendChild(item('Disconnect workspace', doDisconnect, true));
+          });
+      });
+    });
+  };
+  function doDisconnect() {
+    WS.forget().then(function () {
+      slotRoot = null; slotDate = slotName = null; slotLabel = '';
+      disarm(); setPatientBtn();
+      toast('USB workspace disconnected.', '');
+    });
+  }
+
+  /* ---- Import menu ---- */
+  function pickVendor(merge) {
+    var cb = document.getElementById('pdp-merge');
+    if (cb) cb.checked = !!merge;
+    var fi = document.getElementById('pdp-file');
+    if (fi) { fi.value = ''; fi.click(); }
+  }
+  // Import/Merge PDF-.log: archive the chosen vendor file into the active patient's slot
+  // folder too, so the raw programmer export lives beside the report on the USB. (The
+  // auto-fill importer has its own change listener on the same input — both run; File
+  // objects are immutable snapshots, so reading twice is safe.)
+  (function () {
+    var fi = document.getElementById('pdp-file');
+    if (!fi) return;
+    fi.addEventListener('change', function () {
+      var file = fi.files && fi.files[0];
+      if (!file) return;
+      if (!slotRoot || !slotDate || !slotName) {
+        toast('Note: no patient selected — ' + file.name + ' was imported but NOT copied to the USB. Pick a patient first if you want it archived.', '');
+        return;
+      }
+      WS.slotDir(slotRoot, slotDate, slotName, true)
+        .then(function (dir) { return WS.writeFile(dir, file.name, file); })
+        .then(function () { setSync('USB: copied ' + file.name + ' ✓'); })
+        .catch(function (e) { toast('Could not copy ' + file.name + ' to the USB: ' + e.message, 'err'); });
+    });
+  })();
+  window.buildImportMenu = function () {
+    imMenu.innerHTML = '';
+    imMenu.appendChild(headerEl('Import Database (USB slot)'));
+    if (!supported || !slotRoot || !slotName) {
+      imMenu.appendChild(noteEl(!supported ? 'Needs Chrome/Edge.' : (!slotRoot ? 'Connect the USB workspace first (Patient List).' : 'Pick a patient first (Patient List).')));
+    } else {
+      var holder = document.createElement('div');
+      imMenu.appendChild(holder);
+      WS.slotDir(slotRoot, slotDate, slotName, false)
+        .then(function (dir) { return WS.listFiles(dir); })
+        .then(function (files) {
+          files.forEach(function (fh) {
+            var n = fh.name.toLowerCase();
+            if (n === 'report.json') {
+              holder.appendChild(item('Load report.json', function () { openSlot(slotDate, slotName, slotLabel, true); }));
+            } else if (/\.(pdf|log|txt)$/.test(n) && n !== 'report.txt' && n !== 'report.pdf') {
+              holder.appendChild(item('Auto-fill from ' + fh.name, function () {
+                fh.getFile().then(function (file) {
+                  if (typeof window.handleFile === 'function') {
+                    Promise.resolve(window.handleFile(file)).then(function () { arm(); writeJsonNow(); });
+                  } else toast('Importer not ready — try again in a second.', 'err');
+                });
+              }));
+            }
+          });
+          if (!holder.children.length) holder.appendChild(noteEl('Nothing importable in this slot yet.'));
+        })
+        .catch(function () { holder.appendChild(noteEl('No slot folder yet — it is created on first save.')); });
+    }
+    imMenu.appendChild(divEl());
+    imMenu.appendChild(item('Import PDF / .log…', function () { pickVendor(false); }));
+    imMenu.appendChild(item('Merge PDF / .log… (keep entered data)', function () { pickVendor(true); }));
+    imMenu.appendChild(item('Import JSON…', function () { importJSON(); }));
+  };
+
+  /* ---- Export menu extra: save all into the slot ---- */
+  window.buildExportExtra = function () {
+    exExtra.innerHTML = '';
+    if (!supported || !slotRoot || !slotName) return;
+    exExtra.appendChild(divEl());
+    exExtra.appendChild(item('Save all to patient folder (.json/.txt/.pdf)', saveAll));
+  };
+  function saveAll() {
+    toast('Saving to USB…', '');
+    WS.slotDir(slotRoot, slotDate, slotName, true).then(function (dir) {
+      var jobs = [
+        WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2)),
+        WS.writeFile(dir, 'report.txt', buildSummaryLines().join('\n'))
+      ];
+      var pdf = (typeof buildReportPdfBlob === 'function') ? buildReportPdfBlob() : null;
+      if (pdf) jobs.push(WS.writeFile(dir, 'report.pdf', pdf));
+      return Promise.all(jobs).then(function () {
+        arm();
+        toast('Saved report.json + report.txt' + (pdf ? ' + report.pdf' : '') + ' to the patient folder', 'ok');
+      });
+    }).catch(function (e) { toast('Save failed: ' + e.message, 'err'); });
+  }
+
+  /* ---- boot: quiet root pickup + hash routing ---- */
+  function parseHash() {
+    var m = (location.hash || '').match(/#slot=(\d{4}-\d{2}-\d{2})\/([A-Za-z0-9_]+)/);
+    return m ? { date: m[1], slot: m[2] } : null;
+  }
+  function routeFromHash(allowReset) {
+    var h = parseHash();
+    if (h) openSlot(h.date, h.slot, '', allowReset);
+  }
+  if (supported) {
+    WS.stored().then(function (root) {
+      if (!root) return;
+      return WS.permission(root, false).then(function (p) {
+        if (p === 'granted') slotRoot = root;
+        routeFromHash(true);
+      });
+    });
+    window.addEventListener('hashchange', function () { routeFromHash(true); });
+  }
+  setPatientBtn();
+})();
+</script>
 </body>
 </html>

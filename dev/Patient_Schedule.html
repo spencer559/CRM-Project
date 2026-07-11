@@ -69,6 +69,16 @@
   td.del button:hover { color:var(--red); }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   #printView { display:none; }
+  td.fbadges { white-space:nowrap; }
+  .fchip {
+    display:inline-block; background:var(--panel2); border:1px solid var(--border);
+    border-radius:6px; padding:2px 8px; font-size:.72rem; font-weight:600;
+    color:var(--accent); cursor:pointer; margin-right:4px; text-transform:uppercase;
+  }
+  .fchip:hover { border-color:var(--accent); }
+  .fchip.crm { color:var(--green); }
+  .fchip.more { color:var(--muted); cursor:default; }
+  .fnone { color:var(--muted); font-size:.78rem; }
 
   /* ---------- print: clean white formatted schedule ---------- */
   @media print {
@@ -117,6 +127,10 @@
         <button onclick="exportJson()">Export JSON</button>
         <button onclick="importJson()">Import JSON</button>
         <input id="importFile" type="file" accept="application/json,.json" style="display:none">
+        <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
+        <div id="wsStatus" class="hdr-status">USB workspace: not connected &mdash; pick your USB's &quot;CRM Toolkit&quot; folder to keep the schedule AND per-patient report files together</div>
+        <button id="wsBtn" onclick="connectWorkspace()" title="Pick your USB drive or its CRM Toolkit folder — created and scaffolded automatically if new">Connect USB workspace</button>
+        <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Disconnect workspace</button>
       </div>
     </div>
     <button class="primary" onclick="printSchedule()">Print schedule</button>
@@ -149,6 +163,7 @@
         <th style="width:150px">Last in-office check</th>
         <th style="width:140px">Remote</th>
         <th>Notes</th>
+        <th style="min-width:150px">Files</th>
         <th></th>
       </tr></thead>
       <tbody id="schedBody"></tbody>
@@ -163,6 +178,7 @@
 
 <div id="printView"></div>
 
+<script src="../src/workspace.js"></script>
 <script>
 (function () {
   "use strict";
@@ -261,10 +277,12 @@
         '<td class="lo"><input type="date" title="Date of the last in-office check" data-i="' + i + '" data-f="lastOff" value="' + esc(r.lastOff) + '"></td>' +
         '<td><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
         '<td><input placeholder="e.g. post-shock, ERI watch, needs interpreter" data-i="' + i + '" data-f="notes" value="' + esc(r.notes) + '"></td>' +
+        '<td class="fbadges" data-fslot="' + i + '"><span class="fnone">&mdash;</span></td>' +
         '<td class="del"><button title="Remove" data-del="' + i + '">&#10005;</button></td>';
       tb.appendChild(tr);
     });
     renderCounts();
+    scanSlots();
   }
   function renderCounts() {
     var rs = rows(), by = {};
@@ -284,6 +302,7 @@
     r[el.dataset.f] = el.dataset.f === "pt" ? el.value.toUpperCase() : el.value;
     save();
     if (el.dataset.f === "check" || el.dataset.f === "rm") renderCounts();
+    if (el.dataset.f === "time" || el.dataset.f === "pt") scheduleScan();
   });
   $("schedBody").addEventListener("click", function (ev) {
     var b = ev.target.closest("button[data-del]"); if (!b) return;
@@ -532,6 +551,119 @@
     if (document.hidden && dataFileHandle) { clearTimeout(syncTimer); writeDataFile(); }
   });
 
+  /* ---------- USB workspace ("CRM Toolkit" folder) ---------- */
+  /* When connected, the schedule persists to <workspace>/schedule.json (reusing the same
+     dataFileHandle machinery as a plain schedule file), and each row's Files cell scans its
+     slot folder patients/<date>/<HHMM>_<INITIALS>/ for report + vendor files. The CRM chip
+     hands the slot to the Report Generator via #slot=, where the same shared handle
+     (src/workspace.js, IndexedDB) loads and saves that patient's files. */
+  var wsRoot = null;
+  var scanTimer = null;
+  var WS = window.CRMWorkspace;
+
+  function setWsStatus(msg, cls) {
+    var el = $("wsStatus");
+    if (el) { el.textContent = msg; el.className = "hdr-status" + (cls ? " " + cls : ""); }
+  }
+  function adoptWorkspace(root) {
+    wsRoot = root;
+    return root.getFileHandle("schedule.json", { create: true }).then(function (fh) {
+      dataFileHandle = fh;
+      return loadFromHandle(fh);
+    }).then(function () {
+      setWsStatus('Workspace connected: "' + WS.FOLDER + '" — schedule + patient files live on your USB', "ok");
+      $("wsBtn").textContent = "Reconnect USB workspace";
+      $("wsForget").style.display = "";
+      $("openBtn").disabled = true;
+      setStatus("Using the USB workspace schedule (schedule.json) — auto-saving", "ok");
+      scanSlots();
+    });
+  }
+  window.connectWorkspace = function () {
+    if (!WS || !WS.supported) { setWsStatus("This browser can't open folders — use Chrome or Edge.", "warn"); return; }
+    WS.connect()
+      .then(function (root) { return WS.initScaffold(root); })   // new stick: seeds patients/ + empty schedule.json (never overwrites)
+      .then(adoptWorkspace)
+      .catch(function (e) { if (e && e.name !== "AbortError") setWsStatus("Connect failed: " + e.message, "warn"); });
+  };
+  window.forgetWorkspace = function () {
+    WS.forget().then(function () {
+      wsRoot = null; dataFileHandle = null;
+      setWsStatus("USB workspace disconnected — schedule is back to this browser only", "");
+      $("wsBtn").textContent = "Connect USB workspace";
+      $("wsBtn").onclick = window.connectWorkspace;
+      $("wsForget").style.display = "none";
+      $("openBtn").disabled = false;
+      setStatus("Not connected — data is in this browser only", "");
+      scanSlots();
+    });
+  };
+  function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scanSlots, 600); }
+  function scanSlots() {
+    var cells = document.querySelectorAll("td.fbadges");
+    if (!wsRoot) {
+      cells.forEach(function (td) { td.innerHTML = '<span class="fnone">&mdash;</span>'; });
+      return;
+    }
+    var rs = rows();
+    cells.forEach(function (td) {
+      var r = rs[+td.dataset.fslot];
+      if (r) renderSlotCell(td, WS.slotName(r.time, r.pt));
+    });
+  }
+  function renderSlotCell(td, slot) {
+    WS.slotDir(wsRoot, curDate, slot, false)
+      .then(function (dir) { return WS.listFiles(dir); })
+      .catch(function () { return []; })
+      .then(function (files) {
+        var html = "";
+        files.slice(0, 3).forEach(function (fh) {
+          var ext = (fh.name.split(".").pop() || "?").toUpperCase();
+          html += '<span class="fchip" data-open="' + esc(slot) + '" data-name="' + esc(fh.name) + '" title="Open ' + esc(fh.name) + '">' + esc(ext) + "</span>";
+        });
+        if (files.length > 3) html += '<span class="fchip more">+' + (files.length - 3) + "</span>";
+        html += '<span class="fchip crm" data-crm="' + esc(slot) + '" title="Open this patient in the CRM Report Generator">CRM</span>';
+        td.innerHTML = html;
+      });
+  }
+  $("schedBody").addEventListener("click", function (ev) {
+    var chip = ev.target.closest(".fchip");
+    if (!chip || !wsRoot) return;
+    if (chip.dataset.crm) {
+      location.href = "../app/CRM_Report_Generator.html#slot=" + curDate + "/" + chip.dataset.crm;
+      return;
+    }
+    if (!chip.dataset.open) return;
+    WS.slotDir(wsRoot, curDate, chip.dataset.open, false)
+      .then(function (dir) { return dir.getFileHandle(chip.dataset.name); })
+      .then(function (fh) { return fh.getFile(); })
+      .then(function (file) {
+        var url = URL.createObjectURL(file);
+        window.open(url, "_blank");
+        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      })
+      .catch(function (e) { setWsStatus("Could not open " + chip.dataset.name + ": " + e.message, "warn"); });
+  });
+  function tryWorkspaceAutoConnect() {
+    if (!WS || !WS.supported) return Promise.resolve(false);
+    return WS.stored().then(function (root) {
+      if (!root) return false;
+      return WS.permission(root, false).then(function (p) {
+        if (p === "granted") return adoptWorkspace(root).then(function () { return true; });
+        setWsStatus('Found your "' + WS.FOLDER + '" workspace — click Reconnect to use it', "warn");
+        var btn = $("wsBtn");
+        btn.textContent = "Reconnect USB workspace";
+        btn.onclick = function () {
+          WS.permission(root, true).then(function (p2) {
+            if (p2 === "granted") { adoptWorkspace(root); btn.onclick = window.connectWorkspace; }
+            else setWsStatus("Permission denied — use Connect USB workspace to pick the folder again", "warn");
+          });
+        };
+        return true;   // workspace known — don't auto-adopt the legacy single file over it
+      });
+    }).catch(function () { return false; });
+  }
+
   /* ---------- walk away: flush to file, then wipe this station ---------- */
   window.walkAway = function () {
     var msg = dataFileHandle
@@ -543,12 +675,16 @@
     flush.then(function () {
       localStorage.removeItem(KEY);
       return idbDel("handle").catch(function () {});
+    }).then(function () {
+      return (WS ? WS.forget() : Promise.resolve());   // forget the USB workspace handle too
     }).then(function () { location.reload(); });
   };
 
   /* ---------- go ---------- */
   render();
-  autoConnect();
+  tryWorkspaceAutoConnect().then(function (usedWorkspace) {
+    if (!usedWorkspace) autoConnect();
+  });
 })();
 </script>
 </body>
