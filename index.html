@@ -238,6 +238,7 @@
      then succeeds. Anonymous visitors: the chain parks on the (hidden) login page
      and the second probe fails too — card stays locked. */
   function probe(path, cls) {
+    if (document.body.classList.contains(cls)) return;   // already lit
     check(path).then(function (ok) {
       if (ok) { document.body.classList.add(cls); return; }
       // Warm-up: the iframe stays alive while we poll, so the Access redirect chain
@@ -258,8 +259,18 @@
       })();
     });
   }
-  probe('dev/auth-check.json', 'auth-dev');       // Developer Deck Access app
-  probe('app/crm-auth-check.json', 'auth-crm');   // CRM Report Generator Access app
+  function runProbes() {
+    probe('dev/auth-check.json', 'auth-dev');       // Developer Deck Access app
+    probe('app/crm-auth-check.json', 'auth-crm');   // CRM Report Generator Access app
+  }
+  runProbes();
+  /* iOS Safari restores this page from the back-forward cache when the user returns
+     from a tool, WITHOUT re-running scripts — so a session minted by visiting the tool
+     was never noticed. Re-probe on restore (and when the tab becomes visible again). */
+  window.addEventListener('pageshow', function (e) { if (e.persisted) runProbes(); });
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) runProbes();
+  });
 })();
 </script>
 </body>
