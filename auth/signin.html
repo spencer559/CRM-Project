@@ -2,10 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<!-- Sign-in bounce target. This page sits behind the CRM Access application (add its path to
-     that app in Zero Trust). Access authenticates the visitor, lands them here, and the
-     meta-refresh immediately returns them to the index — which then probes their session and
-     lights up the tools their account can open. No script, no data, no network. -->
+<!-- Sign-in bounce target — the site's shared front door. This page sits behind its own
+     Access application ("Sign in", path auth/signin.html) whose policy must include EVERY
+     group that can use any tool (Developers + Device Techs + future groups). Access
+     authenticates the visitor, lands them here, and the meta-refresh returns them to the
+     index — which then probes their session and lights up the tools their account can open.
+     No script, no data, no network. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'">
 <meta http-equiv="refresh" content="0;url=../index.html">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
