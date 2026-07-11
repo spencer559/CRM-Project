@@ -70,6 +70,15 @@
     transition:background .15s ease,color .15s ease;
   }
   .signin:hover{background:var(--accent-solid);color:#0e141a;}
+  .signout{
+    display:none;align-items:center;gap:8px;
+    border:1px solid var(--line);border-radius:10px;padding:8px 16px;
+    font-weight:600;font-size:13px;color:var(--dim);
+    transition:border-color .15s ease,color .15s ease;
+  }
+  .signout:hover{border-color:var(--muted);color:var(--ink);}
+  .auth-dev .signout, .auth-crm .signout{display:inline-flex;}
+  .navlinks{display:flex;align-items:center;gap:10px;}
 
   /* ===== main ===== */
   main{flex:1;width:100%;max-width:1180px;margin:0 auto;padding:clamp(36px,6vw,60px) clamp(20px,5vw,64px) 40px;}
@@ -93,20 +102,36 @@
   .card .arrow{color:var(--accent);font-size:17px;transition:transform .2s ease;}
   .card:hover .arrow{transform:translateX(4px);}
 
-  /* signed-in swaps: .s-in/.t-in show when body.authed, .s-out/.t-out hide */
+  /* signed-in swaps — the probes at the bottom add body.auth-dev / body.auth-crm
+     per Access application. .t-out/.i-lock show locked state, .t-in/.i-unlock unlocked. */
   .s-in, .t-in, .i-unlock{display:none;}
-  .authed .s-in, .authed .t-in{display:inline;}
-  .authed .s-out, .authed .t-out{display:none;}
-  .authed .devcard .i-unlock{display:block;}
-  .authed .devcard .i-lock{display:none;}
-  .authed .card.locked{background:var(--surface);border-style:solid;border-color:var(--line);}
-  .authed .card.locked:hover{border-color:var(--ok);box-shadow:0 16px 34px rgba(0,0,0,.5);}
-  .authed .card.locked .icon{background:#12261f;}
-  .authed .card.locked .kicker{color:var(--ok);}
-  .authed .card.locked h2{color:var(--ink);}
-  .authed .card.locked p{color:var(--muted);}
-  .authed .card.locked .meta{color:var(--dim);}
-  .authed .card.locked .arrow{color:var(--ok);}
+  .auth-dev .s-in{display:inline;}
+  .auth-dev .s-out{display:none;}
+  .auth-dev .devcard .t-in{display:inline;}
+  .auth-dev .devcard .t-out{display:none;}
+  .auth-dev .devcard .i-unlock{display:block;}
+  .auth-dev .devcard .i-lock{display:none;}
+  .auth-dev .card.devcard{background:var(--surface);border-style:solid;border-color:var(--line);}
+  .auth-dev .card.devcard:hover{border-color:var(--ok);box-shadow:0 16px 34px rgba(0,0,0,.5);}
+  .auth-dev .card.devcard .icon{background:#12261f;}
+  .auth-dev .card.devcard .kicker{color:var(--ok);}
+  .auth-dev .card.devcard h2{color:var(--ink);}
+  .auth-dev .card.devcard p{color:var(--muted);}
+  .auth-dev .card.devcard .meta{color:var(--dim);}
+  .auth-dev .card.devcard .arrow{color:var(--ok);}
+
+  .auth-crm .crmcard .t-in{display:inline;}
+  .auth-crm .crmcard .t-out{display:none;}
+  .auth-crm .crmcard .i-unlock{display:block;}
+  .auth-crm .crmcard .i-lock{display:none;}
+  .auth-crm .card.crmcard{background:var(--surface);border-style:solid;border-color:var(--line);}
+  .auth-crm .card.crmcard:hover{border-color:var(--accent-solid);box-shadow:0 16px 34px rgba(0,0,0,.5);}
+  .auth-crm .card.crmcard .icon{background:var(--accent-tile);}
+  .auth-crm .card.crmcard .kicker{color:var(--accent);}
+  .auth-crm .card.crmcard h2{color:var(--ink);}
+  .auth-crm .card.crmcard p{color:var(--muted);}
+  .auth-crm .card.crmcard .meta{color:var(--dim);}
+  .auth-crm .card.crmcard .arrow{color:var(--accent);}
 
   .card.locked{background:var(--surface-2);border-style:dashed;border-color:#2b3742;}
   .card.locked:hover{border-color:#3a4753;box-shadow:0 16px 34px rgba(0,0,0,.4);}
@@ -133,7 +158,10 @@
         <span class="name">Cardiac CRM Toolkit</span>
       </span>
     </a>
-    <a class="signin" href="dev/index.html"><span class="s-out">Sign in <span aria-hidden="true">&rarr;</span></span><span class="s-in">Open deck <span aria-hidden="true">&rarr;</span></span></a>
+    <div class="navlinks">
+      <a class="signout" href="/cdn-cgi/access/logout">Sign out</a>
+      <a class="signin" href="dev/index.html"><span class="s-out">Sign in <span aria-hidden="true">&rarr;</span></span><span class="s-in">Open deck <span aria-hidden="true">&rarr;</span></span></a>
+    </div>
   </nav>
 
   <main>
@@ -142,16 +170,17 @@
     <p class="lede">Interrogation reports, coverage mileage, and clinic reference — each running locally, nothing uploaded.</p>
 
     <div class="cards">
-      <a class="card" href="app/CRM_Report_Generator.html">
+      <a class="card locked crmcard" href="app/CRM_Report_Generator.html">
         <span class="icon" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5cc8e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 13h1.5l1-3 1.5 5 1-2H15"/></svg>
+          <svg class="i-lock" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7d8b95" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <svg class="i-unlock" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5cc8e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 13h1.5l1-3 1.5 5 1-2H15"/></svg>
         </span>
-        <div class="kicker">FLAGSHIP</div>
+        <div class="kicker"><span class="t-out">RESTRICTED</span><span class="t-in">FLAGSHIP</span></div>
         <h2>CRM Report Generator</h2>
         <p>Drop a vendor export, auto-fill the interrogation form, export a print-ready PDF or EHR summary.</p>
         <div class="foot">
-          <span class="meta">Medtronic · Boston · Abbott · Biotronik</span>
-          <span class="arrow" aria-hidden="true">→</span>
+          <span class="meta"><span class="t-out">Requires sign-in</span><span class="t-in">Medtronic · Boston · Abbott · Biotronik</span></span>
+          <span class="arrow" aria-hidden="true"><span class="t-out">🔒</span><span class="t-in">→</span></span>
         </div>
       </a>
 
@@ -191,9 +220,13 @@
    Same-origin request only — the CSP forbids any other destination. */
 (function () {
   if (!window.fetch) return;
-  fetch('dev/auth-check.json', { redirect: 'manual', cache: 'no-store' })
-    .then(function (r) { if (r.ok) document.body.classList.add('authed'); })
-    .catch(function () { /* signed out or offline — stay locked */ });
+  function probe(path, cls) {
+    fetch(path, { redirect: 'manual', cache: 'no-store' })
+      .then(function (r) { if (r.ok) document.body.classList.add(cls); })
+      .catch(function () { /* signed out or offline — stay locked */ });
+  }
+  probe('dev/auth-check.json', 'auth-dev');       // Developer Deck Access app
+  probe('app/crm-auth-check.json', 'auth-crm');   // CRM Report Generator Access app
 })();
 </script>
 </body>
