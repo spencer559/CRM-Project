@@ -300,7 +300,12 @@ Import JSON; **Export** offers PDF (save), Print, .txt, JSON, Copy to Clipboard,
 all to patient folder" when a slot is active. **Live sync:** while a slot is armed, every
 form edit debounce-rewrites the slot's `report.json` (flushed on tab hide/close; "USB ✓
 <time>" indicator in the app bar) — `.txt`/`.pdf` are outputs, refreshed only by the explicit
-save. A cleared form can never live-sync over a saved patient. All of it
+save. A cleared form can never live-sync over a saved patient. **USB-only mode** (toggle in the
+schedule's storage menu and the CRM Patient List menu; preference key `usbOnlyMode`, default
+OFF — flip the fallback in `workspace.js usbOnly()` to change the default): while a workspace
+is connected, the schedule keeps NO localStorage mirror, and the CRM form autosave is
+suppressed while a slot is armed (the stick's report.json is the recovery copy) — pull the
+stick and the workstation holds nothing. All of it
 is the File System Access API — no network, CSPs unchanged, Chrome/Edge desktop only. The
 Schedule's "Leave Station" button forgets the workspace handle along with everything else.
 

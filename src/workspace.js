@@ -97,6 +97,17 @@
 
   function forget() { return kvDel().catch(function () {}); }
 
+  /** USB-only mode: while a workspace is connected, pages keep NO PHI mirror in the
+   *  browser (no localStorage schedule copy; CRM autosave suppressed while a slot is
+   *  armed) — the stick is the only copy. Stored as a plain preference (not PHI).
+   *  Default is OFF; to make ON the default someday, change the fallback below. */
+  function usbOnly() {
+    try { return localStorage.getItem("usbOnlyMode") === "1"; } catch (e) { return false; }
+  }
+  function setUsbOnly(v) {
+    try { v ? localStorage.setItem("usbOnlyMode", "1") : localStorage.removeItem("usbOnlyMode"); } catch (e) {}
+  }
+
   /** "08:00" + "JS" -> "0800_JS" (deterministic slot folder name shared by both pages). */
   function slotName(time, pt) {
     var t = String(time || "").replace(/[^0-9]/g, "").slice(0, 4) || "0000";
@@ -141,6 +152,8 @@
     stored: stored,
     permission: permission,
     forget: forget,
+    usbOnly: usbOnly,
+    setUsbOnly: setUsbOnly,
     slotName: slotName,
     slotDir: slotDir,
     listFiles: listFiles,

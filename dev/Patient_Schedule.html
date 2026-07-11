@@ -69,15 +69,15 @@
   td.del button:hover { color:var(--red); }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   #printView { display:none; }
-  td.fbadges { white-space:nowrap; }
+  td.fbadges { white-space:normal; min-width:170px; }
   .fchip {
     display:inline-block; background:var(--panel2); border:1px solid var(--border);
     border-radius:6px; padding:2px 8px; font-size:.72rem; font-weight:600;
-    color:var(--accent); cursor:pointer; margin-right:4px; text-transform:uppercase;
+    color:var(--accent); cursor:pointer; margin:2px 4px 2px 0; text-transform:uppercase;
   }
   .fchip:hover { border-color:var(--accent); }
   .fchip.crm { color:var(--green); }
-  .fchip.more { color:var(--muted); cursor:default; }
+  .fchip.vendor { color:var(--amber); }
   .fnone { color:var(--muted); font-size:.78rem; }
 
   /* ---------- print: clean white formatted schedule ---------- */
@@ -131,6 +131,10 @@
         <div id="wsStatus" class="hdr-status">USB workspace: not connected &mdash; pick your USB's &quot;CRM Toolkit&quot; folder to keep the schedule AND per-patient report files together</div>
         <button id="wsBtn" onclick="connectWorkspace()" title="Pick your USB drive or its CRM Toolkit folder — created and scaffolded automatically if new">Connect USB workspace</button>
         <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Disconnect workspace</button>
+        <label class="hdr-status" style="display:flex; gap:7px; align-items:flex-start; cursor:pointer; margin-top:4px;">
+          <input type="checkbox" id="usbOnlyChk" style="margin-top:2px; cursor:pointer;">
+          <span>USB-only mode &mdash; while a workspace is connected, keep nothing in this browser (the stick is the only copy)</span>
+        </label>
       </div>
     </div>
     <button class="primary" onclick="printSchedule()">Print schedule</button>
@@ -229,7 +233,12 @@
   function save() {
     // drop empty day arrays so purge/export stay tidy
     Object.keys(state.dates).forEach(function (k) { if (!state.dates[k].length) delete state.dates[k]; });
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    // USB-only mode: while the workspace is connected, the stick is the ONLY copy
+    if (wsRoot && WS && WS.usbOnly()) {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+    } else {
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    }
     scheduleFileSync();
   }
   var $ = function (id) { return document.getElementById(id); };
@@ -442,7 +451,11 @@
   }
   function loadFromHandle(h) {
     return h.getFile().then(function (f) { return f.text(); }).then(function (txt) {
-      if (txt.trim()) { state = normalize(JSON.parse(txt)); localStorage.setItem(KEY, JSON.stringify(state)); }
+      if (txt.trim()) {
+        state = normalize(JSON.parse(txt));
+        if (!(wsRoot && WS && WS.usbOnly())) localStorage.setItem(KEY, JSON.stringify(state));
+        else { try { localStorage.removeItem(KEY); } catch (e) {} }
+      }
       render();
     });
   }
@@ -598,6 +611,22 @@
       scanSlots();
     });
   };
+  (function initUsbOnlyToggle() {
+    var chk = $("usbOnlyChk");
+    if (!chk || !WS) return;
+    chk.checked = WS.usbOnly();
+    chk.addEventListener("change", function () {
+      WS.setUsbOnly(chk.checked);
+      if (!wsRoot) { setWsStatus("USB-only mode " + (chk.checked ? "ON" : "OFF") + " — takes effect while a workspace is connected", ""); return; }
+      if (chk.checked) {
+        try { localStorage.removeItem(KEY); } catch (e) {}
+        setWsStatus("USB-only ON — this browser holds no schedule copy", "ok");
+      } else {
+        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+        setWsStatus("USB-only OFF — browser mirror restored", "");
+      }
+    });
+  })();
   function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scanSlots, 600); }
   function scanSlots() {
     var cells = document.querySelectorAll("td.fbadges");
@@ -611,17 +640,29 @@
       if (r) renderSlotCell(td, WS.slotName(r.time, r.pt));
     });
   }
+  function chipLabel(name) {
+    var n = String(name).toLowerCase();
+    if (n === "report.json") return { l: "JSON", cls: "" };
+    if (n === "report.txt") return { l: "TXT", cls: "" };
+    if (n === "report.pdf") return { l: "REPORT", cls: "" };      // our generated report PDF
+    return { l: "PROG", cls: " vendor" };                          // raw programmer export
+  }
+  var CHIP_ORDER = { "report.json": 0, "report.txt": 1, "report.pdf": 2 };
   function renderSlotCell(td, slot) {
     WS.slotDir(wsRoot, curDate, slot, false)
       .then(function (dir) { return WS.listFiles(dir); })
       .catch(function () { return []; })
       .then(function (files) {
-        var html = "";
-        files.slice(0, 3).forEach(function (fh) {
-          var ext = (fh.name.split(".").pop() || "?").toUpperCase();
-          html += '<span class="fchip" data-open="' + esc(slot) + '" data-name="' + esc(fh.name) + '" title="Open ' + esc(fh.name) + '">' + esc(ext) + "</span>";
+        files.sort(function (a, b) {
+          var oa = CHIP_ORDER[a.name.toLowerCase()], ob = CHIP_ORDER[b.name.toLowerCase()];
+          oa = oa === undefined ? 9 : oa; ob = ob === undefined ? 9 : ob;
+          return (oa - ob) || a.name.localeCompare(b.name);
         });
-        if (files.length > 3) html += '<span class="fchip more">+' + (files.length - 3) + "</span>";
+        var html = "";
+        files.forEach(function (fh) {
+          var c = chipLabel(fh.name);
+          html += '<span class="fchip' + c.cls + '" data-open="' + esc(slot) + '" data-name="' + esc(fh.name) + '" title="Open ' + esc(fh.name) + '">' + c.l + "</span>";
+        });
         html += '<span class="fchip crm" data-crm="' + esc(slot) + '" title="Open this patient in the CRM Report Generator">CRM</span>';
         td.innerHTML = html;
       });

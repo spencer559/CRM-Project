@@ -215,6 +215,10 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="divider"></div>
   <span class="save-status" id="save-status">No data saved</span>
   <div class="app-bar-actions">
+    <button class="btn btn-ghost" onclick="location.href='../dev/Patient_Schedule.html'" title="Open the Patient Schedule (developer sign-in)">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Schedule
+    </button>
     <button class="btn btn-ghost" id="patient-btn" onclick="togglePatientMenu(event)">Patient List <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn btn-danger" onclick="clearForm()">New Patient</button>
     <button class="btn btn-ghost" onclick="toggleImportMenu(event)">Import <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -2257,7 +2261,12 @@ loadSaved();
   }
 
   /* ---- live sync core ---- */
-  function arm() { syncArmed = true; setSync('USB sync ON'); }
+  function arm() {
+    syncArmed = true;
+    setSync('USB sync ON' + (WS.usbOnly && WS.usbOnly() ? ' · USB-only' : ''));
+    // USB-only: the slot's report.json is the recovery copy — drop the browser one
+    if (WS.usbOnly && WS.usbOnly()) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
+  }
   function disarm() { syncArmed = false; clearTimeout(syncTimer); syncTimer = null; setSync(''); }
   function writeJsonNow() {
     clearTimeout(syncTimer); syncTimer = null;
@@ -2289,6 +2298,20 @@ loadSaved();
         slotDate = slotName = null; slotLabel = ''; setPatientBtn();
         if (location.hash) history.replaceState('', document.title, location.pathname + location.search);
         return origClear.apply(this, arguments);
+      };
+    }
+    // USB-only mode: while a slot is armed, skip the localStorage autosave entirely —
+    // live sync to the stick is the crash-recovery net, so nothing lands on the machine.
+    var origDoSave = window.doSave;
+    if (typeof origDoSave === 'function') {
+      window.doSave = function () {
+        if (syncArmed && slotRoot && WS.usbOnly && WS.usbOnly()) {
+          try { localStorage.removeItem('crm-digital'); } catch (e) {}
+          var ss = document.getElementById('save-status');
+          if (ss) { ss.textContent = 'USB-only'; ss.className = 'save-status saved'; }
+          return;
+        }
+        return origDoSave.apply(this, arguments);
       };
     }
   })();
@@ -2374,6 +2397,12 @@ loadSaved();
             });
             if (!any) pdMenu.appendChild(noteEl('The USB schedule has no patients yet — build it on the Patient Schedule page.'));
             pdMenu.appendChild(divEl());
+            pdMenu.appendChild(item('USB-only mode: ' + (WS.usbOnly() ? 'ON' : 'OFF') + ' — click to toggle', function () {
+              WS.setUsbOnly(!WS.usbOnly());
+              if (WS.usbOnly()) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
+              if (syncArmed) setSync('USB sync ON' + (WS.usbOnly() ? ' · USB-only' : ''));
+              toast('USB-only mode ' + (WS.usbOnly() ? 'ON — no browser autosave while a patient is active' : 'OFF — browser autosave restored'), 'ok');
+            }, true));
             pdMenu.appendChild(item('Disconnect workspace', doDisconnect, true));
           })
           .catch(function () {
