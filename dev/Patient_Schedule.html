@@ -58,36 +58,46 @@
     text-decoration:none; display:block;
   }
   .hdr-dropdown a:hover { border-color:var(--accent); }
+  .mem-opt { display:flex; gap:8px; align-items:center; cursor:pointer; padding:6px 10px; border:1px solid var(--border);
+             border-radius:6px; background:var(--panel2); font-size:.82rem; color:var(--text); }
+  .mem-opt:hover { border-color:var(--accent); }
+  .mem-opt input { margin:0; cursor:pointer; }
   .datebar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
   .datebar input[type=date] { background:var(--panel2); border:1px solid var(--border); color:var(--text);
       border-radius:8px; padding:7px 10px; font:inherit; font-size:.9rem; color-scheme:dark; }
   #dayLabel { font-size:1.02rem; font-weight:600; }
   #counts { color:var(--muted); font-size:.83rem; margin-left:auto; }
   .twrap { overflow-x:auto; }
-  table { width:100%; border-collapse:collapse; font-size:.9rem; }
-  th, td { padding:7px 8px; text-align:left; border-bottom:1px solid var(--border); vertical-align:middle; }
-  th { color:var(--muted); font-weight:600; font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; }
-  td input, td select { background:var(--panel2); border:1px solid var(--border); color:var(--text);
-      border-radius:6px; padding:6px 8px; font:inherit; font-size:.88rem; width:100%; }
-  td input:focus, td select:focus { outline:2px solid var(--accent); outline-offset:0; }
-  td.time input { width:110px; color-scheme:dark; }
-  td.lo input { width:150px; color-scheme:dark; }
-  td.pt input { width:76px; text-transform:uppercase; }
-  td.del { width:36px; text-align:center; }
-  td.del button { border:none; background:none; color:var(--muted); font-size:1rem; padding:4px 6px; }
+  table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  th, td { padding:3px 5px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; }
+  td input, td select, td textarea { background:var(--panel2); border:1px solid var(--border); color:var(--text);
+      border-radius:5px; padding:3px 5px; font:inherit; font-size:.8rem; width:100%; }
+  td input:focus, td select:focus, td textarea:focus { outline:2px solid var(--accent); outline-offset:0; }
+  td select { padding:3px 2px; }
+  td.time input { width:112px; color-scheme:dark; }
+  td.lo input { width:116px; color-scheme:dark; }
+  td.pt input { width:52px; text-transform:uppercase; }
+  /* Notes: multi-line, wraps, and auto-grows so longer notes stay readable */
+  td.notes { min-width:180px; }
+  td.notes textarea { resize:vertical; min-height:28px; line-height:1.3; white-space:pre-wrap; overflow-wrap:break-word; overflow:hidden; }
+  td.del { width:28px; text-align:center; }
+  td.del button { border:none; background:none; color:var(--muted); font-size:1rem; padding:2px 4px; }
   td.del button:hover { color:var(--red); }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   #printView { display:none; }
-  td.fbadges { white-space:normal; min-width:170px; }
+  /* Files: a fixed set of chips (JSON/TXT/REPORT/PROG/CRM) kept narrow so they wrap to ~2 rows,
+     leaving the extra width for Notes. */
+  td.fbadges { white-space:normal; width:132px; min-width:132px; }
   .fchip {
     display:inline-block; background:var(--panel2); border:1px solid var(--border);
-    border-radius:6px; padding:2px 8px; font-size:.72rem; font-weight:600;
-    color:var(--accent); cursor:pointer; margin:2px 4px 2px 0; text-transform:uppercase;
+    border-radius:5px; padding:1px 5px; font-size:.66rem; font-weight:600;
+    color:var(--accent); cursor:pointer; margin:2px 3px 0 0; text-transform:uppercase;
   }
   .fchip:hover { border-color:var(--accent); }
   .fchip.crm { color:var(--green); }
   .fchip.vendor { color:var(--amber); }
-  .fchip .x { margin-left:6px; padding:0 2px; color:var(--muted); font-weight:700; border-radius:3px; }
+  .fchip .x { margin-left:4px; padding:0 1px; color:var(--muted); font-weight:700; border-radius:3px; }
   .fchip .x:hover { color:var(--red); background:rgba(248,81,73,.12); }
   .fnone { color:var(--muted); font-size:.78rem; }
 
@@ -131,6 +141,22 @@
       </div>
     </div>
     <div class="hdr-menu">
+      <button id="memoryBtn" onclick="toggleMemoryMenu()">Memory &#9662;</button>
+      <div id="memoryMenu" class="hdr-dropdown" style="min-width:280px;">
+        <div id="memStatus" class="hdr-status">Database: &mdash;</div>
+        <div class="hdr-status" style="margin-bottom:2px; color:var(--text);">Automatically keep only recent days<br><span style="color:var(--muted);">Saved with this database and applied on every open.</span></div>
+        <label class="mem-opt"><input type="radio" name="ret" value="1"><span>Last 1 day</span></label>
+        <label class="mem-opt"><input type="radio" name="ret" value="3"><span>Last 3 days</span></label>
+        <label class="mem-opt"><input type="radio" name="ret" value="7"><span>Last 7 days</span></label>
+        <label class="mem-opt"><input type="radio" name="ret" value="30"><span>Last 30 days</span></label>
+        <label class="mem-opt"><input type="radio" name="ret" value="0"><span>Never &mdash; keep everything</span></label>
+        <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
+        <button class="danger" onclick="clearAllPast()" title="Remove every appointment and file dated before today from this database">Clear all past data now</button>
+        <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
+        <button class="danger" onclick="walkAway()" title="Saves the database first, then wipes this browser's copy and forgets the connection">Leave Station</button>
+      </div>
+    </div>
+    <div class="hdr-menu">
       <button id="storageBtn" onclick="toggleStorageMenu()"><span id="storageDot" class="storage-dot"></span>Database &#9662;</button>
       <div id="storageMenu" class="hdr-dropdown">
         <div id="fileStatus" class="hdr-status">No database open &mdash; open your schedule.crmdb from the USB, or create a new one. The schedule AND every patient's report files live inside that one file.</div>
@@ -140,7 +166,7 @@
         <button onclick="importJson()">Import schedule JSON</button>
         <input id="importFile" type="file" accept="application/json,.json" style="display:none">
         <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
-        <div id="wsStatus" class="hdr-status">On a Mac/PC (Chrome or Edge) the database auto-saves in place as you edit. On iPad, edit freely and press &quot;Save database&quot; to write it back to the USB.</div>
+        <div id="wsStatus" class="hdr-status">On a Mac/PC (Chrome or Edge) the database auto-saves in place as you edit. On iPad, edit freely and press &quot;Save now&quot; to write it back to the USB.</div>
         <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Close database</button>
         <label class="hdr-status" style="display:flex; gap:7px; align-items:flex-start; cursor:pointer; margin-top:4px;">
           <input type="checkbox" id="usbOnlyChk" style="margin-top:2px; cursor:pointer;">
@@ -149,8 +175,6 @@
       </div>
     </div>
     <button id="dbSaveBtn" class="save" onclick="saveDatabase()" disabled title="Save the database (.crmdb) back to your USB">Save database</button>
-    <button onclick="printSchedule()">Print schedule</button>
-    <button class="danger" onclick="walkAway()" title="Saves the database first, then wipes this browser's copy and forgets the connection">Leave Station</button>
   </div>
 </header>
 
@@ -161,6 +185,7 @@
     <input type="date" id="schedDate">
     <button onclick="goToday()">Today</button>
     <button onclick="moveDayStart()" title="Entered this day under the wrong date? Move every appointment to the right one.">Move day&hellip;</button>
+    <button onclick="printSchedule()">Print schedule</button>
     <span id="moveBar" style="display:none; align-items:center; gap:8px;">
       <span style="color:var(--muted); font-size:.85rem;">to</span>
       <input type="date" id="moveDate">
@@ -173,14 +198,14 @@
     <table>
       <thead><tr>
         <th style="width:120px">Time</th>
-        <th style="width:90px">Patient</th>
-        <th style="width:150px">Manufacturer</th>
-        <th style="width:130px">Device</th>
-        <th style="width:130px">Check type</th>
-        <th style="width:150px">Last in-office check</th>
-        <th style="width:140px">Remote</th>
+        <th style="width:60px">Patient</th>
+        <th style="width:104px">Manufacturer</th>
+        <th style="width:92px">Device</th>
+        <th style="width:96px">Check type</th>
+        <th style="width:120px">Last office</th>
+        <th style="width:104px">Remote</th>
         <th>Notes</th>
-        <th style="min-width:150px">Files</th>
+        <th style="width:132px">Files</th>
         <th></th>
       </tr></thead>
       <tbody id="schedBody"></tbody>
@@ -217,7 +242,7 @@
     if (!s || typeof s !== "object" || Array.isArray(s)) return blank();
     if (!s.dates || typeof s.dates !== "object") s.dates = {};
     s.type = "patient-schedule"; s.version = 1;
-    purge(s); migrate(s);
+    migrate(s);   // retention pruning is now user-controlled per-database (see Memory menu)
     return s;
   }
   function migrate(s) { // renames/new fields from older saves
@@ -227,13 +252,6 @@
         if (r.rm === "Needs setup") r.rm = "External clinic";
         if (r.lastOff === undefined) r.lastOff = ""; // added Jul 2026
       });
-    });
-  }
-  function purge(s) {   // retention limit: keep the last 7 days only
-    var cut = new Date(); cut.setDate(cut.getDate() - 7);
-    var cutISO = localISO(cut);
-    Object.keys(s.dates).forEach(function (k) {
-      if (k < cutISO || !Array.isArray(s.dates[k])) delete s.dates[k];
     });
   }
   function load() {
@@ -300,14 +318,16 @@
         '<td><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
         '<td class="lo"><input type="date" title="Date of the last in-office check" data-i="' + i + '" data-f="lastOff" value="' + esc(r.lastOff) + '"></td>' +
         '<td><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
-        '<td><input placeholder="e.g. post-shock, ERI watch, needs interpreter" data-i="' + i + '" data-f="notes" value="' + esc(r.notes) + '"></td>' +
+        '<td class="notes"><textarea rows="1" placeholder="e.g. post-shock, ERI watch, needs interpreter" data-i="' + i + '" data-f="notes">' + esc(r.notes) + '</textarea></td>' +
         '<td class="fbadges" data-fslot="' + i + '"><span class="fnone">&mdash;</span></td>' +
         '<td class="del"><button title="Remove" data-del="' + i + '">&#10005;</button></td>';
       tb.appendChild(tr);
     });
+    tb.querySelectorAll("td.notes textarea").forEach(autoGrow);   // size each note to its content
     renderCounts();
     scanSlots();
   }
+  function autoGrow(el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 220) + "px"; }
   function renderCounts() {
     var rs = rows(), by = {};
     rs.forEach(function (r) { by[r.check] = (by[r.check] || 0) + 1; });
@@ -324,6 +344,7 @@
     var el = ev.target; if (el.dataset.i === undefined) return;
     var r = rows()[+el.dataset.i]; if (!r) return;
     r[el.dataset.f] = el.dataset.f === "pt" ? el.value.toUpperCase() : el.value;
+    if (el.dataset.f === "notes" && el.tagName === "TEXTAREA") autoGrow(el);
     save();
     if (el.dataset.f === "check" || el.dataset.f === "rm") renderCounts();
     if (el.dataset.f === "time" || el.dataset.f === "pt") scheduleScan();
@@ -461,8 +482,9 @@
   };
   window.toggleStorageMenu = function () { $("storageMenu").classList.toggle("open"); };
   window.toggleNavMenu = function () { $("navMenu").classList.toggle("open"); };
+  window.toggleMemoryMenu = function () { updateMemoryUI(); $("memoryMenu").classList.toggle("open"); };
   document.addEventListener("click", function (e) {
-    [["storageMenu", "storageBtn"], ["navMenu", "navBtn"]].forEach(function (p) {
+    [["storageMenu", "storageBtn"], ["navMenu", "navBtn"], ["memoryMenu", "memoryBtn"]].forEach(function (p) {
       var m = $(p[0]), b = $(p[1]);
       if (m.classList.contains("open") && !m.contains(e.target) && !b.contains(e.target)) m.classList.remove("open");
     });
@@ -515,6 +537,7 @@
       setStatus(WS.canAutosave ? "Database open — auto-saving as you edit" : "Database open — press “Save database” to write back to USB", "ok");
       updateSaveBtn();
       scanSlots();
+      applyRetention();   // enforce this database's saved retention window on open
     });
   }
   window.openDatabase = function () {
@@ -538,8 +561,78 @@
       setStatus("No database open — data is in this browser only", "");
       updateSaveBtn();
       scanSlots();
+      updateMemoryUI();
     });
   };
+
+  /* ---------- Memory: per-database retention window + size readout ----------
+     The chosen window is stored on the schedule itself (state.retentionDays), so it lives
+     inside this .crmdb and travels with it. 0 / absent = never (keep everything). */
+  function currentRetention() { var d = +(state.retentionDays || 0); return (isFinite(d) && d > 0) ? d : 0; }
+  function fmtBytes(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b / 1024).toFixed(0) + " KB"; return (b / 1048576).toFixed(1) + " MB"; }
+  function cutoffISO(days) { var c = new Date(); c.setDate(c.getDate() - days); return localISO(c); }
+  function countPastAppts(cutISO) { var n = 0; Object.keys(state.dates).forEach(function (k) { if (k < cutISO) n += (state.dates[k] || []).length; }); return n; }
+  function pruneRowsBefore(cutISO) { var n = 0; Object.keys(state.dates).forEach(function (k) { if (k < cutISO) { n += (state.dates[k] || []).length; delete state.dates[k]; } }); return n; }
+
+  // Enforce this database's retention window: drop rows AND their files older than the cutoff.
+  function applyRetention() {
+    var N = currentRetention();
+    if (!N) { updateMemoryUI(); return Promise.resolve(); }
+    var cutISO = cutoffISO(N);
+    var rowsRemoved = pruneRowsBefore(cutISO);
+    var fileJob = (wsRoot && WS.pruneFilesBefore) ? WS.pruneFilesBefore(cutISO) : Promise.resolve({ files: 0 });
+    return fileJob.then(function (res) {
+      if (rowsRemoved || (res && res.files)) {
+        save(); render();
+        setWsStatus("Retention: removed " + rowsRemoved + " past appointment" + (rowsRemoved === 1 ? "" : "s") +
+          (res && res.files ? " and " + res.files + " file" + (res.files === 1 ? "" : "s") : "") +
+          " older than " + N + " day" + (N === 1 ? "" : "s"), "ok");
+      }
+      updateMemoryUI();
+    });
+  }
+  window.setRetention = function (d) {
+    d = +d || 0;
+    if (d > 0) {
+      var n = countPastAppts(cutoffISO(d));
+      if (n && !confirm("Keep only the last " + d + " day" + (d === 1 ? "" : "s") + "?\n\nThis permanently removes " + n +
+        " past appointment" + (n === 1 ? "" : "s") + " — and every file attached to them — older than that, from THIS database. It cannot be undone here.")) {
+        updateMemoryUI(); return;   // cancelled — snap the radios back to the stored value
+      }
+    }
+    state.retentionDays = d; save();
+    applyRetention();
+  };
+  window.clearAllPast = function () {
+    var today = localISO();
+    var n = countPastAppts(today);
+    if (!confirm("Clear ALL past data?\n\nThis permanently removes every appointment and file dated before today" +
+      (n ? " (" + n + " past appointment" + (n === 1 ? "" : "s") + ")" : "") +
+      " from THIS database. Today and future days are kept. It cannot be undone here.")) return;
+    pruneRowsBefore(today);
+    var fileJob = (wsRoot && WS.pruneFilesBefore) ? WS.pruneFilesBefore(today) : Promise.resolve({ files: 0 });
+    fileJob.then(function (res) {
+      save(); if (WS && WS.flush) WS.flush(); render();
+      setWsStatus("Cleared all past data" + (res && res.files ? " — " + res.files + " file" + (res.files === 1 ? "" : "s") + " removed" : ""), "ok");
+      updateMemoryUI();
+    });
+  };
+  function updateMemoryUI() {
+    var N = currentRetention();
+    document.querySelectorAll('input[name="ret"]').forEach(function (r) { r.checked = (+r.value === N); });
+    var el = $("memStatus"); if (!el) return;
+    if (wsRoot && WS && WS.stats) {
+      var s = WS.stats();
+      el.textContent = "Database: " + s.files + " patient file" + (s.files === 1 ? "" : "s") + " · " + fmtBytes(s.bytes);
+    } else {
+      el.textContent = "No database open — this window is still saved for when you open one.";
+    }
+  }
+  (function initMemory() {
+    document.querySelectorAll('input[name="ret"]').forEach(function (r) {
+      r.addEventListener("change", function () { window.setRetention(this.value); });
+    });
+  })();
   (function initUsbOnlyToggle() {
     var chk = $("usbOnlyChk");
     if (!chk || !WS) return;
@@ -700,6 +793,7 @@
   /* ---------- go ---------- */
   render();
   updateSaveBtn();
+  updateMemoryUI();
   tryWorkspaceAutoConnect();
 })();
 </script>

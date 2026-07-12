@@ -354,6 +354,26 @@
     if (had) persist();
     return Promise.resolve(had);
   }
+  // Retention: drop every patient file whose date is strictly before cutISO (YYYY-MM-DD).
+  // Catches orphaned files too (dates no longer in the schedule), so the database stays bounded.
+  function pruneFilesBefore(cutISO) {
+    var removed = 0, bytes = 0;
+    Array.from(bundle.keys()).forEach(function (path) {
+      var m = /^patients\/(\d{4}-\d{2}-\d{2})\//.exec(path);
+      if (m && m[1] < cutISO) { var b = bundle.get(path); bytes += (b && b.size) || 0; bundle.delete(path); removed++; }
+    });
+    if (removed) persist();
+    return Promise.resolve({ files: removed, bytes: bytes });
+  }
+  // Current size of the open database (patient files + schedule), for the Memory readout.
+  function stats() {
+    var files = 0, bytes = 0;
+    bundle.forEach(function (b, path) {
+      bytes += (b && b.size) || 0;
+      if (path.indexOf("patients/") === 0) files++;
+    });
+    return { files: files, bytes: bytes };
+  }
   function moveSlot(root, date, oldSlot, newSlot) {
     if (!oldSlot || !newSlot || oldSlot === newSlot) return Promise.resolve(false);
     var op = slotPrefix(date, oldSlot), np = slotPrefix(date, newSlot), moved = false;
@@ -383,6 +403,8 @@
     readText: readText,
     writeFile: writeFile,
     removeFile: removeFile,
+    pruneFilesBefore: pruneFilesBefore,
+    stats: stats,
     saveNow: saveNow,
     flush: flush,
     isOpen: function () { return opened; },
