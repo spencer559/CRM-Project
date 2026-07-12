@@ -365,6 +365,15 @@
     if (removed) persist();
     return Promise.resolve({ files: removed, bytes: bytes });
   }
+  // Map of "<date>/<slot>" -> number of files, for the All-patients overview.
+  function slotFileCounts() {
+    var counts = {};
+    bundle.forEach(function (_b, path) {
+      var m = /^patients\/(\d{4}-\d{2}-\d{2})\/([^/]+)\//.exec(path);
+      if (m) { var k = m[1] + "/" + m[2]; counts[k] = (counts[k] || 0) + 1; }
+    });
+    return counts;
+  }
   // Current size of the open database (patient files + schedule), for the Memory readout.
   function stats() {
     var files = 0, bytes = 0;
@@ -404,6 +413,7 @@
     writeFile: writeFile,
     removeFile: removeFile,
     pruneFilesBefore: pruneFilesBefore,
+    slotFileCounts: slotFileCounts,
     stats: stats,
     saveNow: saveNow,
     flush: flush,
