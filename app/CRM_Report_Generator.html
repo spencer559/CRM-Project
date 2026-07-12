@@ -2283,7 +2283,8 @@ loadSaved();
   // written here are guaranteed to be in the shared bundle the Schedule page reads.
   window.goToSchedule = function () {
     var go = function () { location.href = '../dev/Patient_Schedule.html'; };
-    (WS && WS.flush ? WS.flush() : Promise.resolve()).then(go, go);
+    // rebuild report.txt/.pdf (if they exist) before leaving so the Schedule shows current reports
+    (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(go, go);
   };
   // the store reports autosave / unsaved / errors through the USB-sync indicator
   if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateDbSaveBtn(); };
@@ -2307,6 +2308,31 @@ loadSaved();
         setSync('USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       })
       .catch(function (e) { setSync('USB sync failed — reconnect', true); });
+  }
+  // On leaving (to the Schedule) or switching patients, refresh report.txt / report.pdf so the
+  // Schedule never shows a stale, clickable report. Only files that ALREADY exist are rebuilt —
+  // opening a patient and leaving won't fabricate a report you never chose to save. report.json
+  // always syncs. Rebuilding the PDF once, at leave-time, avoids pointless mid-edit regenerations.
+  function finalizeReports() {
+    if (!syncArmed || !slotRoot || !slotDate || !slotName) return (WS && WS.flush) ? WS.flush() : Promise.resolve();
+    return WS.slotDir(slotRoot, slotDate, slotName, true).then(function (dir) {
+      return WS.listFiles(dir).then(function (files) {
+        var names = files.map(function (f) { return f.name.toLowerCase(); });
+        var jobs = [WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2))];
+        if (names.indexOf('report.txt') !== -1 && typeof buildSummaryLines === 'function') {
+          jobs.push(WS.writeFile(dir, 'report.txt', buildSummaryLines().join('\n')));
+        }
+        if (names.indexOf('report.pdf') !== -1 && typeof buildReportPdfBlob === 'function') {
+          var pdf = buildReportPdfBlob();
+          if (pdf) jobs.push(WS.writeFile(dir, 'report.pdf', pdf));
+        }
+        return Promise.all(jobs);
+      });
+    }).then(function () {
+      clearTimeout(syncTimer); syncTimer = null;
+      setSync('Report updated · USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      return WS.flush ? WS.flush() : null;
+    }).catch(function (e) { setSync('USB sync failed — reconnect', true); });
   }
   document.addEventListener('input', function () {
     if (!syncArmed) return;
@@ -2369,8 +2395,11 @@ loadSaved();
   }
   function switchTo(dt, slot, label) {
     if (!confirm('Open ' + (label || slot) + ' from the USB?\n\nThe current form will be replaced.')) return;
-    history.replaceState('', document.title, location.pathname + location.search + '#slot=' + dt + '/' + slot);
-    openSlot(dt, slot, label, true);
+    // finalize the current patient's reports before loading the next one
+    (syncArmed ? finalizeReports() : Promise.resolve()).then(function () {
+      history.replaceState('', document.title, location.pathname + location.search + '#slot=' + dt + '/' + slot);
+      openSlot(dt, slot, label, true);
+    });
   }
 
   /* ---- Patient List menu ---- */

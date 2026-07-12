@@ -386,17 +386,21 @@
   $("schedBody").addEventListener("click", function (ev) {
     var b = ev.target.closest("button[data-del]"); if (!b) return;
     var i = +b.dataset.del, r = rows()[i];
+    var slot = (r && WS) ? WS.slotName(r.time, r.pt) : null;
     // Confirm only when the row holds a real entry: time, initials, manufacturer, device
     // and check type are all filled in. A mostly-blank new row deletes with no prompt.
     var filledIn = r && r.time && r.pt && r.mfr && r.dtype && r.check;
     if (filledIn) {
-      var slot = WS ? WS.slotName(r.time, r.pt) : "";
-      var fc = (WS && WS.slotFileCounts) ? (WS.slotFileCounts()[curDate + "/" + slot] || 0) : 0;
+      var fc = (WS && WS.slotFileCounts && slot) ? (WS.slotFileCounts()[curDate + "/" + slot] || 0) : 0;
       var msg = "Delete this patient — " + (fmtTime(r.time) || r.time) + " " + r.pt +
-        (fc ? " (" + fc + " attached file" + (fc === 1 ? "" : "s") + ")" : "") + "?";
+        (fc ? ", including its " + fc + " attached file" + (fc === 1 ? "" : "s") : "") + "?";
       if (!confirm(msg)) return;
     }
-    rows().splice(i, 1); save(); render();
+    rows().splice(i, 1); save();
+    // remove the patient's files from the database too, then refresh
+    if (wsRoot && WS && slot && WS.removeSlotFiles) {
+      WS.removeSlotFiles(wsRoot, curDate, slot).then(function () { if (WS.flush) WS.flush(); render(); });
+    } else { render(); }
   });
   window.addRow = function () {
     rows().push({ time: "", pt: "", mfr: "", dtype: "", check: "In-clinic", lastOff: "", rm: "", notes: "" });

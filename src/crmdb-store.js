@@ -354,6 +354,13 @@
     if (had) persist();
     return Promise.resolve(had);
   }
+  // Remove every file in one patient's slot (used when a patient is deleted from the schedule).
+  function removeSlotFiles(root, date, slot) {
+    var pre = slotPrefix(date, slot), removed = 0;
+    Array.from(bundle.keys()).forEach(function (k) { if (k.indexOf(pre) === 0) { bundle.delete(k); removed++; } });
+    if (removed) persist();
+    return Promise.resolve(removed);
+  }
   // Retention: drop every patient file whose date is strictly before cutISO (YYYY-MM-DD).
   // Catches orphaned files too (dates no longer in the schedule), so the database stays bounded.
   function pruneFilesBefore(cutISO) {
@@ -412,6 +419,7 @@
     readText: readText,
     writeFile: writeFile,
     removeFile: removeFile,
+    removeSlotFiles: removeSlotFiles,
     pruneFilesBefore: pruneFilesBefore,
     slotFileCounts: slotFileCounts,
     stats: stats,
