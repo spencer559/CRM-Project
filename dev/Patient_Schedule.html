@@ -97,6 +97,8 @@
   .fchip:hover { border-color:var(--accent); }
   .fchip.crm { color:var(--green); }
   .fchip.vendor { color:var(--amber); }
+  .fchip.add { color:var(--muted); border-style:dashed; }
+  .fchip.add:hover { color:var(--accent); }
   .fchip .x { margin-left:4px; padding:0 1px; color:var(--muted); font-weight:700; border-radius:3px; }
   .fchip .x:hover { color:var(--red); background:rgba(248,81,73,.12); }
   .fnone { color:var(--muted); font-size:.78rem; }
@@ -188,6 +190,7 @@
         <button onclick="exportJson()">Export schedule JSON</button>
         <button onclick="importJson()">Import schedule JSON</button>
         <input id="importFile" type="file" accept="application/json,.json" style="display:none">
+        <input id="attachFile" type="file" accept="application/pdf,.pdf,.log,.txt" style="display:none">
         <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
         <div id="wsStatus" class="hdr-status">On a Mac/PC (Chrome or Edge) the database auto-saves in place as you edit. On iPad, edit freely and press &quot;Save now&quot; to write it back to the USB.</div>
         <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Close database</button>
@@ -828,6 +831,7 @@
             '<span class="x" data-rm-slot="' + esc(slot) + '" data-rm-name="' + esc(fh.name) + '" title="Remove ' + esc(fh.name) + ' from this patient">&times;</span></span>';
         });
         html += '<span class="fchip crm" data-crm="' + esc(slot) + '" title="Open this patient in the CRM Report Generator">CRM</span>';
+        html += '<span class="fchip add" data-add="' + esc(slot) + '" title="Attach a programmer PDF to this patient (no auto-fill)">+ PDF</span>';
         td.innerHTML = html;
       });
   }
@@ -846,6 +850,11 @@
     }
     var chip = ev.target.closest(".fchip");
     if (!chip || !wsRoot) return;
+    if (chip.dataset.add) {   // attach a programmer PDF directly (loop recorders, Aveir, S-ICD, etc.)
+      pendingAddSlot = chip.dataset.add;
+      var inp = $("attachFile"); inp.value = ""; inp.click();
+      return;
+    }
     if (chip.dataset.crm) {
       var url = "../app/CRM_Report_Generator.html#slot=" + curDate + "/" + chip.dataset.crm;
       // flush the working copy first so the Report Generator opens the latest bundle
@@ -863,6 +872,22 @@
       })
       .catch(function (e) { setWsStatus("Could not open " + chip.dataset.name + ": " + e.message, "warn"); });
   });
+
+  /* ---------- manually attach a programmer PDF to a patient (no auto-fill) ---------- */
+  var pendingAddSlot = null;
+  $("attachFile").addEventListener("change", function (ev) {
+    var f = ev.target.files && ev.target.files[0];
+    var slot = pendingAddSlot; pendingAddSlot = null; ev.target.value = "";
+    if (!f || !slot || !wsRoot) return;
+    var name = f.name;
+    if (/^report\.(pdf|json|txt)$/i.test(name)) name = "prog-" + name;   // never clobber a generated report file
+    WS.slotDir(wsRoot, curDate, slot, true)
+      .then(function (dir) { return WS.writeFile(dir, name, f); })
+      .then(function () { return WS.flush ? WS.flush() : null; })
+      .then(function () { setWsStatus("Attached " + name + " to " + slot, "ok"); scanSlots(); })
+      .catch(function (e) { setWsStatus("Could not attach " + f.name + ": " + e.message, "warn"); });
+  });
+
   // On load, reopen the working database from the store (IndexedDB copy carries across
   // sessions and across the two pages; on desktop the file handle is re-bound for autosave).
   function tryWorkspaceAutoConnect() {

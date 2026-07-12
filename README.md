@@ -9,7 +9,7 @@ A small suite of browser tools for a cardiac device clinic, served as a static s
 | `app/Mileage_Calculator.html` | Clinic-coverage mileage log → one-click expense-form .xlsx, optional cloud sync |
 | `dev/index.html` | Developer deck — landing page for dev-only tools (`/dev/*` is gated by Cloudflare Access) |
 | `dev/dashboard.html` | Command center: markets, device-check tally, clinical reference, notes/to-do |
-| `dev/Patient_Schedule.html` | Daily clinic schedule — initials only, zero network egress, print-formatted day sheet |
+| `dev/Patient_Schedule.html` | Daily clinic schedule — initials only, zero network egress, print-formatted day sheet; stores the schedule **and** every patient's files in one portable `.crmdb` database (iPad-ready) |
 | `mileage-backend/` | Cloudflare Worker + D1 backend for mileage cloud sync (see its `DEPLOY.md`) |
 
 > This README doubles as a **project handoff / context document** — if you're an AI assistant (e.g. Claude in Cowork) being pointed here to continue the work, read the whole thing; it captures the architecture, conventions, and the vendor-specific gotchas that took real reports to discover.
@@ -54,7 +54,8 @@ mileage-backend/
   src/worker.js  wrangler.toml      Cloudflare Worker + D1 sync backend
   schema.sql  DEPLOY.md             (see DEPLOY.md for one-time setup)
 src/
-  workspace.js                      Shared USB-workspace module ("CRM Toolkit" folder; see below)
+  crmdb-store.js                    Shared .crmdb database engine (CRMWorkspace API over an in-memory bundle; see below)
+  workspace.js                      LEGACY live-folder workspace — no longer included by any page (kept for git history)
   engine.js                         Shared PDF extraction engine + anchor helpers + cleaners
   parsers/
     medtronic.js                    Medtronic PDF parser  → window.MEDTRONIC.runMap(LINES, META)
@@ -62,6 +63,7 @@ src/
     abbott.js                       Abbott Merlin .log     → window.ABBOTT.runLog(text)
     biotronik.js                    Biotronik PDF parser  → window.BIOTRONIK.runMap(LINES, META)
 vendor/
+  crmdb-zip.js                      Dependency-free ZIP reader/writer for the .crmdb container (CSP-safe, no CDN)
   pdf.min.js  pdf.worker.min.js     Vendored pdf.js 3.11.174 (self-hosted, not a CDN)
   jspdf.umd.min.js (+ autotable)    Vector-PDF export
   fonts/                            Self-hosted landing-page fonts
@@ -265,49 +267,96 @@ Persistence details worth knowing before editing:
 
 ### Patient Schedule (`dev/Patient_Schedule.html`)
 
-A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. **Data-minimized by design**: rows hold time, patient *initials only* (no MRN/DOB/name fields exist), manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…"** button beside the date picker reassigns an entire day to a different date (merge-confirm if the target day already has rows, blocked past the 7-day retention window) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
+A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. **Data-minimized by design**: rows hold time, patient *initials only* (no MRN/DOB/name fields exist), manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…"** button beside the date picker reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
 
-Workflow/storage: localStorage per day (days older than 7 are auto-purged), an optional **schedule file** connected via the File System Access API (e.g. a JSON in OneDrive — remembered handle, auto-saves on every change, auto-reconnects), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** button (the walk-away action) that flushes to the connected file, wipes localStorage, and forgets the file handle — the file keeps the data; only the browser is cleaned. Storage is deliberately *not* encrypted (user decision: relies on the Access gate, workstation login, and the walk-away habit) — revisit if that assumption changes. Never wire this page to the mileage sync Worker or any other backend.
+Workflow/storage: the schedule **and every patient's files** now live in a **single `.crmdb` database file** — see *The `.crmdb` database container* below for the full model. On Mac/PC it auto-saves in place as you edit; on iPad you press **Save** to write it back through the Files sheet. Data-lifetime is user-controlled **per database** via the **Memory** menu (retention window + Clear-all-past + a size readout; default is keep-everything — the old fixed 7-day purge is gone). Also: a header **All patients** overview, a manual **+ PDF** attach chip per row (for device types with no parser), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** action (now inside the Memory menu) that saves the database, wipes localStorage, and forgets the connection — the file keeps the data; only the browser is cleaned. Storage is deliberately *not* encrypted (user decision: relies on the Access gate, workstation login, and the walk-away habit) — revisit if that assumption changes. Never wire this page to the mileage sync Worker or any other backend.
 
-### USB workspace (`src/workspace.js` — shared by the Schedule and the CRM tool)
+### The `.crmdb` database container (`src/crmdb-store.js` + `vendor/crmdb-zip.js`)
 
-The workspace is a **"CRM Toolkit"** folder on the tech's USB stick (the module auto-descends
-into / creates that folder even if the user picks the drive root — everything stays
-compartmentalized):
+Jul 2026 the shared USB workspace moved from a **live folder tree** (the old `src/workspace.js`,
+which drove the File System Access **directory** API and was Chrome/Edge-desktop only) to a
+**single portable file** — `schedule.crmdb` — so the same database works on **iPad** too
+(iPadOS has no directory API at all). `workspace.js` is retired; both the Schedule and the CRM
+tool now load `crmdb-store.js`. The original trigger was an NTFS bug — see the caveat at the end.
+
+**Format.** A `.crmdb` is just a standard **ZIP** (rename it to `.zip` and Finder/Explorer opens
+it — fully recoverable without the app), written by `vendor/crmdb-zip.js`, a dependency-free
+reader/writer (STORE on write with correct CRC-32s; inflates DEFLATE on read via the browser's
+`DecompressionStream`). It's self-hosted because the pages run under `connect-src 'none'` /
+`script-src 'self'` — no CDN allowed. The internal layout mirrors the old folder tree, so it's
+still inspectable:
 
 ```
-CRM Toolkit/
-  schedule.json                          the Patient Schedule's data file
+schedule.crmdb  (zip)
+  manifest.json                                    {type, version, modified, fileCount}
+  schedule.json                                    the Patient Schedule data (+ retentionDays — see Memory)
   patients/<YYYY-MM-DD>/<HHMM>_<INITIALS>/
-    report.json  report.txt  report.pdf  (CRM tool exports)
-    <vendor export>.pdf / .log           (raw programmer files, optional)
+    report.json  report.txt  report.pdf            CRM tool exports
+    <vendor export>.pdf / .log                     raw programmer files (optional)
 ```
 
-The directory handle lives in IndexedDB (`crmWorkspace` db) so **both pages — same origin —
-share one connected folder** (one permission click per page per browser session). On the
-Schedule, connecting the workspace makes `schedule.json` the schedule's data file and gives
-every row a **Files** cell: chips for each file in its slot folder (`slotName = HHMM_INITIALS`,
-click to open) plus a **CRM** chip that opens the Report Generator with `#slot=<date>/<slot>`.
-On the CRM tool, the app bar is menu-driven (the old drag-drop panel is hidden; its importer
-is driven from the menus): **Patient List** connects/unlocks the workspace (connect
-auto-creates + scaffolds a fresh stick — there is no separate "create" action) and lists the
-USB schedule's patients grouped by date — picking one loads its `report.json` (or starts a
-fresh record) and shows "Patient: <time> <initials>" on the button; **New Patient** clears
-(wrapped: disarms sync + strips the `#slot` hash first); **Import** offers Import Database
-(the active slot's files: load `report.json` / auto-fill from a stored vendor export),
-Import PDF/Log, Merge PDF/Log (both drive the hidden importer via its merge checkbox), and
-Import JSON; **Export** offers PDF (save), Print, .txt, JSON, Copy to Clipboard, plus "Save
-all to patient folder" when a slot is active. **Live sync:** while a slot is armed, every
-form edit debounce-rewrites the slot's `report.json` (flushed on tab hide/close; "USB ✓
-<time>" indicator in the app bar) — `.txt`/`.pdf` are outputs, refreshed only by the explicit
-save. A cleared form can never live-sync over a saved patient. **USB-only mode** (toggle in the
-schedule's storage menu and the CRM Patient List menu; preference key `usbOnlyMode`, default
-OFF — flip the fallback in `workspace.js usbOnly()` to change the default): while a workspace
-is connected, the schedule keeps NO localStorage mirror, and the CRM form autosave is
-suppressed while a slot is armed (the stick's report.json is the recovery copy) — pull the
-stick and the workstation holds nothing. All of it
-is the File System Access API — no network, CSPs unchanged, Chrome/Edge desktop only. The
-Schedule's "Leave Station" button forgets the workspace handle along with everything else.
+**Engine (`crmdb-store.js`).** It exposes the **same `window.CRMWorkspace` API the two pages
+already called** (`connect`, `slotDir`, `readText`, `writeFile`, `listFiles`, `moveSlot`,
+`slotName`, `stored`, `permission`, `forget`, `usbOnly` …) but backed by an **in-memory
+`bundle` = `Map<path, Blob>`** instead of live directory handles. Slot/file ops became map
+reads/writes; `moveSlot` (renaming a slot when a row's time/initials change) became a key
+relabel; `readText` on a missing file rejects (so the CRM "new patient" catch still fires).
+Because the API surface is unchanged, migrating the 2500-line CRM tool was mostly a script-swap.
+The bundle **is** the one database, and it is:
+- **serialized to the `.crmdb`** on save;
+- **mirrored to IndexedDB** (`crmdbStore` db, `bundle` key) on every change (debounced) — this
+  working copy is what carries state **across the two pages** on a full navigation, which is
+  what makes the two-page handoff work on iPad (there's no persistent file handle there);
+- on **desktop** (Chrome/Edge) additionally bound to a real `.crmdb` **file handle** (also stored
+  in IndexedDB, so both same-origin pages share it) and **autosaved in place** — no button.
+
+**Capability split.** `WS.canAutosave = !!showSaveFilePicker` (true on desktop Chromium). Desktop:
+silent debounced autosave to the file + IndexedDB. iPad: the green **Save** button (`saveNow`)
+hands the whole `.crmdb` to `navigator.share` → "Save to Files → USB" (falls back to a download),
+and a `flush()` (IndexedDB-only, no download) runs before every cross-page navigation so the other
+page opens the latest bundle. MIME types are re-assigned by extension on read, so a `report.pdf`
+chip still opens inline after a round-trip strips the raw blob's type.
+
+**Schedule-side features built on the container:**
+- **Database menu** (replaces the old dual "schedule file" + "USB workspace" menus): Open / New
+  database, Export/Import schedule JSON, USB-only, Close database. A separate **Save** button
+  ("Save now" on desktop, "Save database" on iPad) sits in the header; **Leave Station** moved
+  into the **Memory** menu. Header order: Modules · All patients · Memory · Database · Save.
+- **Memory menu** — a **per-database retention window** (`state.retentionDays`, stored **inside**
+  the `.crmdb` so it travels with that specific file; `0`/absent = never). Options 1 / 3 / 7 /
+  30 days / Never; on selection and on every open, rows **and their files** older than the cutoff
+  are pruned (`WS.pruneFilesBefore` also catches orphaned files, so the file stays bounded). Plus
+  a one-off **Clear all past data** and a live **size readout** (`WS.stats`). The old hard-coded
+  7-day `purge()` on load was removed in favor of this.
+- **All patients** overview (header button) — a searchable modal listing every appointment across
+  all dates with a green file-count badge (`WS.slotFileCounts`); click a row to jump to that day.
+- **Manual "+ PDF"** chip on each row's Files cell — attach a programmer export (loop recorder,
+  Aveir, S-ICD — anything with no parser) straight into the slot; it shows as a **PROG** chip.
+  Won't clobber a generated `report.*` (an upload named `report.pdf` is stored `prog-report.pdf`).
+- **Delete a patient** (the row ×) confirms only when the row is substantially filled
+  (time + initials + manufacturer + device + check all set) and **also removes that slot's files**
+  from the database (`WS.removeSlotFiles`); a mostly-blank new row still deletes silently.
+- UI: the page is a **scroll-locked shell** (`body{overflow:hidden}` + a `.main-scroll` pane) so
+  the iPad share popover never drifts off-screen no matter how many rows exist; the table was
+  compacted and **Notes is a wrapping, auto-growing textarea**; the Files column is kept narrow
+  (chips wrap ~2 rows) to give Notes width.
+
+**CRM-tool-side:** the app-bar gained a **Save DB** button (force-rebuilds json+txt+pdf, then
+writes/downloads the whole database as a backup). On **leave** (the Schedule button),
+**patient-switch**, and **backgrounding** — whenever edits are pending (a `dirty` flag) —
+`finalizeReports()` rebuilds the full report set (`report.json` + `report.txt` + `report.pdf`)
+from the current form so the Schedule's chips are never stale; the cheap 1.5s live sync still
+writes only `report.json` mid-edit. Patient List / Import / Export menus are otherwise unchanged,
+now sourcing the patient list from the bundle's `schedule.json`. A `.crmdb` opened directly on the
+CRM tool works the same as opening it on the Schedule (shared IndexedDB working copy + file handle).
+
+**USB-only mode** is unchanged in spirit (preference key `usbOnlyMode`): while a database is open,
+the browser keeps no schedule mirror. **NTFS caveat** — the bug that started all this: macOS and
+iPadOS mount **NTFS read-only**, so *every* write fails there regardless of mechanism (the original
+"could not be modified due to the state of the underlying filesystem" error). Format the stick
+**exFAT** for cross-device read-write. A single `.crmdb` (vs. thousands of loose files) is also far
+friendlier to USB/sync filesystems. The Schedule's **Leave Station** saves the database, wipes
+localStorage, and forgets the connection.
 
 ---
 
@@ -333,7 +382,8 @@ Schedule's "Leave Station" button forgets the workspace handle along with everyt
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
 - **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
 - **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
-- **Patient Schedule** (initials-only day sheet, local-only, print view, OneDrive-file persistence, walk-away wipe) added behind the `/dev/` gate.
+- **Patient Schedule** (initials-only day sheet, print view, walk-away wipe) behind the `/dev/` gate — now backed by the `.crmdb` container (below) with per-database Memory retention, an All-patients overview, and manual PDF attach.
+- **`.crmdb` single-file database (Jul 2026):** the shared USB workspace was rebuilt from a live folder tree into one portable ZIP (`schedule.crmdb`) so the Schedule **and** the CRM Report Generator work on **iPad** as well as desktop. New `src/crmdb-store.js` (CRMWorkspace API over an in-memory bundle + IndexedDB cross-page copy + desktop file-handle autosave / iPad share-sheet save) and `vendor/crmdb-zip.js` (dependency-free, CSP-safe ZIP). Verified headlessly in Node: bundle round-trips (valid zip per `unzip -t`), slot moves/renames, file counts, retention pruning, per-database `retentionDays` persistence, delete-with-files, and the two-page handoff sequence. Browser click-through (iPad share sheet, desktop reconnect) still to be confirmed on real hardware.
 - **Site passover (Jul 2026):** dashboard data-file snapshot/restore whitelisted to dashboard-owned keys (a full-localStorage mirror was writing the CRM PHI autosave into exports); tally + mileage "Add day" switched to local dates (UTC `toISOString` rolled evening entries to tomorrow); Mileage Calculator got a CSP matching the other pages; `mileage-backend/.wrangler/` untracked and git-ignored.
 
 **Known gaps / TODO ideas:**
