@@ -51,6 +51,9 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .btn-ghost:hover { background: #e5e9ef; }
 .btn-danger { background: #fff; color: #b03030; border-color: #dbb; }
 .btn-danger:hover { background: #fdf0f0; }
+.btn-save { background: var(--green); color: #fff; border-color: var(--green); }
+.btn-save:hover { filter: brightness(1.08); }
+.btn-save:disabled { background: #eef1f5; color: #aab; border-color: var(--border); cursor: default; filter: none; }
 
 /* JSON import/export dropdown — position:fixed so it's anchored in VIEWPORT coordinates under the
    fixed app-bar button. This keeps the menu (and the native iOS share popover it triggers, which
@@ -223,6 +226,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     <button class="btn btn-danger" onclick="clearForm()">New Patient</button>
     <button class="btn btn-ghost" onclick="toggleImportMenu(event)">Import <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn btn-primary" onclick="toggleExportMenu(event)">Export <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button class="btn btn-save" id="db-save-btn" onclick="saveDatabase()" disabled title="Save the database (.crmdb) back to your USB">Save DB</button>
   </div>
 </header>
 
@@ -1981,7 +1985,8 @@ loadSaved();
 <script src="../src/parsers/boston.js"></script>
 <script src="../src/parsers/abbott.js"></script>
 <script src="../src/parsers/biotronik.js"></script>
-<script src="../src/workspace.js"></script>
+<script src="../vendor/crmdb-zip.js"></script>
+<script src="../src/crmdb-store.js"></script>
 <script>
 /* PDF → CRM form auto-fill. Reuses the form's own update functions so toggles,
    lead rows and pacing-% visibility behave exactly as for manual entry. */
@@ -2260,10 +2265,28 @@ loadSaved();
     syncEl.textContent = msg;
   }
 
+  /* ---- separate "Save DB" button: desktop flushes the .crmdb in place, iPad downloads it ---- */
+  function updateDbSaveBtn() {
+    var b = document.getElementById('db-save-btn'); if (!b) return;
+    var open = !!slotRoot || !!(WS && WS.isOpen && WS.isOpen());
+    b.disabled = !open;
+    b.textContent = (WS && WS.canAutosave) ? 'Save now' : 'Save DB';
+    b.title = (WS && WS.canAutosave)
+      ? 'Auto-saves as you edit — click to force a save right now'
+      : 'Save the database (.crmdb) back to your USB via the Files sheet';
+  }
+  window.saveDatabase = function () {
+    if (!WS || !WS.saveNow) return;
+    WS.saveNow().catch(function (e) { toast('Save failed: ' + e.message, 'err'); });
+  };
+  // the store reports autosave / unsaved / errors through the USB-sync indicator
+  if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateDbSaveBtn(); };
+
   /* ---- live sync core ---- */
   function arm() {
     syncArmed = true;
     setSync('USB sync ON' + (WS.usbOnly && WS.usbOnly() ? ' · USB-only' : ''));
+    updateDbSaveBtn();
     // USB-only: the slot's report.json is the recovery copy — drop the browser one
     if (WS.usbOnly && WS.usbOnly()) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
   }
@@ -2273,6 +2296,7 @@ loadSaved();
     if (!syncArmed || !slotRoot || !slotDate || !slotName) return Promise.resolve();
     return WS.slotDir(slotRoot, slotDate, slotName, true)
       .then(function (dir) { return WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2)); })
+      .then(function () { return WS.flush ? WS.flush() : null; })   // land it in the shared copy for the Schedule page
       .then(function () {
         setSync('USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       })
@@ -2346,10 +2370,11 @@ loadSaved();
   /* ---- Patient List menu ---- */
   function connectFlow() {
     WS.connect()
-      .then(function (r) { return WS.initScaffold(r); })   // fresh stick: creates + seeds; never overwrites
-      .then(function (r) { slotRoot = r; toast('USB workspace connected', 'ok'); })
-      .catch(function (e) { if (e && e.name !== 'AbortError') toast('Connect failed: ' + e.message, 'err'); });
+      .then(function (r) { return WS.initScaffold(r); })   // fresh database: seeds an empty schedule.json
+      .then(function (r) { slotRoot = r; updateDbSaveBtn(); toast('Database opened', 'ok'); })
+      .catch(function (e) { if (e && e.name !== 'AbortError') toast('Open failed: ' + e.message, 'err'); });
   }
+  window.openDatabaseFlow = connectFlow;   // exposed so a "New Database" action could reuse it
   window.buildPatientMenu = function () {
     pdMenu.innerHTML = '';
     if (!supported) { pdMenu.appendChild(noteEl('USB workspace needs Chrome or Edge on desktop.')); return; }
@@ -2357,15 +2382,17 @@ loadSaved();
     WS.stored().then(function (root) {
       pdMenu.innerHTML = '';
       if (!root) {
-        pdMenu.appendChild(item('Connect USB workspace…', connectFlow));
-        pdMenu.appendChild(noteEl('Pick your USB drive — a "' + WS.FOLDER + '" folder is created inside it if new.'));
+        pdMenu.appendChild(item('Open database…', connectFlow));
+        pdMenu.appendChild(noteEl(WS.canAutosave
+          ? 'Pick your schedule.crmdb on the USB (auto-saves in place as you edit).'
+          : 'Pick your schedule.crmdb from the USB via the Files app. Press “Save DB” to write changes back.'));
         return;
       }
       WS.permission(root, false).then(function (p) {
         if (p !== 'granted') {
           pdMenu.appendChild(item('Unlock USB workspace', function () {
             WS.permission(root, true).then(function (p2) {
-              if (p2 === 'granted') { slotRoot = root; toast('USB workspace unlocked', 'ok'); }
+              if (p2 === 'granted') { slotRoot = root; updateDbSaveBtn(); toast('Database unlocked', 'ok'); }
               else toast('Permission denied.', 'err');
             });
           }));
@@ -2373,7 +2400,7 @@ loadSaved();
           pdMenu.appendChild(item('Disconnect workspace', doDisconnect, true));
           return;
         }
-        slotRoot = root;
+        slotRoot = root; updateDbSaveBtn();
         root.getFileHandle('schedule.json')
           .then(function (fh) { return fh.getFile(); })
           .then(function (f) { return f.text(); })
@@ -2416,8 +2443,8 @@ loadSaved();
   function doDisconnect() {
     WS.forget().then(function () {
       slotRoot = null; slotDate = slotName = null; slotLabel = '';
-      disarm(); setPatientBtn();
-      toast('USB workspace disconnected.', '');
+      disarm(); setPatientBtn(); updateDbSaveBtn();
+      toast('Database closed.', '');
     });
   }
 
@@ -2517,15 +2544,17 @@ loadSaved();
   }
   if (supported) {
     WS.stored().then(function (root) {
-      if (!root) return;
+      if (!root) { updateDbSaveBtn(); return; }
       return WS.permission(root, false).then(function (p) {
         if (p === 'granted') slotRoot = root;
+        updateDbSaveBtn();
         routeFromHash(true);
       });
     });
     window.addEventListener('hashchange', function () { routeFromHash(true); });
   }
   setPatientBtn();
+  updateDbSaveBtn();
 })();
 </script>
 </body>

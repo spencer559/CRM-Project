@@ -22,6 +22,9 @@
   button:hover { border-color:var(--accent); }
   button.primary { background:var(--accent); color:#04121f; border-color:var(--accent); font-weight:600; }
   button.primary:hover { filter:brightness(1.1); }
+  button.save { background:var(--green); color:#04121f; border-color:var(--green); font-weight:700; }
+  button.save:hover { filter:brightness(1.1); }
+  button.save:disabled { background:var(--panel2); color:var(--muted); border-color:var(--border); filter:none; cursor:default; }
   button.danger:hover { border-color:var(--red); color:var(--red); }
   .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:16px; }
   .panel h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:2px; color:var(--muted); margin-bottom:10px;
@@ -119,26 +122,26 @@
       </div>
     </div>
     <div class="hdr-menu">
-      <button id="storageBtn" onclick="toggleStorageMenu()"><span id="storageDot" class="storage-dot"></span>Schedule file &#9662;</button>
+      <button id="storageBtn" onclick="toggleStorageMenu()"><span id="storageDot" class="storage-dot"></span>Database &#9662;</button>
       <div id="storageMenu" class="hdr-dropdown">
-        <div id="fileStatus" class="hdr-status">Not connected &mdash; data is in this browser only. Connect the file in your OneDrive folder once &mdash; it auto-saves on every change.</div>
-        <button id="openBtn" onclick="openDataFile()">Connect schedule file</button>
-        <button onclick="newDataFile()">New schedule file</button>
-        <button onclick="exportJson()">Export JSON</button>
-        <button onclick="importJson()">Import JSON</button>
+        <div id="fileStatus" class="hdr-status">No database open &mdash; open your schedule.crmdb from the USB, or create a new one. The schedule AND every patient's report files live inside that one file.</div>
+        <button id="openBtn" onclick="openDatabase()">Open database&hellip;</button>
+        <button onclick="newDatabase()">New database&hellip;</button>
+        <button onclick="exportJson()">Export schedule JSON</button>
+        <button onclick="importJson()">Import schedule JSON</button>
         <input id="importFile" type="file" accept="application/json,.json" style="display:none">
         <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
-        <div id="wsStatus" class="hdr-status">USB workspace: not connected &mdash; pick your USB's &quot;CRM Toolkit&quot; folder to keep the schedule AND per-patient report files together</div>
-        <button id="wsBtn" onclick="connectWorkspace()" title="Pick your USB drive or its CRM Toolkit folder — created and scaffolded automatically if new">Connect USB workspace</button>
-        <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Disconnect workspace</button>
+        <div id="wsStatus" class="hdr-status">On a Mac/PC (Chrome or Edge) the database auto-saves in place as you edit. On iPad, edit freely and press &quot;Save database&quot; to write it back to the USB.</div>
+        <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Close database</button>
         <label class="hdr-status" style="display:flex; gap:7px; align-items:flex-start; cursor:pointer; margin-top:4px;">
           <input type="checkbox" id="usbOnlyChk" style="margin-top:2px; cursor:pointer;">
-          <span>USB-only mode &mdash; while a workspace is connected, keep nothing in this browser (the stick is the only copy)</span>
+          <span>USB-only mode &mdash; keep no schedule copy in this browser (the database file is the only copy)</span>
         </label>
       </div>
     </div>
-    <button class="primary" onclick="printSchedule()">Print schedule</button>
-    <button class="danger" onclick="walkAway()" title="Saves to the connected schedule file first, then wipes this browser's copy and forgets the file connection">Leave Station</button>
+    <button id="dbSaveBtn" class="save" onclick="saveDatabase()" disabled title="Save the database (.crmdb) back to your USB">Save database</button>
+    <button onclick="printSchedule()">Print schedule</button>
+    <button class="danger" onclick="walkAway()" title="Saves the database first, then wipes this browser's copy and forgets the connection">Leave Station</button>
   </div>
 </header>
 
@@ -182,7 +185,8 @@
 
 <div id="printView"></div>
 
-<script src="../src/workspace.js"></script>
+<script src="../vendor/crmdb-zip.js"></script>
+<script src="../src/crmdb-store.js"></script>
 <script>
 (function () {
   "use strict";
@@ -419,13 +423,24 @@
     r.readAsText(f); ev.target.value = "";
   });
 
-  /* ---------- schedule file (File System Access, same pattern as the dashboard) ---------- */
-  var dataFileHandle = null, syncTimer = null;
+  /* ---------- database persistence (.crmdb container via src/crmdb-store.js) ---------- */
+  var WS = window.CRMWorkspace;
+  var wsRoot = null;             // the open database (virtual root over the bundle)
+  var dataFileHandle = null;     // virtual handle to schedule.json inside the bundle
+  var syncTimer = null, scanTimer = null;
+
   function setStatus(msg, cls) {
     var el = $("fileStatus");
     el.textContent = msg; el.className = "hdr-status" + (cls ? " " + cls : "");
     $("storageDot").style.background = cls === "ok" ? "var(--green)" : (cls === "warn" ? "var(--amber)" : "var(--muted)");
   }
+  function setWsStatus(msg, cls) {
+    var el = $("wsStatus");
+    if (el) { el.textContent = msg; el.className = "hdr-status" + (cls ? " " + cls : ""); }
+  }
+  // the store reports autosave / unsaved / errors through here
+  if (WS) WS.onStatus = function (msg, cls) { setStatus(msg, cls); updateSaveBtn(); };
+
   window.toggleStorageMenu = function () { $("storageMenu").classList.toggle("open"); };
   window.toggleNavMenu = function () { $("navMenu").classList.toggle("open"); };
   document.addEventListener("click", function (e) {
@@ -434,6 +449,21 @@
       if (m.classList.contains("open") && !m.contains(e.target) && !b.contains(e.target)) m.classList.remove("open");
     });
   });
+
+  function updateSaveBtn() {
+    var b = $("dbSaveBtn"); if (!b) return;
+    b.disabled = !wsRoot;
+    b.textContent = (WS && WS.canAutosave) ? "Save now" : "Save database";
+    b.title = (WS && WS.canAutosave)
+      ? "Auto-saves as you edit — click to force a save right now"
+      : "Save the database (.crmdb) back to your USB via the Files sheet";
+  }
+  window.saveDatabase = function () {
+    if (!wsRoot || !WS) return;
+    WS.saveNow().catch(function (e) { setStatus("Save failed: " + e.message, "warn"); });
+  };
+
+  // schedule.json write path (debounced) — close() flushes the bundle through the store
   function scheduleFileSync() {
     if (!dataFileHandle) return;
     clearTimeout(syncTimer);
@@ -443,171 +473,52 @@
     if (!dataFileHandle) return Promise.resolve();
     return dataFileHandle.createWritable().then(function (w) {
       return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); });
-    }).then(function () {
-      setStatus("Saved to " + dataFileHandle.name + " ✓", "ok");
-    }).catch(function (e) {
-      setStatus("Save failed: " + e.message + " — reconnect the schedule file", "warn");
-    });
+    }).catch(function (e) { setStatus("Save failed: " + e.message, "warn"); });
   }
   function loadFromHandle(h) {
     return h.getFile().then(function (f) { return f.text(); }).then(function (txt) {
       if (txt.trim()) {
         state = normalize(JSON.parse(txt));
-        if (!(wsRoot && WS && WS.usbOnly())) localStorage.setItem(KEY, JSON.stringify(state));
+        if (!(WS && WS.usbOnly())) localStorage.setItem(KEY, JSON.stringify(state));
         else { try { localStorage.removeItem(KEY); } catch (e) {} }
       }
       render();
     });
   }
-  function fsUnsupported() {
-    setStatus("This browser can't connect files directly — use Export/Import JSON instead (Chrome or Edge works best).", "warn");
-  }
-  window.openDataFile = function () {
-    if (!window.showOpenFilePicker) { fsUnsupported(); return; }
-    window.showOpenFilePicker({ types: [{ description: "Patient schedule", accept: { "application/json": [".json"] } }] })
-      .then(function (hs) {
-        dataFileHandle = hs[0];
-        idbSet("handle", dataFileHandle).catch(function () {});
-        return loadFromHandle(dataFileHandle);
-      })
-      .then(function () {
-        setStatus("Connected: " + dataFileHandle.name + " — auto-saving", "ok");
-        $("openBtn").textContent = "Reconnect schedule file";
-      })
-      .catch(function (e) { if (e && e.name !== "AbortError") setStatus("Open failed: " + e.message, "warn"); });
-  };
-  window.newDataFile = function () {
-    if (!window.showSaveFilePicker) { fsUnsupported(); return; }
-    window.showSaveFilePicker({
-      suggestedName: "patient-schedule.json",
-      types: [{ description: "Patient schedule", accept: { "application/json": [".json"] } }]
-    }).then(function (h) {
-      dataFileHandle = h;
-      idbSet("handle", h).catch(function () {});
-      return writeDataFile();
-    }).then(function () {
-      if (dataFileHandle) $("openBtn").textContent = "Reconnect schedule file";
-    }).catch(function (e) { if (e && e.name !== "AbortError") setStatus("Create failed: " + e.message, "warn"); });
-  };
 
-  /* tiny IndexedDB store to remember the file handle across sessions */
-  function idb() {
-    return new Promise(function (res, rej) {
-      var r = indexedDB.open("patientSchedFS", 1);
-      r.onupgradeneeded = function () { r.result.createObjectStore("kv"); };
-      r.onsuccess = function () { res(r.result); };
-      r.onerror = function () { rej(r.error); };
-    });
-  }
-  function idbSet(k, v) {
-    return idb().then(function (db) {
-      return new Promise(function (res, rej) {
-        var tx = db.transaction("kv", "readwrite");
-        tx.objectStore("kv").put(v, k);
-        tx.oncomplete = function () { res(); };
-        tx.onerror = function () { rej(tx.error); };
-      });
-    });
-  }
-  function idbGet(k) {
-    return idb().then(function (db) {
-      return new Promise(function (res, rej) {
-        var tx = db.transaction("kv", "readonly");
-        var rq = tx.objectStore("kv").get(k);
-        rq.onsuccess = function () { res(rq.result); };
-        rq.onerror = function () { rej(rq.error); };
-      });
-    });
-  }
-  function idbDel(k) {
-    return idb().then(function (db) {
-      return new Promise(function (res, rej) {
-        var tx = db.transaction("kv", "readwrite");
-        tx.objectStore("kv").delete(k);
-        tx.oncomplete = function () { res(); };
-        tx.onerror = function () { rej(tx.error); };
-      });
-    });
-  }
-  function autoConnect() {
-    idbGet("handle").then(function (h) {
-      if (!h) return;
-      return h.queryPermission({ mode: "readwrite" }).then(function (perm) {
-        if (perm === "granted") {
-          dataFileHandle = h;
-          return loadFromHandle(h).then(function () {
-            setStatus("Auto-loaded " + h.name + " — auto-saving", "ok");
-            $("openBtn").textContent = "Reconnect schedule file";
-          });
-        }
-        setStatus('Found your schedule file "' + h.name + '" — click the button to reconnect it', "warn");
-        var btn = $("openBtn");
-        btn.textContent = "Reconnect " + h.name;
-        btn.onclick = function () {
-          h.requestPermission({ mode: "readwrite" }).then(function (p) {
-            if (p === "granted") {
-              dataFileHandle = h;
-              loadFromHandle(h).then(function () {
-                setStatus("Connected " + h.name + " — auto-saving", "ok");
-                btn.textContent = "Reconnect schedule file";
-                btn.onclick = window.openDataFile;
-              });
-            } else setStatus("Permission denied — use Connect schedule file to pick it manually", "warn");
-          }).catch(function (e) { setStatus("Reconnect failed: " + e.message, "warn"); });
-        };
-      });
-    }).catch(function () { /* unsupported or no handle */ });
-  }
-
-  /* flush pending writes if the tab is hidden mid-edit */
-  document.addEventListener("visibilitychange", function () {
-    if (document.hidden && dataFileHandle) { clearTimeout(syncTimer); writeDataFile(); }
-  });
-
-  /* ---------- USB workspace ("CRM Toolkit" folder) ---------- */
-  /* When connected, the schedule persists to <workspace>/schedule.json (reusing the same
-     dataFileHandle machinery as a plain schedule file), and each row's Files cell scans its
-     slot folder patients/<date>/<HHMM>_<INITIALS>/ for report + vendor files. The CRM chip
-     hands the slot to the Report Generator via #slot=, where the same shared handle
-     (src/workspace.js, IndexedDB) loads and saves that patient's files. */
-  var wsRoot = null;
-  var scanTimer = null;
-  var WS = window.CRMWorkspace;
-
-  function setWsStatus(msg, cls) {
-    var el = $("wsStatus");
-    if (el) { el.textContent = msg; el.className = "hdr-status" + (cls ? " " + cls : ""); }
-  }
   function adoptWorkspace(root) {
     wsRoot = root;
     return root.getFileHandle("schedule.json", { create: true }).then(function (fh) {
       dataFileHandle = fh;
       return loadFromHandle(fh);
     }).then(function () {
-      setWsStatus('Workspace connected: "' + WS.FOLDER + '" — schedule + patient files live on your USB', "ok");
-      $("wsBtn").textContent = "Reconnect USB workspace";
-      $("wsForget").style.display = "";
       $("openBtn").disabled = true;
-      setStatus("Using the USB workspace schedule (schedule.json) — auto-saving", "ok");
+      $("wsForget").style.display = "";
+      setStatus(WS.canAutosave ? "Database open — auto-saving as you edit" : "Database open — press “Save database” to write back to USB", "ok");
+      updateSaveBtn();
       scanSlots();
     });
   }
-  window.connectWorkspace = function () {
-    if (!WS || !WS.supported) { setWsStatus("This browser can't open folders — use Chrome or Edge.", "warn"); return; }
+  window.openDatabase = function () {
+    if (!WS) return;
     WS.connect()
-      .then(function (root) { return WS.initScaffold(root); })   // new stick: seeds patients/ + empty schedule.json (never overwrites)
+      .then(function (root) { return WS.initScaffold(root); })   // seeds an empty schedule.json if brand new
       .then(adoptWorkspace)
-      .catch(function (e) { if (e && e.name !== "AbortError") setWsStatus("Connect failed: " + e.message, "warn"); });
+      .catch(function (e) { if (e && e.name !== "AbortError") setStatus("Open failed: " + e.message, "warn"); });
+  };
+  window.newDatabase = function () {
+    if (!WS) return;
+    WS.newDatabase()
+      .then(adoptWorkspace)
+      .catch(function (e) { if (e && e.name !== "AbortError") setStatus("Create failed: " + e.message, "warn"); });
   };
   window.forgetWorkspace = function () {
     WS.forget().then(function () {
       wsRoot = null; dataFileHandle = null;
-      setWsStatus("USB workspace disconnected — schedule is back to this browser only", "");
-      $("wsBtn").textContent = "Connect USB workspace";
-      $("wsBtn").onclick = window.connectWorkspace;
       $("wsForget").style.display = "none";
       $("openBtn").disabled = false;
-      setStatus("Not connected — data is in this browser only", "");
+      setStatus("No database open — data is in this browser only", "");
+      updateSaveBtn();
       scanSlots();
     });
   };
@@ -617,7 +528,7 @@
     chk.checked = WS.usbOnly();
     chk.addEventListener("change", function () {
       WS.setUsbOnly(chk.checked);
-      if (!wsRoot) { setWsStatus("USB-only mode " + (chk.checked ? "ON" : "OFF") + " — takes effect while a workspace is connected", ""); return; }
+      if (!wsRoot) { setWsStatus("USB-only mode " + (chk.checked ? "ON" : "OFF") + " — takes effect while a database is open", ""); return; }
       if (chk.checked) {
         try { localStorage.removeItem(KEY); } catch (e) {}
         setWsStatus("USB-only ON — this browser holds no schedule copy", "ok");
@@ -627,6 +538,11 @@
       }
     });
   })();
+
+  /* flush pending writes if the tab is hidden mid-edit */
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden && dataFileHandle) { clearTimeout(syncTimer); writeDataFile(); }
+  });
   /* Editing time/initials changes the slot folder name — without a migration the row
      would point at an empty new folder and orphan the old one. Stash the slot BEFORE the
      edit (focusin fires pre-mutation), then on commit (change) move the folder's files.
@@ -703,7 +619,9 @@
     var chip = ev.target.closest(".fchip");
     if (!chip || !wsRoot) return;
     if (chip.dataset.crm) {
-      location.href = "../app/CRM_Report_Generator.html#slot=" + curDate + "/" + chip.dataset.crm;
+      var url = "../app/CRM_Report_Generator.html#slot=" + curDate + "/" + chip.dataset.crm;
+      // flush the working copy first so the Report Generator opens the latest bundle
+      (WS && WS.flush ? WS.flush() : Promise.resolve()).then(function () { location.href = url; });
       return;
     }
     if (!chip.dataset.open) return;
@@ -717,47 +635,37 @@
       })
       .catch(function (e) { setWsStatus("Could not open " + chip.dataset.name + ": " + e.message, "warn"); });
   });
+  // On load, reopen the working database from the store (IndexedDB copy carries across
+  // sessions and across the two pages; on desktop the file handle is re-bound for autosave).
   function tryWorkspaceAutoConnect() {
-    if (!WS || !WS.supported) return Promise.resolve(false);
+    if (!WS) return Promise.resolve(false);
     return WS.stored().then(function (root) {
       if (!root) return false;
-      return WS.permission(root, false).then(function (p) {
-        if (p === "granted") return adoptWorkspace(root).then(function () { return true; });
-        setWsStatus('Found your "' + WS.FOLDER + '" workspace — click Reconnect to use it', "warn");
-        var btn = $("wsBtn");
-        btn.textContent = "Reconnect USB workspace";
-        btn.onclick = function () {
-          WS.permission(root, true).then(function (p2) {
-            if (p2 === "granted") { adoptWorkspace(root); btn.onclick = window.connectWorkspace; }
-            else setWsStatus("Permission denied — use Connect USB workspace to pick the folder again", "warn");
-          });
-        };
-        return true;   // workspace known — don't auto-adopt the legacy single file over it
+      return WS.permission(root, false).then(function () {
+        return adoptWorkspace(root).then(function () { return true; });
       });
     }).catch(function () { return false; });
   }
 
-  /* ---------- walk away: flush to file, then wipe this station ---------- */
+  /* ---------- leave station: save the database, then wipe this browser ---------- */
   window.walkAway = function () {
-    var msg = dataFileHandle
-      ? "Save to " + dataFileHandle.name + ", then clear the schedule from this browser (and forget the file connection)?"
-      : "No schedule file is connected — clearing will DELETE the schedule from this browser entirely. Continue?";
+    var open = !!wsRoot;
+    var msg = open
+      ? "Save the database, then clear the schedule from this browser and close the database?"
+      : "No database is open — clearing will DELETE the schedule from this browser entirely. Continue?";
     if (!confirm(msg)) return;
     clearTimeout(syncTimer);
-    var flush = dataFileHandle ? writeDataFile() : Promise.resolve();
-    flush.then(function () {
-      localStorage.removeItem(KEY);
-      return idbDel("handle").catch(function () {});
-    }).then(function () {
-      return (WS ? WS.forget() : Promise.resolve());   // forget the USB workspace handle too
-    }).then(function () { location.reload(); });
+    var done = (open && WS) ? WS.saveNow() : Promise.resolve();
+    done.then(function () {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      return (WS ? WS.forget() : Promise.resolve());
+    }).then(function () { setTimeout(function () { location.reload(); }, 400); });
   };
 
   /* ---------- go ---------- */
   render();
-  tryWorkspaceAutoConnect().then(function (usedWorkspace) {
-    if (!usedWorkspace) autoConnect();
-  });
+  updateSaveBtn();
+  tryWorkspaceAutoConnect();
 })();
 </script>
 </body>
