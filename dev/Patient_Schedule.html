@@ -385,7 +385,18 @@
   });
   $("schedBody").addEventListener("click", function (ev) {
     var b = ev.target.closest("button[data-del]"); if (!b) return;
-    rows().splice(+b.dataset.del, 1); save(); render();
+    var i = +b.dataset.del, r = rows()[i];
+    // Confirm only when the row holds a real entry: time, initials, manufacturer, device
+    // and check type are all filled in. A mostly-blank new row deletes with no prompt.
+    var filledIn = r && r.time && r.pt && r.mfr && r.dtype && r.check;
+    if (filledIn) {
+      var slot = WS ? WS.slotName(r.time, r.pt) : "";
+      var fc = (WS && WS.slotFileCounts) ? (WS.slotFileCounts()[curDate + "/" + slot] || 0) : 0;
+      var msg = "Delete this patient — " + (fmtTime(r.time) || r.time) + " " + r.pt +
+        (fc ? " (" + fc + " attached file" + (fc === 1 ? "" : "s") + ")" : "") + "?";
+      if (!confirm(msg)) return;
+    }
+    rows().splice(i, 1); save(); render();
   });
   window.addRow = function () {
     rows().push({ time: "", pt: "", mfr: "", dtype: "", check: "In-clinic", lastOff: "", rm: "", notes: "" });
