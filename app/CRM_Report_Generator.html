@@ -218,7 +218,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="divider"></div>
   <span class="save-status" id="save-status">No data saved</span>
   <div class="app-bar-actions">
-    <button class="btn btn-ghost" onclick="location.href='../dev/Patient_Schedule.html'" title="Open the Patient Schedule (developer sign-in)">
+    <button class="btn btn-ghost" onclick="goToSchedule()" title="Open the Patient Schedule (developer sign-in)">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Schedule
     </button>
@@ -2279,6 +2279,12 @@ loadSaved();
     if (!WS || !WS.saveNow) return;
     WS.saveNow().catch(function (e) { toast('Save failed: ' + e.message, 'err'); });
   };
+  // Navigate to the Schedule only AFTER the working copy is flushed, so the files just
+  // written here are guaranteed to be in the shared bundle the Schedule page reads.
+  window.goToSchedule = function () {
+    var go = function () { location.href = '../dev/Patient_Schedule.html'; };
+    (WS && WS.flush ? WS.flush() : Promise.resolve()).then(go, go);
+  };
   // the store reports autosave / unsaved / errors through the USB-sync indicator
   if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateDbSaveBtn(); };
 
@@ -2471,6 +2477,7 @@ loadSaved();
       }
       WS.slotDir(slotRoot, slotDate, slotName, true)
         .then(function (dir) { return WS.writeFile(dir, file.name, file); })
+        .then(function () { return WS.flush ? WS.flush() : null; })
         .then(function () { setSync('USB: copied ' + file.name + ' ✓'); })
         .catch(function (e) { toast('Could not copy ' + file.name + ' to the USB: ' + e.message, 'err'); });
     });
@@ -2526,7 +2533,7 @@ loadSaved();
       ];
       var pdf = (typeof buildReportPdfBlob === 'function') ? buildReportPdfBlob() : null;
       if (pdf) jobs.push(WS.writeFile(dir, 'report.pdf', pdf));
-      return Promise.all(jobs).then(function () {
+      return Promise.all(jobs).then(function () { return WS.flush ? WS.flush() : null; }).then(function () {
         arm();
         toast('Saved report.json + report.txt' + (pdf ? ' + report.pdf' : '') + ' to the patient folder', 'ok');
       });

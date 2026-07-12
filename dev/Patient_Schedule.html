@@ -115,7 +115,7 @@
     <div class="hdr-menu">
       <button id="navBtn" onclick="toggleNavMenu()" title="Jump to another module">Modules &#9662;</button>
       <div id="navMenu" class="hdr-dropdown" style="min-width:220px;">
-        <a href="../app/CRM_Report_Generator.html">CRM Report Generator</a>
+        <a href="../app/CRM_Report_Generator.html" onclick="return goToReportGen(event)">CRM Report Generator</a>
         <a href="../app/Mileage_Calculator.html">Mileage Calculator</a>
         <a href="dashboard.html">Dashboard</a>
         <a href="index.html">Developer Deck</a>
@@ -441,6 +441,13 @@
   // the store reports autosave / unsaved / errors through here
   if (WS) WS.onStatus = function (msg, cls) { setStatus(msg, cls); updateSaveBtn(); };
 
+  // flush the working copy before jumping to the Report Generator so it opens the latest bundle
+  window.goToReportGen = function (ev) {
+    if (ev) ev.preventDefault();
+    var go = function () { location.href = "../app/CRM_Report_Generator.html"; };
+    (WS && WS.flush ? WS.flush() : Promise.resolve()).then(go, go);
+    return false;
+  };
   window.toggleStorageMenu = function () { $("storageMenu").classList.toggle("open"); };
   window.toggleNavMenu = function () { $("navMenu").classList.toggle("open"); };
   document.addEventListener("click", function (e) {

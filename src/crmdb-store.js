@@ -46,6 +46,11 @@
     return new Blob([String(data)]);
   }
   function baseName(p) { var i = p.lastIndexOf("/"); return i < 0 ? p : p.slice(i + 1); }
+  function mimeFor(name) {
+    var e = (String(name).split(".").pop() || "").toLowerCase();
+    return ({ pdf: "application/pdf", txt: "text/plain", log: "text/plain", csv: "text/csv",
+      json: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", html: "text/html" })[e] || "";
+  }
 
   function slotName(time, pt) {
     var t = String(time || "").replace(/[^0-9]/g, "").slice(0, 4) || "0000";
@@ -185,7 +190,7 @@
     return {
       kind: "file",
       name: baseName(path),
-      getFile: function () { var b = bundle.get(path) || new Blob([]); return Promise.resolve(new File([b], baseName(path))); },
+      getFile: function () { var b = bundle.get(path) || new Blob([]); return Promise.resolve(new File([b], baseName(path), { type: mimeFor(path) })); },
       createWritable: function () {
         var chunks = [];
         return Promise.resolve({
