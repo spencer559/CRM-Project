@@ -2205,6 +2205,7 @@ loadSaved();
   var supported = !!(WS && WS.supported);
   var slotDate = null, slotName = null, slotLabel = "", slotRoot = null;
   var syncArmed = false, syncTimer = null;
+  var dirty = false;   // edits since the last full report build (json+txt+pdf)
   var patientBtn = document.getElementById('patient-btn');
   var pdMenu = document.getElementById('patient-dropdown');
   var imMenu = document.getElementById('import-dropdown');
@@ -2277,14 +2278,17 @@ loadSaved();
   }
   window.saveDatabase = function () {
     if (!WS || !WS.saveNow) return;
-    WS.saveNow().catch(function (e) { toast('Save failed: ' + e.message, 'err'); });
+    // force a full rebuild (json+txt+pdf) first, then write/download the whole database as a backup
+    (syncArmed ? finalizeReports() : Promise.resolve())
+      .then(function () { return WS.saveNow(); })
+      .catch(function (e) { toast('Save failed: ' + e.message, 'err'); });
   };
   // Navigate to the Schedule only AFTER the working copy is flushed, so the files just
   // written here are guaranteed to be in the shared bundle the Schedule page reads.
   window.goToSchedule = function () {
     var go = function () { location.href = '../dev/Patient_Schedule.html'; };
-    // rebuild report.txt/.pdf (if they exist) before leaving so the Schedule shows current reports
-    (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(go, go);
+    // rebuild the full report set before leaving (only if edited) so the Schedule shows current reports
+    ((syncArmed && dirty) ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(go, go);
   };
   // the store reports autosave / unsaved / errors through the USB-sync indicator
   if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateDbSaveBtn(); };
@@ -2292,6 +2296,7 @@ loadSaved();
   /* ---- live sync core ---- */
   function arm() {
     syncArmed = true;
+    dirty = false;   // freshly opened patient — no unsaved report changes yet
     setSync('USB sync ON' + (WS.usbOnly && WS.usbOnly() ? ' · USB-only' : ''));
     updateDbSaveBtn();
     // USB-only: the slot's report.json is the recovery copy — drop the browser one
@@ -2309,38 +2314,36 @@ loadSaved();
       })
       .catch(function (e) { setSync('USB sync failed — reconnect', true); });
   }
-  // On leaving (to the Schedule) or switching patients, refresh report.txt / report.pdf so the
-  // Schedule never shows a stale, clickable report. Only files that ALREADY exist are rebuilt —
-  // opening a patient and leaving won't fabricate a report you never chose to save. report.json
-  // always syncs. Rebuilding the PDF once, at leave-time, avoids pointless mid-edit regenerations.
+  // Build the full report set (report.json + report.txt + report.pdf) from the current form and
+  // write it into the patient's slot, so the Schedule always shows every front — JSON, TXT and
+  // PDF — up to date. Called on leave, patient-switch, backgrounding, and the Save button. All
+  // three are (re)created even if they didn't exist yet, so a report appears as soon as you work
+  // on a patient. Guarded by `dirty` on the frequent triggers so we don't rebuild when nothing
+  // changed. Returns a promise that resolves once the shared copy is flushed.
   function finalizeReports() {
     if (!syncArmed || !slotRoot || !slotDate || !slotName) return (WS && WS.flush) ? WS.flush() : Promise.resolve();
     return WS.slotDir(slotRoot, slotDate, slotName, true).then(function (dir) {
-      return WS.listFiles(dir).then(function (files) {
-        var names = files.map(function (f) { return f.name.toLowerCase(); });
-        var jobs = [WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2))];
-        if (names.indexOf('report.txt') !== -1 && typeof buildSummaryLines === 'function') {
-          jobs.push(WS.writeFile(dir, 'report.txt', buildSummaryLines().join('\n')));
-        }
-        if (names.indexOf('report.pdf') !== -1 && typeof buildReportPdfBlob === 'function') {
-          var pdf = buildReportPdfBlob();
-          if (pdf) jobs.push(WS.writeFile(dir, 'report.pdf', pdf));
-        }
-        return Promise.all(jobs);
-      });
+      var jobs = [WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2))];
+      if (typeof buildSummaryLines === 'function') jobs.push(WS.writeFile(dir, 'report.txt', buildSummaryLines().join('\n')));
+      if (typeof buildReportPdfBlob === 'function') { var pdf = buildReportPdfBlob(); if (pdf) jobs.push(WS.writeFile(dir, 'report.pdf', pdf)); }
+      return Promise.all(jobs);
     }).then(function () {
+      dirty = false;
       clearTimeout(syncTimer); syncTimer = null;
-      setSync('Report updated · USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      setSync('Report saved · USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       return WS.flush ? WS.flush() : null;
     }).catch(function (e) { setSync('USB sync failed — reconnect', true); });
   }
   document.addEventListener('input', function () {
     if (!syncArmed) return;
+    dirty = true;
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(writeJsonNow, 1500);
+    syncTimer = setTimeout(writeJsonNow, 1500);   // cheap live JSON sync while editing
   }, true);
-  document.addEventListener('visibilitychange', function () { if (document.hidden && syncTimer) writeJsonNow(); });
-  window.addEventListener('beforeunload', function () { if (syncTimer) writeJsonNow(); });
+  // Backgrounding / tab-hide (also fires just before a tab close): rebuild the full report set
+  // if anything changed. Cheap when idle (dirty stays false → skipped).
+  document.addEventListener('visibilitychange', function () { if (document.hidden && syncArmed && dirty) finalizeReports(); });
+  window.addEventListener('beforeunload', function () { if (syncArmed && dirty) writeJsonNow(); });
   // A cleared form must never live-sync over a saved patient. clearForm also reloads the
   // page, so strip the #slot hash first or the same patient would auto-reopen.
   (function () {
@@ -2395,8 +2398,8 @@ loadSaved();
   }
   function switchTo(dt, slot, label) {
     if (!confirm('Open ' + (label || slot) + ' from the USB?\n\nThe current form will be replaced.')) return;
-    // finalize the current patient's reports before loading the next one
-    (syncArmed ? finalizeReports() : Promise.resolve()).then(function () {
+    // finalize the current patient's reports (if edited) before loading the next one
+    ((syncArmed && dirty) ? finalizeReports() : Promise.resolve()).then(function () {
       history.replaceState('', document.title, location.pathname + location.search + '#slot=' + dt + '/' + slot);
       openSlot(dt, slot, label, true);
     });
