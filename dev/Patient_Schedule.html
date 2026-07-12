@@ -13,8 +13,14 @@
   :root { --bg:#0d1117; --panel:#161b22; --panel2:#1c2333; --border:#2d333b;
           --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --green:#3fb950; --red:#f85149; --amber:#d29922; }
   * { box-sizing:border-box; margin:0; padding:0; }
-  body { background:var(--bg); color:var(--text); font-family:"Segoe UI",system-ui,sans-serif; padding:16px; min-height:100vh; }
-  header { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+  /* App shell: the body never scrolls (stays locked at scroll 0) so the iPad "Save to Files"
+     share popover — which WebKit anchors to the document — always appears on screen no matter
+     how many patients are added. All scrolling happens inside .main-scroll. */
+  body { background:var(--bg); color:var(--text); font-family:"Segoe UI",system-ui,sans-serif;
+         padding:0; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+  header { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;
+           flex:0 0 auto; padding:16px 16px 12px; }
+  .main-scroll { flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:0 16px 16px; }
   h1 { font-size:1.3rem; }
   .hdr-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   button { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:8px;
@@ -81,11 +87,14 @@
   .fchip:hover { border-color:var(--accent); }
   .fchip.crm { color:var(--green); }
   .fchip.vendor { color:var(--amber); }
+  .fchip .x { margin-left:6px; padding:0 2px; color:var(--muted); font-weight:700; border-radius:3px; }
+  .fchip .x:hover { color:var(--red); background:rgba(248,81,73,.12); }
   .fnone { color:var(--muted); font-size:.78rem; }
 
   /* ---------- print: clean white formatted schedule ---------- */
   @media print {
-    body { background:#fff; color:#000; padding:0; }
+    body { background:#fff; color:#000; padding:0; height:auto; overflow:visible; display:block; }
+    .main-scroll { overflow:visible; height:auto; padding:0; }
     header, .panel, .noprint { display:none !important; }
     #printView { display:block; font-family:"Segoe UI","Helvetica Neue",Calibri,Arial,sans-serif; color:#111; }
     #printView .p-head { border-bottom:2px solid #111; padding-bottom:8px; margin-bottom:12px;
@@ -145,6 +154,7 @@
   </div>
 </header>
 
+<div class="main-scroll">
 <div class="panel">
   <div class="datebar">
     <span id="dayLabel"></span>
@@ -181,6 +191,7 @@
     <button onclick="sortByTime()">Sort by time</button>
     <button class="danger" onclick="clearDay()">Clear this day</button>
   </div>
+</div>
 </div>
 
 <div id="printView"></div>
@@ -567,18 +578,22 @@
     var i = el.dataset.i;
     var r = rows()[+i];
     var oldSlot = preSlot[i];
-    delete preSlot[i];
     if (!r || !WS || !oldSlot) return;
     var newSlot = WS.slotName(r.time, r.pt);
     if (oldSlot === newSlot) return;
-    if (!wsRoot) { scanSlots(); return; }   // stick not connected — nothing reachable to move
+    // Keep the baseline current: a time/initials field can fire several change events in one
+    // focus (editing the hour then the minute, using the steppers, etc.). Updating preSlot to
+    // the new slot — instead of deleting it — lets each successive edit relocate the files from
+    // wherever they are now, so the association is never lost between saves.
+    preSlot[i] = newSlot;
+    if (!wsRoot) { scanSlots(); return; }   // no database open — nothing reachable to move
     WS.moveSlot(wsRoot, curDate, oldSlot, newSlot)
       .then(function (moved) {
         if (moved) setWsStatus("Moved patient files " + oldSlot + " → " + newSlot, "ok");
         scanSlots();
       })
       .catch(function (e) {
-        setWsStatus("Could not move files " + oldSlot + " → " + newSlot + ": " + e.message + " — the old folder still has them", "warn");
+        setWsStatus("Could not move files " + oldSlot + " → " + newSlot + ": " + e.message, "warn");
         scanSlots();
       });
   });
@@ -616,13 +631,26 @@
         var html = "";
         files.forEach(function (fh) {
           var c = chipLabel(fh.name);
-          html += '<span class="fchip' + c.cls + '" data-open="' + esc(slot) + '" data-name="' + esc(fh.name) + '" title="Open ' + esc(fh.name) + '">' + c.l + "</span>";
+          html += '<span class="fchip' + c.cls + '" data-open="' + esc(slot) + '" data-name="' + esc(fh.name) + '" title="Open ' + esc(fh.name) + '">' + c.l +
+            '<span class="x" data-rm-slot="' + esc(slot) + '" data-rm-name="' + esc(fh.name) + '" title="Remove ' + esc(fh.name) + ' from this patient">&times;</span></span>';
         });
         html += '<span class="fchip crm" data-crm="' + esc(slot) + '" title="Open this patient in the CRM Report Generator">CRM</span>';
         td.innerHTML = html;
       });
   }
   $("schedBody").addEventListener("click", function (ev) {
+    // remove a wrong file association (the × on a file chip)
+    var rm = ev.target.closest(".x[data-rm-name]");
+    if (rm && wsRoot) {
+      ev.stopPropagation();
+      var nm = rm.dataset.rmName, sl = rm.dataset.rmSlot;
+      if (!confirm('Remove "' + nm + '" from this patient?\n\nThis deletes the file from the database (it cannot be undone here).')) return;
+      WS.removeFile(wsRoot, curDate, sl, nm)
+        .then(function () { return WS.flush ? WS.flush() : null; })
+        .then(function () { setWsStatus("Removed " + nm + " from " + sl, "ok"); scanSlots(); })
+        .catch(function (e) { setWsStatus("Could not remove " + nm + ": " + e.message, "warn"); });
+      return;
+    }
     var chip = ev.target.closest(".fchip");
     if (!chip || !wsRoot) return;
     if (chip.dataset.crm) {

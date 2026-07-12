@@ -162,10 +162,29 @@
         return fileHandle.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); })
           .then(function () { status("Saved to " + (suggestedName) + " ✓", "ok"); });
       }
-      download(blob, suggestedName || DEFAULT_NAME);
-      status("Exported — in the Files sheet pick your USB and Replace", "ok");
-      return Promise.resolve();
+      return shareOrDownload(blob, suggestedName || DEFAULT_NAME);
     });
+  }
+  // iPad has no showSaveFilePicker; the ONLY way a web page can write to an external USB is the
+  // native share sheet ("Save to Files → <USB>"). Fall back to a plain download if unavailable.
+  // Must be called from a user gesture (the Save button) so the share sheet is allowed.
+  function shareOrDownload(blob, name) {
+    try {
+      if (navigator.canShare) {
+        var file = new File([blob], name, { type: "application/octet-stream" });
+        if (navigator.canShare({ files: [file] })) {
+          return navigator.share({ files: [file] })
+            .then(function () { status("Saved — pick your USB in the Files sheet ✓", "ok"); })
+            .catch(function (e) {
+              if (e && e.name === "AbortError") { status("Save cancelled", "warn"); return; }
+              download(blob, name); status("Exported to Downloads — move it to the USB", "ok");
+            });
+        }
+      }
+    } catch (e) { /* fall through to download */ }
+    download(blob, name);
+    status("Exported to Downloads — move it to the USB", "ok");
+    return Promise.resolve();
   }
   function download(blob, name) {
     var a = document.createElement("a");
@@ -330,6 +349,11 @@
     out.sort(function (a, b) { return a.name.localeCompare(b.name); });
     return Promise.resolve(out);
   }
+  function removeFile(root, date, slot, name) {
+    var had = bundle.delete(slotPrefix(date, slot) + name);
+    if (had) persist();
+    return Promise.resolve(had);
+  }
   function moveSlot(root, date, oldSlot, newSlot) {
     if (!oldSlot || !newSlot || oldSlot === newSlot) return Promise.resolve(false);
     var op = slotPrefix(date, oldSlot), np = slotPrefix(date, newSlot), moved = false;
@@ -358,6 +382,7 @@
     listFiles: listFiles,
     readText: readText,
     writeFile: writeFile,
+    removeFile: removeFile,
     saveNow: saveNow,
     flush: flush,
     isOpen: function () { return opened; },
