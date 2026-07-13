@@ -91,9 +91,10 @@
       border-radius:5px; padding:3px 5px; font:inherit; font-size:.8rem; width:100%; }
   td input:focus, td select:focus, td textarea:focus { outline:2px solid var(--accent); outline-offset:0; }
   td select { padding:3px 2px; }
-  /* Native time inputs render ~2px taller than the other fields (the spinner control); pin the
-     height so the row lines up and the gap down to the notes row matches the other columns. */
-  td.time input { width:112px; height:25px; color-scheme:dark; }
+  /* Native time/date controls have different intrinsic heights across browsers (especially
+     iPad Safari), so pin both to the same height as the other row controls. */
+  td.time input, td.lo input { height:25px; min-height:25px; }
+  td.time input { width:112px; color-scheme:dark; }
   td.lo input { width:116px; color-scheme:dark; }
   td.pt input { width:52px; text-transform:uppercase; }
   /* The appointment row and its full-width notes row read as one block: drop the divider
