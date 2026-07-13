@@ -2134,6 +2134,7 @@ loadSaved();
         var amerge = !!(document.getElementById('pdp-merge')||{}).checked;
         if (!amerge && typeof resetFormState === 'function') resetFormState();
         var ares = prefillForm(aout.RESULT, aout.LEADS, null, { merge: amerge });
+        if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
         var adev = (aout.RESULT['dev-model']||{}).v || '';
         var amsg = '<b>'+ (aout.ROUTE.label || aout.ROUTE.dtype || 'Abbott device') +'</b>'
           + (adev ? '<br><span class="pdp-dev">'+adev+'</span>' : '')
@@ -2169,6 +2170,7 @@ loadSaved();
       var merge = !!(document.getElementById('pdp-merge')||{}).checked;
       if (!merge && typeof resetFormState === 'function') resetFormState();
       var res = prefillForm(out.RESULT, out.LEADS, out.EPISODES, { merge: merge });
+      if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
       var dev = (out.RESULT['dev-model']||{}).v || '';
       var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'
         + (dev ? '<br><span class="pdp-dev">'+dev+'</span>' : '')
@@ -2392,6 +2394,17 @@ loadSaved();
     // resetFormState is wrapped to disarm + blank the fields; it leaves the slot vars intact.
     if (typeof window.resetFormState === 'function') window.resetFormState();
     if (armedPatient) { arm(); dirty = true; }   // re-arm the SAME patient; leaving now re-saves the cleared report
+  };
+
+  // Called by the auto-fill importer right after it fills the form. The importer runs
+  // resetFormState() first (which DISARMS live sync) and then fills fields programmatically —
+  // programmatic value changes fire no 'input' events, so nothing is marked dirty or synced.
+  // If a patient is open, re-arm the slot and rebuild the full report set so the imported data
+  // actually lands in it; otherwise the Schedule would keep showing the old blank template.
+  window.afterAutoFillImport = function () {
+    if (!slotRoot || !slotDate || !slotName) return;   // no patient open — nothing to sync
+    arm();                       // re-arm so later edits sync AND leaving finalizes (see goToSchedule)
+    return finalizeReports();    // write json+txt+pdf now so the Schedule reflects the import immediately
   };
 
   /* ---- open a patient slot ---- */
