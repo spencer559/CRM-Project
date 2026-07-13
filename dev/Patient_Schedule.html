@@ -664,15 +664,19 @@
   };
   window.newDatabase = function () {
     if (!WS) return;
-    // If there's unsaved local progress, offer to carry it into the new database
-    // rather than starting empty (which would otherwise overwrite it on adopt).
+    // Is there local progress that would be lost by starting empty?
     var hasLocal = Object.keys(state.dates).some(function (k) { return (state.dates[k] || []).length; });
-    var seed = hasLocal && confirm(
-      "Start the new database from the schedule currently in this browser?\n\n" +
-      "OK — copy your current schedule into the new database.\n" +
-      "Cancel — start with an empty database (your current schedule stays in this browser).");
+    // Run the file picker FIRST, directly on the click — asking with confirm() beforehand
+    // clears the browser's user-activation and makes showSaveFilePicker throw.
     WS.newDatabase()
-      .then(function (root) { return adoptWorkspace(root, seed); })
+      .then(function (root) {
+        // Picker is done (no gesture needed now): offer to carry the current schedule in.
+        var seed = hasLocal && confirm(
+          "Start the new database from the schedule currently in this browser?\n\n" +
+          "OK — copy your current schedule into the new database.\n" +
+          "Cancel — start with an empty database.");
+        return adoptWorkspace(root, seed);
+      })
       .catch(function (e) { if (e && e.name !== "AbortError") setStatus("Create failed: " + e.message, "warn"); });
   };
   window.forgetWorkspace = function () {
