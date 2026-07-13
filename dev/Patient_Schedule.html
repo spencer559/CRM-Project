@@ -72,6 +72,8 @@
   .mem-opt:hover { border-color:var(--accent); }
   .mem-opt input { margin:0; cursor:pointer; }
   .datebar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .date-nav { display:inline-flex; gap:6px; align-items:center; }
+  .date-step { min-width:36px; padding:8px 10px; font-weight:700; line-height:1; }
   .datebar input[type=date] { background:var(--panel2); border:1px solid var(--border); color:var(--text);
       border-radius:8px; padding:7px 10px; font:inherit; font-size:.9rem; color-scheme:dark; }
   #dayLabel { font-size:1.02rem; font-weight:600; }
@@ -256,7 +258,11 @@
 <div class="panel">
   <div class="datebar">
     <span id="dayLabel"></span>
-    <input type="date" id="schedDate">
+    <span class="date-nav">
+      <button type="button" class="date-step" onclick="stepDate(-1)" title="Previous day" aria-label="Previous day">&#8592;</button>
+      <input type="date" id="schedDate">
+      <button type="button" class="date-step" onclick="stepDate(1)" title="Next day" aria-label="Next day">&#8594;</button>
+    </span>
     <button onclick="goToday()">Today</button>
     <button onclick="moveDayStart()" title="Entered this day under the wrong date? Move every appointment to the right one.">Move day&hellip;</button>
     <button onclick="printSchedule()">Print schedule</button>
@@ -487,6 +493,13 @@
     if (rows().length && confirm("Remove all appointments for this day?")) { state.dates[curDate] = []; save(); render(); }
   };
   window.goToday = function () { curDate = localISO(); render(); };
+  window.stepDate = function (offset) {
+    var d = curDate.split("-");
+    var dt = new Date(+d[0], +d[1] - 1, +d[2]);
+    dt.setDate(dt.getDate() + offset);
+    curDate = localISO(dt);
+    render();
+  };
 
   /* ---------- All-patients overview (every appointment across all dates) ---------- */
   function fmtDateLong(iso) {
