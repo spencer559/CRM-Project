@@ -629,11 +629,23 @@
     });
   }
 
-  function adoptWorkspace(root) {
+  // Seed a freshly-created database with the schedule already in this browser, instead of
+  // reading the new (empty) schedule.json back over it. Keeps `state` as-is and writes it out.
+  function seedHandle(h) {
+    return h.createWritable().then(function (w) {
+      return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); });
+    }).then(function () {
+      if (!(WS && WS.usbOnly())) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+      else { try { localStorage.removeItem(KEY); } catch (e) {} }
+      render();
+    });
+  }
+
+  function adoptWorkspace(root, seed) {
     wsRoot = root;
     return root.getFileHandle("schedule.json", { create: true }).then(function (fh) {
       dataFileHandle = fh;
-      return loadFromHandle(fh);
+      return seed ? seedHandle(fh) : loadFromHandle(fh);
     }).then(function () {
       $("openBtn").disabled = true;
       $("wsForget").style.display = "";
@@ -652,8 +664,15 @@
   };
   window.newDatabase = function () {
     if (!WS) return;
+    // If there's unsaved local progress, offer to carry it into the new database
+    // rather than starting empty (which would otherwise overwrite it on adopt).
+    var hasLocal = Object.keys(state.dates).some(function (k) { return (state.dates[k] || []).length; });
+    var seed = hasLocal && confirm(
+      "Start the new database from the schedule currently in this browser?\n\n" +
+      "OK — copy your current schedule into the new database.\n" +
+      "Cancel — start with an empty database (your current schedule stays in this browser).");
     WS.newDatabase()
-      .then(adoptWorkspace)
+      .then(function (root) { return adoptWorkspace(root, seed); })
       .catch(function (e) { if (e && e.name !== "AbortError") setStatus("Create failed: " + e.message, "warn"); });
   };
   window.forgetWorkspace = function () {
