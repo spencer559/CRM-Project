@@ -276,10 +276,10 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 <div id="pdf-drop-panel" style="display:none">
   <div class="pdp-title">⬇ Auto-fill from PDF / .log</div>
   <div id="pdp-drop">
-    <div class="pdp-big">Drop PDF or Abbott .log</div>
-    <div class="pdp-small">Medtronic / Boston PDF · Abbott .log · runs locally</div>
+    <div class="pdp-big">Drop PDF, or Abbott .log (+ its PDF)</div>
+    <div class="pdp-small">Medtronic / Boston PDF · Abbott .log — add the PDF too to file it with the patient · runs locally</div>
   </div>
-  <input type="file" id="pdp-file" accept="application/pdf,.log,.txt" style="display:none">
+  <input type="file" id="pdp-file" accept="application/pdf,.log,.txt" multiple style="display:none">
   <label class="cbl" style="margin-top:8px; font-size:9px; color:#556;"><input type="checkbox" id="pdp-merge"> Merge — keep what I've already entered</label>
   <div id="usb-slot" style="display:none; margin-top:10px; border-top:1px solid #dfe3e8; padding-top:8px;">
     <div style="font-size:9.5px; font-weight:700; text-transform:uppercase; color:#556;">USB patient slot</div>
@@ -2183,11 +2183,30 @@ loadSaved();
     }
   }
 
+  // When several files are chosen at once (e.g. an Abbott .log AND its PDF report), auto-fill
+  // from the .log/.txt if present — the PDF is only there to be archived with the patient — and
+  // otherwise from the single PDF. Archiving of every chosen file is handled separately.
+  function pickParseTarget(files){
+    files = Array.prototype.slice.call(files || []).filter(Boolean);
+    if (!files.length) return null;
+    return files.filter(function(f){ return /\.(log|txt)$/i.test(f.name); })[0]
+        || files.filter(function(f){ return /\.pdf$/i.test(f.name); })[0]
+        || files[0];
+  }
   drop.addEventListener('click', function(){ fileIn.click(); });
-  fileIn.addEventListener('change', function(e){ if (e.target.files[0]) handleFile(e.target.files[0]); });
+  fileIn.addEventListener('change', function(e){ var t = pickParseTarget(e.target.files); if (t) handleFile(t); });
   ['dragenter','dragover'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
   ['dragleave','drop'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('over'); }); });
-  drop.addEventListener('drop', function(e){ e.preventDefault(); var f=e.dataTransfer.files[0]; if (f) handleFile(f); });
+  drop.addEventListener('drop', function(e){
+    e.preventDefault();
+    var fs = e.dataTransfer.files;
+    var t = pickParseTarget(fs);
+    if (!t) return;
+    handleFile(t);
+    // Dropped files bypass the file input, so archive them here too (click-to-pick is archived
+    // by the input's own change listener).
+    if (window.archiveVendorFiles) window.archiveVendorFiles(fs);
+  });
 })();
 </script>
 
@@ -2530,22 +2549,32 @@ loadSaved();
   // folder too, so the raw programmer export lives beside the report on the USB. (The
   // auto-fill importer has its own change listener on the same input — both run; File
   // objects are immutable snapshots, so reading twice is safe.)
+  // Archive every chosen vendor file into the active patient's slot folder, so the raw programmer
+  // exports (Abbott .log + its PDF, or a vendor PDF) live beside the report on the USB. Multiple
+  // files can arrive together — e.g. a .log paired with its PDF report.
+  function archiveVendorFiles(files) {
+    files = Array.prototype.slice.call(files || []).filter(Boolean);
+    if (!files.length) return;
+    var names = files.map(function (f) { return f.name; }).join(' + ');
+    if (!slotRoot || !slotDate || !slotName) {
+      toast('Note: no patient selected — ' + names + ' was imported but NOT copied to the USB. Pick a patient first if you want it archived.', '');
+      return;
+    }
+    WS.slotDir(slotRoot, slotDate, slotName, true)
+      .then(function (dir) {
+        return files.reduce(function (p, file) {
+          return p.then(function () { return WS.writeFile(dir, file.name, file); });
+        }, Promise.resolve());
+      })
+      .then(function () { return WS.flush ? WS.flush() : null; })
+      .then(function () { setSync('USB: copied ' + names + ' ✓'); })
+      .catch(function (e) { toast('Could not copy ' + names + ' to the USB: ' + e.message, 'err'); });
+  }
+  window.archiveVendorFiles = archiveVendorFiles;   // also called from the drop handler
   (function () {
     var fi = document.getElementById('pdp-file');
     if (!fi) return;
-    fi.addEventListener('change', function () {
-      var file = fi.files && fi.files[0];
-      if (!file) return;
-      if (!slotRoot || !slotDate || !slotName) {
-        toast('Note: no patient selected — ' + file.name + ' was imported but NOT copied to the USB. Pick a patient first if you want it archived.', '');
-        return;
-      }
-      WS.slotDir(slotRoot, slotDate, slotName, true)
-        .then(function (dir) { return WS.writeFile(dir, file.name, file); })
-        .then(function () { return WS.flush ? WS.flush() : null; })
-        .then(function () { setSync('USB: copied ' + file.name + ' ✓'); })
-        .catch(function (e) { toast('Could not copy ' + file.name + ' to the USB: ' + e.message, 'err'); });
-    });
+    fi.addEventListener('change', function () { archiveVendorFiles(fi.files); });
   })();
   window.buildImportMenu = function () {
     imMenu.innerHTML = '';
@@ -2578,7 +2607,7 @@ loadSaved();
         .catch(function () { holder.appendChild(noteEl('No slot folder yet — it is created on first save.')); });
     }
     imMenu.appendChild(divEl());
-    imMenu.appendChild(item('Import PDF / .log…', function () { pickVendor(false); }));
+    imMenu.appendChild(item('Import PDF / .log… (select .log + PDF together)', function () { pickVendor(false); }));
     imMenu.appendChild(item('Merge PDF / .log… (keep entered data)', function () { pickVendor(true); }));
     imMenu.appendChild(item('Import JSON…', function () { importJSON(); }));
   };

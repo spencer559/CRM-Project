@@ -48,6 +48,15 @@
   .hdr-status { font-size:.78rem; color:var(--muted); margin-bottom:4px; line-height:1.35; }
   .hdr-status.ok { color:var(--green); }
   .hdr-status.warn { color:var(--amber); }
+  .db-location {
+    display:flex; align-items:center; gap:5px; font-size:.74rem; color:var(--muted);
+    margin:-2px 0 4px; line-height:1.3;
+  }
+  .db-location .db-loc-name {
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    max-width:210px;
+  }
   .hdr-dropdown button {
     background:var(--panel2); border:1px solid var(--border);
     border-radius:6px; padding:7px 10px; font-size:.82rem; text-align:left;
@@ -69,26 +78,60 @@
   #counts { color:var(--muted); font-size:.83rem; margin-left:auto; }
   .twrap { overflow-x:auto; }
   table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  /* Fixed layout so column widths are honored exactly: the left fields stay packed at their
+     own widths instead of the browser inflating every column to fill the row. A flexible
+     spacer column before Files soaks up the leftover width, keeping Files on the right. */
+  .twrap table { table-layout:fixed; }
+  .twrap col.col-spacer, .twrap th.col-spacer, .twrap td.col-spacer { width:auto; }
   th, td { padding:3px 5px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top; }
-  th { color:var(--muted); font-weight:600; font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; }
+  /* Bottom-align header labels so that when a label wraps to two lines (e.g. "Check type"),
+     the single-line labels sit snug against the first row instead of floating up and leaving
+     a gap above it — keeping the top spacing even with the bottom of the table. */
+  th { color:var(--muted); font-weight:600; font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; vertical-align:bottom; }
   td input, td select, td textarea { background:var(--panel2); border:1px solid var(--border); color:var(--text);
       border-radius:5px; padding:3px 5px; font:inherit; font-size:.8rem; width:100%; }
   td input:focus, td select:focus, td textarea:focus { outline:2px solid var(--accent); outline-offset:0; }
   td select { padding:3px 2px; }
-  td.time input { width:112px; color-scheme:dark; }
+  /* Native time inputs render ~2px taller than the other fields (the spinner control); pin the
+     height so the row lines up and the gap down to the notes row matches the other columns. */
+  td.time input { width:112px; height:25px; color-scheme:dark; }
   td.lo input { width:116px; color-scheme:dark; }
   td.pt input { width:52px; text-transform:uppercase; }
-  /* Notes: multi-line, wraps, and auto-grows so longer notes stay readable */
-  td.notes { min-width:170px; }
-  td.notes textarea { resize:vertical; min-height:28px; line-height:1.3; white-space:pre-wrap; overflow-wrap:break-word; overflow:hidden; }
-  td.del { width:28px; text-align:center; }
+  /* The appointment row and its full-width notes row read as one block: drop the divider
+     between them, and let the notes row carry the bottom border. */
+  tr.appt-row > td { border-bottom:none; }
+  tr.notes-row > td { padding-top:0; padding-bottom:9px; }
+  /* Notes: a full-width row beneath each appointment; multi-line, wraps, and auto-grows. */
+  td.notes-cell textarea { resize:vertical; min-height:28px; line-height:1.3; white-space:pre-wrap;
+      overflow-wrap:break-word; overflow:hidden; }
+  /* Uploaded-to-Cerner marker between Remote and Files — checkbox sits at the left of its column.
+     Custom-styled to match the dark form fields: an empty rounded square that fills with the
+     theme green (same "done" green used elsewhere) and shows a checkmark when ticked. */
+  td.cerner { text-align:left; }
+  td.cerner input[type=checkbox] {
+    -webkit-appearance:none; appearance:none; margin:6px 0 0; padding:0;
+    width:18px; height:18px; box-sizing:border-box; cursor:pointer; vertical-align:middle;
+    background:var(--panel2); border:1px solid var(--border); border-radius:5px;
+    display:inline-grid; place-content:center;
+    transition:background-color .12s ease, border-color .12s ease;
+  }
+  td.cerner input[type=checkbox]::before {
+    content:""; width:11px; height:11px; transform:scale(0); transform-origin:center;
+    transition:transform .12s ease-in-out; background-color:#04121f;
+    clip-path:polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  }
+  td.cerner input[type=checkbox]:hover { border-color:var(--accent); }
+  td.cerner input[type=checkbox]:checked { background:var(--green); border-color:var(--green); }
+  td.cerner input[type=checkbox]:checked::before { transform:scale(1); }
+  td.cerner input[type=checkbox]:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  td.del { width:34px; text-align:center; }
   td.del button { border:none; background:none; color:var(--muted); font-size:1rem; padding:2px 4px; }
   td.del button:hover { color:var(--red); }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   #printView { display:none; }
-  /* Files: a fixed set of chips (JSON/TXT/REPORT/PROG/CRM) kept narrow so they wrap to ~2 rows,
-     leaving the extra width for Notes. */
-  td.fbadges { white-space:normal; width:142px; min-width:142px; }
+  /* Files: a fixed set of chips (JSON/TXT/REPORT/PROG/CRM). With Notes moved to its own
+     full-width row, this column gets extra room so the chips wrap comfortably. */
+  td.fbadges { white-space:normal; width:220px; min-width:220px; }
   .fchip {
     display:inline-block; background:var(--panel2); border:1px solid var(--border);
     border-radius:5px; padding:1px 5px; font-size:.66rem; font-weight:600;
@@ -185,6 +228,9 @@
       <button id="storageBtn" onclick="toggleStorageMenu()"><span id="storageDot" class="storage-dot"></span>Database &#9662;</button>
       <div id="storageMenu" class="hdr-dropdown">
         <div id="fileStatus" class="hdr-status">No database open &mdash; open your schedule.crmdb from the USB, or create a new one. The schedule AND every patient's report files live inside that one file.</div>
+        <div id="dbLocation" class="db-location" style="display:none;" title="The active database file">
+          <span aria-hidden="true">&#128193;</span><span id="dbLocationName" class="db-loc-name"></span>
+        </div>
         <button id="openBtn" onclick="openDatabase()">Open database&hellip;</button>
         <button onclick="newDatabase()">New database&hellip;</button>
         <button onclick="exportJson()">Export schedule JSON</button>
@@ -192,7 +238,7 @@
         <input id="importFile" type="file" accept="application/json,.json" style="display:none">
         <input id="attachFile" type="file" accept="application/pdf,.pdf,.log,.txt" style="display:none">
         <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
-        <div id="wsStatus" class="hdr-status">On a Mac/PC (Chrome or Edge) the database auto-saves in place as you edit. On iPad, edit freely and press &quot;Save now&quot; to write it back to the USB.</div>
+        <div id="wsStatus" class="hdr-status"></div>
         <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Close database</button>
         <label class="hdr-status" style="display:flex; gap:7px; align-items:flex-start; cursor:pointer; margin-top:4px;">
           <input type="checkbox" id="usbOnlyChk" style="margin-top:2px; cursor:pointer;">
@@ -224,15 +270,16 @@
     <table>
       <thead><tr>
         <th style="width:120px">Time</th>
-        <th style="width:60px">Patient</th>
-        <th style="width:104px">Manufacturer</th>
-        <th style="width:92px">Device</th>
-        <th style="width:96px">Check type</th>
+        <th style="width:62px">Patient</th>
+        <th style="width:108px">Manufacturer</th>
+        <th style="width:96px">Device</th>
+        <th style="width:100px">Check type</th>
         <th style="width:120px">Last office</th>
-        <th style="width:104px">Remote</th>
-        <th>Notes</th>
-        <th style="width:142px">Files</th>
-        <th></th>
+        <th style="width:108px">Remote</th>
+        <th style="width:70px" title="Mark once this patient has been entered into Cerner">Cerner</th>
+        <th class="col-spacer"></th>
+        <th style="width:220px">Files</th>
+        <th style="width:34px"></th>
       </tr></thead>
       <tbody id="schedBody"></tbody>
     </table>
@@ -289,6 +336,7 @@
         if (!r) return;
         if (r.rm === "Needs setup") r.rm = "External clinic";
         if (r.lastOff === undefined) r.lastOff = ""; // added Jul 2026
+        if (r.cerner === undefined) r.cerner = false; // "Uploaded to Cerner", added Jul 2026
       });
     });
   }
@@ -355,6 +403,7 @@
     var tb = $("schedBody"); tb.innerHTML = "";
     rows().forEach(function (r, i) {
       var tr = document.createElement("tr");
+      tr.className = "appt-row";
       tr.innerHTML =
         '<td class="time"><input type="time" data-i="' + i + '" data-f="time" value="' + esc(r.time) + '"></td>' +
         '<td class="pt"><input maxlength="6" placeholder="J.S." data-i="' + i + '" data-f="pt" value="' + esc(r.pt) + '"></td>' +
@@ -363,12 +412,22 @@
         '<td><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
         '<td class="lo"><input type="date" title="Date of the last in-office check" data-i="' + i + '" data-f="lastOff" value="' + esc(r.lastOff) + '"></td>' +
         '<td><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
-        '<td class="notes"><textarea rows="1" placeholder="e.g. post-shock, ERI watch, needs interpreter" data-i="' + i + '" data-f="notes">' + esc(r.notes) + '</textarea></td>' +
+        '<td class="cerner"><input type="checkbox" data-i="' + i + '" data-f="cerner" title="Uploaded to Cerner"' + (r.cerner ? " checked" : "") + "></td>" +
+        '<td class="col-spacer"></td>' +
         '<td class="fbadges" data-fslot="' + i + '"><span class="fnone">&mdash;</span></td>' +
         '<td class="del"><button title="Remove" data-del="' + i + '">&#10005;</button></td>';
       tb.appendChild(tr);
+
+      // Notes live on their own full-width row beneath the appointment.
+      var ntr = document.createElement("tr");
+      ntr.className = "notes-row";
+      ntr.innerHTML =
+        '<td class="notes-cell" colspan="11">' +
+          '<textarea rows="1" placeholder="Notes &mdash; post-shock, ERI watch, needs interpreter&hellip;" data-i="' + i + '" data-f="notes">' + esc(r.notes) + '</textarea>' +
+        '</td>';
+      tb.appendChild(ntr);
     });
-    tb.querySelectorAll("td.notes textarea").forEach(autoGrow);   // size each note to its content
+    tb.querySelectorAll("td.notes-cell textarea").forEach(autoGrow);   // size each note to its content
     renderCounts();
     scanSlots();
   }
@@ -388,7 +447,8 @@
   $("schedBody").addEventListener("input", function (ev) {
     var el = ev.target; if (el.dataset.i === undefined) return;
     var r = rows()[+el.dataset.i]; if (!r) return;
-    r[el.dataset.f] = el.dataset.f === "pt" ? el.value.toUpperCase() : el.value;
+    if (el.type === "checkbox") r[el.dataset.f] = el.checked;
+    else r[el.dataset.f] = el.dataset.f === "pt" ? el.value.toUpperCase() : el.value;
     if (el.dataset.f === "notes" && el.tagName === "TEXTAREA") autoGrow(el);
     save();
     if (el.dataset.f === "check" || el.dataset.f === "rm") renderCounts();
@@ -414,7 +474,7 @@
     } else { render(); }
   });
   window.addRow = function () {
-    rows().push({ time: "", pt: "", mfr: "", dtype: "", check: "In-clinic", lastOff: "", rm: "", notes: "" });
+    rows().push({ time: "", pt: "", mfr: "", dtype: "", check: "In-clinic", lastOff: "", rm: "", cerner: false, notes: "" });
     save(); render();
     var t = $("schedBody").querySelectorAll("td.time input");
     if (t.length) t[t.length - 1].focus();
@@ -525,7 +585,7 @@
         '<div class="p-date">' + dt.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" }) + "</div>" +
         '<div class="p-meta">' + esc(meta) + "</div>" +
       "</div>" +
-      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Check</th><th>Last Office</th><th>Remote</th><th>Notes</th></tr></thead><tbody>" +
+      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Check</th><th>Last Office</th><th>Remote</th><th>Cerner</th><th>Notes</th></tr></thead><tbody>" +
       rs.map(function (r) {
         var dev = [abMfr[r.mfr] || r.mfr, r.dtype].filter(Boolean).join(" ");
         return "<tr>" +
@@ -535,6 +595,7 @@
           '<td class="p-chk">' + esc(abChk[r.check] || r.check) + "</td>" +
           '<td class="p-lo">' + esc(fmtDate(r.lastOff)) + "</td>" +
           '<td class="p-rm">' + esc(abRm[r.rm] || r.rm || "") + "</td>" +
+          '<td class="p-cerner" style="text-align:center">' + (r.cerner ? "&#10003;" : "") + "</td>" +
           "<td>" + esc(r.notes) + "</td></tr>";
       }).join("") +
       "</tbody></table>";
@@ -655,13 +716,30 @@
       dataFileHandle = fh;
       return seed ? seedHandle(fh) : loadFromHandle(fh);
     }).then(function () {
-      $("openBtn").disabled = true;
+      // Leave the Open button enabled so it can switch to a different database while one
+      // is already connected — just relabel it so the intent is clear.
+      $("openBtn").disabled = false;
+      $("openBtn").textContent = "Open a different database…";
       $("wsForget").style.display = "";
       setStatus(WS.canAutosave ? "Database open — auto-saving as you edit" : "Database open — press “Save database” to write back to USB", "ok");
+      updateDbLocation();
       updateSaveBtn();
       scanSlots();
       applyRetention();   // enforce this database's saved retention window on open
     });
+  }
+  // Show the active database's filename in the dropdown. Browsers don't expose the parent
+  // folder path (File System Access API security), so this is the filename only.
+  function updateDbLocation() {
+    var box = $("dbLocation"), nameEl = $("dbLocationName");
+    if (!box || !nameEl) return;
+    var name = (WS && WS.fileName) ? WS.fileName() : null;
+    if (name) {
+      nameEl.textContent = name;
+      box.style.display = "";
+    } else {
+      box.style.display = "none";
+    }
   }
   window.openDatabase = function () {
     if (!WS) return;
@@ -692,7 +770,9 @@
       wsRoot = null; dataFileHandle = null;
       $("wsForget").style.display = "none";
       $("openBtn").disabled = false;
+      $("openBtn").textContent = "Open database…";
       setStatus("No database open — data is in this browser only", "");
+      updateDbLocation();
       updateSaveBtn();
       scanSlots();
       updateMemoryUI();
@@ -842,7 +922,10 @@
     if (n === "report.json") return { l: "JSON", cls: "" };
     if (n === "report.txt") return { l: "TXT", cls: "" };
     if (n === "report.pdf") return { l: "REPORT", cls: "" };      // our generated report PDF
-    return { l: "PROG", cls: " vendor" };                          // raw programmer export
+    // Raw programmer exports — distinguish the Abbott .log from the vendor PDF report.
+    if (/\.log$/.test(n)) return { l: "LOG", cls: " vendor" };
+    if (/\.pdf$/.test(n)) return { l: "PDF", cls: " vendor" };    // raw vendor/programmer PDF
+    return { l: "PROG", cls: " vendor" };                          // any other raw export
   }
   var CHIP_ORDER = { "report.json": 0, "report.txt": 1, "report.pdf": 2 };
   function renderSlotCell(td, slot) {

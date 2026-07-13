@@ -247,8 +247,18 @@
     if (canAutosave) {
       return window.showOpenFilePicker({ types: [{ description: "CRM database", accept: { "application/octet-stream": [".crmdb", ".zip"] } }] })
         .then(function (hs) {
-          fileHandle = hs[0]; suggestedName = hs[0].name;
-          return hs[0].getFile().then(function (f) { return f.arrayBuffer(); }).then(ingest)
+          // Switching from an already-open database: write its latest edits back to its own
+          // file BEFORE we clear the bundle to load the newly-picked one, so nothing is lost.
+          var prev = fileHandle;
+          var saveOld = (opened && prev && canAutosave)
+            ? serialize().then(function (blob) {
+                return prev.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); });
+              }).catch(function () {})
+            : Promise.resolve();
+          return saveOld.then(function () {
+            clearTimeout(persistTimer);
+            fileHandle = hs[0]; suggestedName = hs[0].name;
+            return hs[0].getFile().then(function (f) { return f.arrayBuffer(); }).then(ingest); })
             .then(function () { return idbSet("fileHandle", fileHandle); })
             .then(function () { return idbSet("bundle", null); })   // refreshed on next persist
             .then(function () { opened = true; return ROOT; });
@@ -426,6 +436,10 @@
     saveNow: saveNow,
     flush: flush,
     isOpen: function () { return opened; },
+    // Filename of the bound database, or null when nothing is open. Browsers do NOT
+    // expose the parent folder path through the File System Access API, so this is the
+    // filename only (e.g. "schedule.crmdb") — the most a web page is allowed to know.
+    fileName: function () { return opened ? suggestedName : null; },
     set onStatus(fn) { statusCb = fn; },
     get onStatus() { return statusCb; },
     // test hooks (used by the Node unit test; harmless in the browser)
