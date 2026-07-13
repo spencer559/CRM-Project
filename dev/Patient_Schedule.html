@@ -927,24 +927,29 @@
     if (/\.pdf$/.test(n)) return { l: "PDF", cls: " vendor" };    // raw vendor/programmer PDF
     return { l: "PROG", cls: " vendor" };                          // any other raw export
   }
-  var CHIP_ORDER = { "report.json": 0, "report.txt": 1, "report.pdf": 2 };
+  function chipOrder(name) {
+    var n = String(name).toLowerCase();
+    if (n !== "report.pdf" && /\.pdf$/.test(n)) return 0; // programmer/vendor PDF
+    if (n === "report.pdf") return 1;                    // generated report PDF
+    if (n === "report.json") return 2;
+    if (n === "report.txt") return 3;
+    if (/\.log$/.test(n)) return 4;
+    return 5;
+  }
   function renderSlotCell(td, slot) {
     WS.slotDir(wsRoot, curDate, slot, false)
       .then(function (dir) { return WS.listFiles(dir); })
       .catch(function () { return []; })
       .then(function (files) {
         files.sort(function (a, b) {
-          var oa = CHIP_ORDER[a.name.toLowerCase()], ob = CHIP_ORDER[b.name.toLowerCase()];
-          oa = oa === undefined ? 9 : oa; ob = ob === undefined ? 9 : ob;
-          return (oa - ob) || a.name.localeCompare(b.name);
+          return (chipOrder(a.name) - chipOrder(b.name)) || a.name.localeCompare(b.name);
         });
-        var html = "";
+        var html = '<span class="fchip crm" data-crm="' + esc(slot) + '" title="Open this patient in the CRM Report Generator">CRM</span>';
         files.forEach(function (fh) {
           var c = chipLabel(fh.name);
           html += '<span class="fchip' + c.cls + '" data-open="' + esc(slot) + '" data-name="' + esc(fh.name) + '" title="Open ' + esc(fh.name) + '">' + c.l +
             '<span class="x" data-rm-slot="' + esc(slot) + '" data-rm-name="' + esc(fh.name) + '" title="Remove ' + esc(fh.name) + ' from this patient">&times;</span></span>';
         });
-        html += '<span class="fchip crm" data-crm="' + esc(slot) + '" title="Open this patient in the CRM Report Generator">CRM</span>';
         html += '<span class="fchip add" data-add="' + esc(slot) + '" title="Attach a programmer PDF to this patient (no auto-fill)">+ PDF</span>';
         td.innerHTML = html;
       });
