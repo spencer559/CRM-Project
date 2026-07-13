@@ -223,6 +223,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       Schedule
     </button>
     <button class="btn btn-ghost" id="patient-btn" onclick="togglePatientMenu(event)">Patient List <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button class="btn btn-ghost" onclick="clearFieldsKeepPatient()" title="Blank the form but keep the current patient selected — redo their report from scratch">Clear Fields</button>
     <button class="btn btn-danger" onclick="clearForm()">New Patient</button>
     <button class="btn btn-ghost" onclick="toggleImportMenu(event)">Import <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn btn-primary" onclick="toggleExportMenu(event)">Export <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -2287,8 +2288,11 @@ loadSaved();
   // written here are guaranteed to be in the shared bundle the Schedule page reads.
   window.goToSchedule = function () {
     var go = function () { location.href = '../dev/Patient_Schedule.html'; };
-    // rebuild the full report set before leaving (only if edited) so the Schedule shows current reports
-    ((syncArmed && dirty) ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(go, go);
+    // Rebuild the FULL report set (json+txt+pdf) whenever a patient is selected, so leaving
+    // always assigns an up-to-date PDF to that patient — even if the form wasn't edited this
+    // visit (e.g. opened an older json-only slot and just reviewed it). Not gated on `dirty`:
+    // finalizeReports is idempotent and (re)creates any of the three that are missing.
+    (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(go, go);
   };
   // the store reports autosave / unsaved / errors through the USB-sync indicator
   if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateDbSaveBtn(); };
@@ -2375,6 +2379,21 @@ loadSaved();
     }
   })();
 
+  // "Clear Fields" — blank the whole form but STAY on the current patient, so you can redo
+  // their report from scratch (e.g. the wrong report/data was entered). Unlike New Patient,
+  // which unselects the patient, this keeps the slot selected and re-arms live sync; the
+  // cleared report then replaces the old data as you re-enter it (and on the next leave).
+  window.clearFieldsKeepPatient = function () {
+    var armedPatient = syncArmed && slotName;
+    if (!confirm(armedPatient
+      ? 'Clear all fields and start this patient’s report over?\n\n' + (slotLabel || slotName) +
+        ' stays selected — the blank report will replace the saved data as you re-enter it.'
+      : 'Clear all fields and start over?')) return;
+    // resetFormState is wrapped to disarm + blank the fields; it leaves the slot vars intact.
+    if (typeof window.resetFormState === 'function') window.resetFormState();
+    if (armedPatient) { arm(); dirty = true; }   // re-arm the SAME patient; leaving now re-saves the cleared report
+  };
+
   /* ---- open a patient slot ---- */
   function openSlot(dt, slot, label, allowReset) {
     slotDate = dt; slotName = slot; slotLabel = (label || '').trim();
@@ -2398,8 +2417,9 @@ loadSaved();
   }
   function switchTo(dt, slot, label) {
     if (!confirm('Open ' + (label || slot) + ' from the USB?\n\nThe current form will be replaced.')) return;
-    // finalize the current patient's reports (if edited) before loading the next one
-    ((syncArmed && dirty) ? finalizeReports() : Promise.resolve()).then(function () {
+    // finalize the current patient's full report set before loading the next one, so the one
+    // we're leaving always keeps an up-to-date json+txt+pdf (not gated on `dirty` — see goToSchedule)
+    (syncArmed ? finalizeReports() : Promise.resolve()).then(function () {
       history.replaceState('', document.title, location.pathname + location.search + '#slot=' + dt + '/' + slot);
       openSlot(dt, slot, label, true);
     });
