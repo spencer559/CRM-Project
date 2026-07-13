@@ -2547,9 +2547,10 @@ loadSaved();
         .then(function (files) {
           files.forEach(function (fh) {
             var n = fh.name.toLowerCase();
-            if (n === 'report.json') {
-              holder.appendChild(item('Load report.json', function () { openSlot(slotDate, slotName, slotLabel, true); }));
-            } else if (/\.(pdf|log|txt)$/.test(n) && n !== 'report.txt' && n !== 'report.pdf') {
+            // Only raw programmer exports are importable. The slot's own report.json/txt/pdf are
+            // this patient's live report (already loaded and syncing) — offering to "load" them
+            // would just re-read the file you're editing, so they're intentionally excluded.
+            if (/\.(pdf|log|txt)$/.test(n) && n !== 'report.txt' && n !== 'report.pdf') {
               holder.appendChild(item('Auto-fill from ' + fh.name, function () {
                 fh.getFile().then(function (file) {
                   if (typeof window.handleFile === 'function') {
