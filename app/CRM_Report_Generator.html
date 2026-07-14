@@ -99,6 +99,12 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
   display: flex; align-items: center; gap: 8px;
 }
 .sec-hdr .badge { margin-left: auto; background: rgba(255,255,255,.18); padding: 1px 8px; font-size: 9px; border-radius: 10px; letter-spacing: .3px; }
+.sec-clear {
+  margin-left: auto; padding: 2px 7px; border: 1px solid rgba(255,255,255,.55);
+  border-radius: 3px; background: transparent; color: #fff; cursor: pointer;
+  font: 700 8.5px Arial, Helvetica, sans-serif; letter-spacing: .35px; text-transform: uppercase;
+}
+.sec-clear:hover { background: rgba(255,255,255,.16); border-color: #fff; }
 .sec-body { padding: 12px 14px; }
 
 /* SUB LABEL */
@@ -199,7 +205,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   .app-bar, .sidebar { display: none !important; }
   .main { position: static !important; overflow: visible !important; height: auto !important; left: 0 !important; padding: 0 !important; }
   .section { box-shadow: none; margin-bottom: 14px; page-break-inside: avoid; }
-  .add-btn, .del-btn { display: none !important; }
+  .add-btn, .del-btn, .sec-clear { display: none !important; }
   .dt input:not([type=checkbox]):not([type=radio]), .dt select { font-size: 9px; }
   input, select { background: #fff !important; }
   textarea { background: #fff !important; height: auto !important; overflow: visible !important; }
@@ -292,7 +298,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- §1 PATIENT & DEVICE -->
 <div class="section" id="s-patient">
-  <div class="sec-hdr">Patient &amp; Device Information</div>
+  <div class="sec-hdr">Patient &amp; Device Information<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Patient and Device Information section">Clear section</button></div>
   <div class="sec-body">
     <div class="fg fg-5">
       <div class="field"><span class="lbl">Patient Name</span><input type="text" id="pt-name" placeholder="Last, First MI"></div>
@@ -353,7 +359,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- §2 BATTERY -->
 <div class="section" id="s-battery">
-  <div class="sec-hdr">Battery / Device Status</div>
+  <div class="sec-hdr">Battery / Device Status<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Battery and Device Status section">Clear section</button></div>
   <div class="sec-body">
     <table class="dt">
       <thead><tr>
@@ -404,7 +410,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- §5 EPISODES (moved up — reviewed right after the interrogation summary, before testing) -->
 <div class="section" id="s-episodes">
-  <div class="sec-hdr">Stored Episodes / Arrhythmia Log</div>
+  <div class="sec-hdr">Stored Episodes / Arrhythmia Log<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Stored Episodes and Arrhythmia Log section">Clear section</button></div>
   <div class="sec-body">
     <div class="fg" style="grid-template-columns: 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="ep-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
@@ -440,7 +446,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- §4 LEADS (after Episodes — threshold/sensing tests happen mid-visit) -->
 <div class="section" id="s-leads">
-  <div class="sec-hdr">Lead / Electrode Measurements</div>
+  <div class="sec-hdr">Lead / Electrode Measurements<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Lead and Electrode Measurements section">Clear section</button></div>
   <div class="sec-body">
     <table class="dt">
       <thead><tr>
@@ -453,14 +459,14 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- §3 PARAMETERS (before Final — programming is confirmed/adjusted at the end of the visit) -->
 <div class="section" id="s-params">
-  <div class="sec-hdr">Programmed Parameters</div>
+  <div class="sec-hdr">Programmed Parameters<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Programmed Parameters section">Clear section</button></div>
   <div class="sec-body">
     <div class="sub-lbl">Pacing Mode &amp; Rates</div>
     <div class="fg" style="grid-template-columns: 120px 90px 90px 90px;">
       <div class="field"><span class="lbl">Mode</span>
         <input type="text" id="p-mode" placeholder="e.g. DDD, VVIR…">
       </div>
-      <div class="field"><span class="lbl">LRL (bpm)</span><input type="number" id="p-lrl" min="30" max="100"></div>
+      <div class="field"><span class="lbl" id="p-lrl-lbl">LRL (bpm)</span><input type="text" id="p-lrl" placeholder="e.g. 60 or 60/45"></div>
       <div class="field"><span class="lbl">UTR (bpm)</span><input type="number" id="p-utr" min="80" max="220"></div>
       <div class="field"><span class="lbl">USR (bpm)</span><input type="number" id="p-usr" min="80" max="220"></div>
     </div>
@@ -487,7 +493,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- §8 FINAL SESSION SUMMARY (merged: reprogramming + remote monitoring + sign-off) -->
 <div class="section" id="s-final">
-  <div class="sec-hdr">Final Session Summary</div>
+  <div class="sec-hdr">Final Session Summary<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Final Session Summary section">Clear section</button></div>
   <div class="sec-body">
 
     <div class="sub-lbl">Reprogramming</div>
@@ -788,6 +794,8 @@ function updateConditionals() {
   var hasAveir = vals.indexOf('Aveir') > -1;
   var aDiv = document.getElementById('aveir-chambers');
   if (aDiv) aDiv.style.display = hasAveir ? '' : 'none';
+  var lrlLbl = document.getElementById('p-lrl-lbl');
+  if (lrlLbl) lrlLbl.textContent = hasAveir ? 'A/V LRL (bpm)' : 'LRL (bpm)';
   if (!hasAveir) {
     document.querySelectorAll('input[name="aveir-chamber"]').forEach(function(el){ el.checked = false; });
   }
@@ -1134,6 +1142,46 @@ function resetFormState() {
   try { localStorage.removeItem('crm-digital'); } catch(e){}
 }
 
+// Clear only the card whose header button was pressed. Controls return to their original HTML
+// defaults, while dynamic tables owned by that section return to their normal starter rows.
+function clearSection(button) {
+  var section = button && button.closest('.section');
+  if (!section) return;
+  var hdr = section.querySelector('.sec-hdr');
+  var title = hdr && hdr.firstChild ? hdr.firstChild.textContent.trim() : 'this section';
+  if (!confirm('Clear ' + title + '?\n\nOnly fields in this section will be reset.')) return;
+
+  section.querySelectorAll('input, select, textarea').forEach(function(el) {
+    if (el.type === 'file') return;
+    if (el.type === 'radio' || el.type === 'checkbox') el.checked = el.defaultChecked;
+    else if (el.tagName === 'SELECT') el.selectedIndex = 0;
+    else el.value = el.defaultValue || '';
+    if (el.tagName === 'TEXTAREA') el.style.height = '';
+  });
+
+  if (section.id === 's-patient') {
+    var li = document.getElementById('leadinfo-tbody'); if (li) li.innerHTML = '';
+    var ac = document.getElementById('aveir-chambers'); if (ac) ac.style.display = 'none';
+    var ll = document.getElementById('p-lrl-lbl'); if (ll) ll.textContent = 'LRL (bpm)';
+    if (typeof updateLeadInfoTable === 'function') updateLeadInfoTable();
+  } else if (section.id === 's-episodes') {
+    var ep = document.getElementById('ep-tbody'); if (ep) ep.innerHTML = '';
+    epN = 0; addEpRow();
+    if (typeof updateEpMode === 'function') updateEpMode();
+    if (typeof updateObservations === 'function') updateObservations();
+  } else if (section.id === 's-params') {
+    if (typeof updateDynamicAV === 'function') updateDynamicAV();
+  } else if (section.id === 's-final') {
+    var rp = document.getElementById('rp-tbody'); if (rp) rp.innerHTML = '';
+    rpN = 0; addRpRow(); addRpRow(); addRpRow();
+    if (typeof updateReprogTable === 'function') updateReprogTable();
+  }
+
+  // Programmatic value changes do not emit input events. Emit one from the section so the
+  // existing browser autosave and active-patient USB live-sync paths both record the reset.
+  section.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 // ── EXPORT ──
 function copyToClipboard() {
   var lines = buildSummaryLines();
@@ -1284,7 +1332,7 @@ function buildReportPdfBlob() {
 
   h2('Programmed Parameters');
   // 4 columns so the 8 programmed-parameter fields fit in 2 rows instead of 3.
-  grid([['Mode',val('p-mode')],['LRL (bpm)',val('p-lrl')],['UTR (bpm)',val('p-utr')],['USR (bpm)',val('p-usr')],
+  grid([['Mode',val('p-mode')],[isAveir ? 'A/V LRL (bpm)' : 'LRL (bpm)',val('p-lrl')],['UTR (bpm)',val('p-utr')],['USR (bpm)',val('p-usr')],
         ['Sensed AV (ms)', val('p-sav-hi')?(val('p-sav')+' - '+val('p-sav-hi')):val('p-sav')],
         ['Paced AV (ms)', val('p-pav-hi')?(val('p-pav')+' - '+val('p-pav-hi')):val('p-pav')],
         ['Mode Switch',val('p-ms')],['MS Rate (bpm)',val('p-msrate')]], 4);
@@ -1511,7 +1559,7 @@ function exportPDF() {
     + psec('Programmed Parameters',
         '<div class="row">'
         + pf('Mode', v('p-mode'))
-        + pf('LRL (bpm)', v('p-lrl'))
+        + pf(isAveirDev ? 'A/V LRL (bpm)' : 'LRL (bpm)', v('p-lrl'))
         + pf('UTR (bpm)', v('p-utr'))
         + pf('USR (bpm)', v('p-usr'))
         + pf('Sensed AV (ms)', v('p-sav-hi') ? (v('p-sav') + ' - ' + v('p-sav-hi')) : v('p-sav'))
@@ -1767,7 +1815,7 @@ function buildSummaryLines() {
   if (val('ap-rhythm'))     lRhythm.push('Underlying Rhythm: ' + val('ap-rhythm'));
   var l2 = [];
   if (val('p-mode')) l2.push('Mode: ' + val('p-mode'));
-  if (val('p-lrl'))  l2.push('LRL: ' + val('p-lrl'));
+  if (val('p-lrl'))  l2.push((sumDtype.indexOf('Aveir') > -1 ? 'A/V LRL' : 'LRL') + ': ' + val('p-lrl'));
   if (val('p-utr'))  l2.push('UTR: ' + val('p-utr'));
   if (val('p-usr'))  l2.push('USR: ' + val('p-usr'));
   var l3 = [];
