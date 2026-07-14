@@ -9,7 +9,7 @@ A small suite of browser tools for a cardiac device clinic, served as a static s
 | `app/Mileage_Calculator.html` | Clinic-coverage mileage log → one-click expense-form .xlsx, optional cloud sync |
 | `dev/index.html` | Developer deck — landing page for dev-only tools (`/dev/*` is gated by Cloudflare Access) |
 | `dev/dashboard.html` | Command center: markets, device-check tally, clinical reference, notes/to-do |
-| `dev/Patient_Schedule.html` | Daily clinic schedule — initials only, zero network egress, print-formatted day sheet; stores the schedule **and** every patient's files in one portable `.crmdb` database (iPad-ready) |
+| `dev/Patient_Schedule.html` | Daily clinic schedule — full patient names, zero network egress, print-formatted day sheet; stores the schedule **and** every patient's files in one portable `.crmdb` database (iPad-ready) |
 | `mileage-backend/` | Cloudflare Worker + D1 backend for mileage cloud sync (see its `DEPLOY.md`) |
 
 > This README doubles as a **project handoff / context document** — if you're an AI assistant (e.g. Claude in Cowork) being pointed here to continue the work, read the whole thing; it captures the architecture, conventions, and the vendor-specific gotchas that took real reports to discover.
@@ -267,7 +267,7 @@ Persistence details worth knowing before editing:
 
 ### Patient Schedule (`dev/Patient_Schedule.html`)
 
-A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. **Data-minimized by design**: rows hold time, patient *initials only* (no MRN/DOB/name fields exist), manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…"** button beside the date picker reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
+A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. Rows hold time, the patient's **full name**, manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…"** button beside the date picker reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
 
 Workflow/storage: the schedule **and every patient's files** now live in a **single `.crmdb` database file** — see *The `.crmdb` database container* below for the full model. On Mac/PC it auto-saves in place as you edit; on iPad you press **Save** to write it back through the Files sheet. Data-lifetime is user-controlled **per database** via the **Memory** menu (retention window + Clear-all-past + a size readout; default is keep-everything — the old fixed 7-day purge is gone). Also: a header **All patients** overview, a manual **+ PDF** attach chip per row (for device types with no parser), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** action (now inside the Memory menu) that saves the database, wipes localStorage, and forgets the connection — the file keeps the data; only the browser is cleaned. Optional per-database password protection encrypts both the `.crmdb` file and its IndexedDB working copy entirely on-device; protected databases suppress the plaintext schedule localStorage mirror. There is deliberately no password recovery or server involvement. Never wire this page to the mileage sync Worker or any other backend.
 
@@ -290,7 +290,7 @@ still inspectable:
 schedule.crmdb  (zip)
   manifest.json                                    {type, version, modified, fileCount}
   schedule.json                                    the Patient Schedule data (+ retentionDays — see Memory)
-  patients/<YYYY-MM-DD>/<HHMM>_<INITIALS>/
+  patients/<YYYY-MM-DD>/<HHMM>_<NORMALIZED_PATIENT_NAME>/
     report.json  report.txt  report.pdf            CRM tool exports
     <vendor export>.pdf / .log                     raw programmer files (optional)
 ```
@@ -310,7 +310,7 @@ the next open requires the password. Encrypted files cannot be recovered by rena
 already called** (`connect`, `slotDir`, `readText`, `writeFile`, `listFiles`, `moveSlot`,
 `slotName`, `stored`, `permission`, `forget`, `usbOnly` …) but backed by an **in-memory
 `bundle` = `Map<path, Blob>`** instead of live directory handles. Slot/file ops became map
-reads/writes; `moveSlot` (renaming a slot when a row's time/initials change) became a key
+reads/writes; `moveSlot` (renaming a slot when a row's time/patient name changes) became a key
 relabel; `readText` on a missing file rejects (so the CRM "new patient" catch still fires).
 Because the API surface is unchanged, migrating the 2500-line CRM tool was mostly a script-swap.
 The bundle **is** the one database, and it is:
@@ -346,7 +346,7 @@ chip still opens inline after a round-trip strips the raw blob's type.
   Aveir, S-ICD — anything with no parser) straight into the slot; it shows as a **PROG** chip.
   Won't clobber a generated `report.*` (an upload named `report.pdf` is stored `prog-report.pdf`).
 - **Delete a patient** (the row ×) confirms only when the row is substantially filled
-  (time + initials + manufacturer + device + check all set) and **also removes that slot's files**
+  (time + patient name + manufacturer + device + check all set) and **also removes that slot's files**
   from the database (`WS.removeSlotFiles`); a mostly-blank new row still deletes silently.
 - UI: the page is a **scroll-locked shell** (`body{overflow:hidden}` + a `.main-scroll` pane) so
   the iPad share popover never drifts off-screen no matter how many rows exist; the table was
@@ -394,7 +394,7 @@ localStorage, and forgets the connection.
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
 - **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
 - **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
-- **Patient Schedule** (initials-only day sheet, print view, walk-away wipe) behind the `/dev/` gate — now backed by the `.crmdb` container (below) with per-database Memory retention, an All-patients overview, and manual PDF attach.
+- **Patient Schedule** (full-name day sheet, print view, walk-away wipe) behind the `/dev/` gate — now backed by the `.crmdb` container (below) with per-database Memory retention, an All-patients overview, and manual PDF attach.
 - **`.crmdb` single-file database (Jul 2026):** the shared USB workspace was rebuilt from a live folder tree into one portable ZIP (`schedule.crmdb`) so the Schedule **and** the CRM Report Generator work on **iPad** as well as desktop. New `src/crmdb-store.js` (CRMWorkspace API over an in-memory bundle + IndexedDB cross-page copy + desktop file-handle autosave / iPad share-sheet save) and `vendor/crmdb-zip.js` (dependency-free, CSP-safe ZIP). Verified headlessly in Node: bundle round-trips (valid zip per `unzip -t`), slot moves/renames, file counts, retention pruning, per-database `retentionDays` persistence, delete-with-files, and the two-page handoff sequence. Browser click-through (iPad share sheet, desktop reconnect) still to be confirmed on real hardware.
 - **Site passover (Jul 2026):** dashboard data-file snapshot/restore whitelisted to dashboard-owned keys (a full-localStorage mirror was writing the CRM PHI autosave into exports); tally + mileage "Add day" switched to local dates (UTC `toISOString` rolled evening entries to tomorrow); Mileage Calculator got a CSP matching the other pages; `mileage-backend/.wrangler/` untracked and git-ignored.
 

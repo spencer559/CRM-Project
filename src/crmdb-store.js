@@ -120,7 +120,10 @@
     var t = String(time || "").replace(/[^0-9]/g, "").slice(0, 4) || "0000";
     if (t.length === 3) t = "0" + t;
     while (t.length < 4) t = t + "0";
-    var p = String(pt || "").toUpperCase().replace(/[^A-Z0-9]/g, "") || "XX";
+    // Patient names remain human-readable in schedule.json. Only the internal folder key is
+    // normalized so punctuation, spaces and very long names cannot create unsafe ZIP paths.
+    var p = String(pt || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 48) || "XX";
     return t + "_" + p;
   }
   function slotPrefix(date, slot) { return "patients/" + date + "/" + slot + "/"; }

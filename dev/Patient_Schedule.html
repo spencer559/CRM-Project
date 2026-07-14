@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<!-- CSP: schedule rows are patient-identifying (initials) — treat as PHI-adjacent. connect-src 'none'
+<!-- CSP: schedule rows contain patient names — treat as PHI. connect-src 'none'
      means this page cannot make ANY network request: nothing typed here can leave the browser.
      Storage is localStorage plus an optional local file (e.g. in OneDrive) the user connects
      explicitly via the File System Access API. Gated behind Cloudflare Access with the rest of /dev/. -->
@@ -83,7 +83,7 @@
   /* Fixed layout so column widths are honored exactly: the left fields stay packed at their
      own widths instead of the browser inflating every column to fill the row. Files is left
      without a fixed width, so it flexes to absorb all the leftover space after Cerner. */
-  .twrap table { table-layout:fixed; min-width:960px; }
+  .twrap table { table-layout:fixed; min-width:1080px; }
   th, td { padding:3px 5px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top; }
   /* Bottom-align header labels so that when a label wraps to two lines (e.g. "Check type"),
      the single-line labels sit snug against the first row instead of floating up and leaving
@@ -99,7 +99,7 @@
   td.time input { width:112px; color-scheme:dark; }
   td.lo { vertical-align:middle; }
   td.lo input { width:116px; color-scheme:dark; }
-  td.pt input { width:52px; text-transform:uppercase; }
+  td.pt input { width:170px; }
   /* The appointment row and its full-width notes row read as one block: drop the divider
      between them, and let the notes row carry the bottom border. */
   tr.appt-row > td { border-bottom:none; }
@@ -192,6 +192,7 @@
     #printView .p-time, #printView .p-pt, #printView .p-dev, #printView .p-chk, #printView .p-lo, #printView .p-rm {
       white-space:nowrap; width:1%; font-size:9pt; }
     #printView .p-time { font-weight:bold; }
+    #printView .p-pt { white-space:normal; width:18%; }
   }
 </style>
 </head>
@@ -283,7 +284,7 @@
     <table>
       <thead><tr>
         <th style="width:120px">Time</th>
-        <th style="width:62px">Patient</th>
+        <th style="width:180px">Patient</th>
         <th style="width:108px">Manufacturer</th>
         <th style="width:96px">Device</th>
         <th style="width:100px">Check type</th>
@@ -310,7 +311,7 @@
       <span id="allTitle">All patients</span>
       <button onclick="closeAllPatients()" title="Close">&#10005;</button>
     </div>
-    <input id="allFilter" type="text" placeholder="Filter by initials, device, check type, or notes&hellip;">
+    <input id="allFilter" type="text" placeholder="Filter by patient name, device, check type, or notes&hellip;">
     <div id="allList" class="modal-body"></div>
   </div>
 </div>
@@ -418,7 +419,7 @@
       tr.className = "appt-row";
       tr.innerHTML =
         '<td class="time"><input type="time" data-i="' + i + '" data-f="time" value="' + esc(r.time) + '"></td>' +
-        '<td class="pt"><input maxlength="6" placeholder="J.S." data-i="' + i + '" data-f="pt" value="' + esc(r.pt) + '"></td>' +
+        '<td class="pt"><input maxlength="80" placeholder="Last, First" aria-label="Patient full name" data-i="' + i + '" data-f="pt" value="' + esc(r.pt) + '"></td>' +
         '<td><select data-i="' + i + '" data-f="mfr">' + opts(MFRS, r.mfr) + "</select></td>" +
         '<td><select data-i="' + i + '" data-f="dtype">' + opts(DEVS, r.dtype) + "</select></td>" +
         '<td><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
@@ -459,7 +460,7 @@
     var el = ev.target; if (el.dataset.i === undefined) return;
     var r = rows()[+el.dataset.i]; if (!r) return;
     if (el.type === "checkbox") r[el.dataset.f] = el.checked;
-    else r[el.dataset.f] = el.dataset.f === "pt" ? el.value.toUpperCase() : el.value;
+    else r[el.dataset.f] = el.value;
     if (el.dataset.f === "notes" && el.tagName === "TEXTAREA") autoGrow(el);
     save();
     if (el.dataset.f === "check" || el.dataset.f === "rm") renderCounts();
@@ -469,7 +470,7 @@
     var b = ev.target.closest("button[data-del]"); if (!b) return;
     var i = +b.dataset.del, r = rows()[i];
     var slot = (r && WS) ? WS.slotName(r.time, r.pt) : null;
-    // Confirm only when the row holds a real entry: time, initials, manufacturer, device
+    // Confirm only when the row holds a real entry: time, patient name, manufacturer, device
     // and check type are all filled in. A mostly-blank new row deletes with no prompt.
     var filledIn = r && r.time && r.pt && r.mfr && r.dtype && r.check;
     if (filledIn) {
@@ -947,7 +948,7 @@
   document.addEventListener("visibilitychange", function () {
     if (document.hidden && dataFileHandle) { clearTimeout(syncTimer); writeDataFile(); }
   });
-  /* Editing time/initials changes the slot folder name — without a migration the row
+  /* Editing time/patient name changes the slot folder name — without a migration the row
      would point at an empty new folder and orphan the old one. Stash the slot BEFORE the
      edit (focusin fires pre-mutation), then on commit (change) move the folder's files.
      (Kept out of row data on purpose — it must never be persisted to schedule.json.) */
@@ -967,7 +968,7 @@
     if (!r || !WS || !oldSlot) return;
     var newSlot = WS.slotName(r.time, r.pt);
     if (oldSlot === newSlot) return;
-    // Keep the baseline current: a time/initials field can fire several change events in one
+    // Keep the baseline current: a time/patient field can fire several change events in one
     // focus (editing the hour then the minute, using the steppers, etc.). Updating preSlot to
     // the new slot — instead of deleting it — lets each successive edit relocate the files from
     // wherever they are now, so the association is never lost between saves.

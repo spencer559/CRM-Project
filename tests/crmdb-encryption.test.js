@@ -24,6 +24,7 @@ async function openPlainFixture() {
 }
 
 async function run() {
+  assert.strictEqual(WS.slotName("08:00", "José O'Connor-Smith"), "0800_JOSEOCONNORSMITH");
   await openPlainFixture();
   assert.strictEqual(WS.isEncrypted(), false);
 
