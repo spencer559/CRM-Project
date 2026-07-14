@@ -242,6 +242,11 @@
         <input id="importFile" type="file" accept="application/json,.json" style="display:none">
         <input id="attachFile" type="file" accept="application/pdf,.pdf,.log,.txt" style="display:none">
         <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
+        <div id="dbProtectionStatus" class="hdr-status">Password protection: &mdash;</div>
+        <button id="dbProtectBtn" onclick="togglePasswordProtection()" disabled>Add password&hellip;</button>
+        <button id="dbChangePasswordBtn" onclick="changeDatabasePassword()" style="display:none;">Change password&hellip;</button>
+        <button id="dbLockBtn" onclick="lockDatabaseSession()" style="display:none;">Lock database</button>
+        <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
         <div id="wsStatus" class="hdr-status"></div>
         <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Close database</button>
         <label class="hdr-status" style="display:flex; gap:7px; align-items:flex-start; cursor:pointer; margin-top:4px;">
@@ -366,7 +371,7 @@
     // drop empty day arrays so purge/export stay tidy
     Object.keys(state.dates).forEach(function (k) { if (!state.dates[k].length) delete state.dates[k]; });
     // USB-only mode: while the workspace is connected, the stick is the ONLY copy
-    if (wsRoot && WS && WS.usbOnly()) {
+    if (wsRoot && WS && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted()))) {
       try { localStorage.removeItem(KEY); } catch (e) {}
     } else {
       try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
@@ -646,6 +651,10 @@
   var dataFileHandle = null;     // virtual handle to schedule.json inside the bundle
   var syncTimer = null, scanTimer = null;
 
+  if (WS) WS.onPasswordRequest = function (details) {
+    return window.prompt((details && details.message) || "Database password:");
+  };
+
   function setStatus(msg, cls) {
     var el = $("fileStatus");
     el.textContent = msg; el.className = "hdr-status" + (cls ? " " + cls : "");
@@ -683,6 +692,57 @@
       ? "Auto-saves as you edit — click to force a save right now"
       : "Save the database (.crmdb) back to your USB via the Files sheet";
   }
+  function updateProtectionUI() {
+    var statusEl = $("dbProtectionStatus"), toggle = $("dbProtectBtn"), change = $("dbChangePasswordBtn"), lock = $("dbLockBtn");
+    if (!statusEl || !toggle || !change || !lock) return;
+    var active = !!(wsRoot && WS), encrypted = !!(active && WS.isEncrypted && WS.isEncrypted());
+    statusEl.textContent = active ? (encrypted ? "Password protection: ON — encrypted locally" : "Password protection: OFF") : "Password protection: —";
+    toggle.disabled = !active;
+    toggle.textContent = encrypted ? "Remove password…" : "Add password…";
+    change.style.display = encrypted ? "" : "none";
+    lock.style.display = encrypted ? "" : "none";
+  }
+  function askNewPassword() {
+    var password = prompt("Create a database password or PIN (at least 4 characters):");
+    if (password === null) return null;
+    if (password.length < 4) { alert("Use at least 4 characters for the database password or PIN."); return null; }
+    var confirmPassword = prompt("Enter the new password again:");
+    if (confirmPassword === null) return null;
+    if (password !== confirmPassword) { alert("The passwords did not match."); return null; }
+    return password;
+  }
+  window.togglePasswordProtection = function () {
+    if (!wsRoot || !WS) return;
+    if (WS.isEncrypted && WS.isEncrypted()) {
+      if (!confirm("Remove password protection from this database?\n\nIts .crmdb file and browser working copy will be stored without encryption.")) return;
+      var current = prompt("Enter the current database password:");
+      if (current === null) return;
+      WS.disableProtection(current).then(function () {
+        updateProtectionUI(); setWsStatus("Password protection removed. Save the database to update the USB copy.", "ok");
+      }).catch(function (e) { alert(e.message || "Could not remove password protection."); });
+      return;
+    }
+    if (!confirm("Add password protection to this database?\n\nEncryption is completely local. There is no password recovery: forgetting the password permanently locks the protected database.")) return;
+    var password = askNewPassword(); if (password === null) return;
+    WS.enableProtection(password).then(function () {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      updateProtectionUI(); setWsStatus("Password protection enabled. Save the database to update the USB copy.", "ok");
+    }).catch(function (e) { alert(e.message || "Could not enable password protection."); });
+  };
+  window.changeDatabasePassword = function () {
+    if (!wsRoot || !WS || !WS.isEncrypted || !WS.isEncrypted()) return;
+    var current = prompt("Enter the current database password:"); if (current === null) return;
+    var next = askNewPassword(); if (next === null) return;
+    WS.changePassword(current, next).then(function () {
+      updateProtectionUI(); setWsStatus("Database password changed. Save the database to update the USB copy.", "ok");
+    }).catch(function (e) { alert(e.message || "Could not change the database password."); });
+  };
+  window.lockDatabaseSession = function () {
+    if (!wsRoot || !WS || !WS.isEncrypted || !WS.isEncrypted()) return;
+    if (!confirm("Lock this database?\n\nThe password will be required the next time this database is opened or after you switch pages.")) return;
+    WS.lockSession();
+    setWsStatus("Database locked — the password will be required on the next open.", "ok");
+  };
   window.saveDatabase = function () {
     if (!wsRoot || !WS) return;
     WS.saveNow().catch(function (e) { setStatus("Save failed: " + e.message, "warn"); });
@@ -704,7 +764,7 @@
     return h.getFile().then(function (f) { return f.text(); }).then(function (txt) {
       if (txt.trim()) {
         state = normalize(JSON.parse(txt));
-        if (!(WS && WS.usbOnly())) localStorage.setItem(KEY, JSON.stringify(state));
+        if (!(WS && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted())))) localStorage.setItem(KEY, JSON.stringify(state));
         else { try { localStorage.removeItem(KEY); } catch (e) {} }
       }
       render();
@@ -717,7 +777,7 @@
     return h.createWritable().then(function (w) {
       return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); });
     }).then(function () {
-      if (!(WS && WS.usbOnly())) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+      if (!(WS && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted())))) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
       else { try { localStorage.removeItem(KEY); } catch (e) {} }
       render();
     });
@@ -737,6 +797,8 @@
       setStatus(WS.canAutosave ? "Database open — auto-saving as you edit" : "Database open — press “Save database” to write back to USB", "ok");
       updateDbLocation();
       updateSaveBtn();
+      updateProtectionUI();
+      if (WS.isEncrypted && WS.isEncrypted()) { try { localStorage.removeItem(KEY); } catch (e) {} }
       scanSlots();
       applyRetention();   // enforce this database's saved retention window on open
     });
@@ -787,6 +849,7 @@
       setStatus("No database open — data is in this browser only", "");
       updateDbLocation();
       updateSaveBtn();
+      updateProtectionUI();
       scanSlots();
       updateMemoryUI();
     });
@@ -870,9 +933,12 @@
       if (chk.checked) {
         try { localStorage.removeItem(KEY); } catch (e) {}
         setWsStatus("USB-only ON — this browser holds no schedule copy", "ok");
-      } else {
+      } else if (!(WS.isEncrypted && WS.isEncrypted())) {
         try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
         setWsStatus("USB-only OFF — browser mirror restored", "");
+      } else {
+        try { localStorage.removeItem(KEY); } catch (e) {}
+        setWsStatus("Browser mirror remains off while password protection is enabled", "ok");
       }
     });
   })();
@@ -1050,6 +1116,7 @@
   /* ---------- go ---------- */
   render();
   updateSaveBtn();
+  updateProtectionUI();
   updateMemoryUI();
   tryWorkspaceAutoConnect();
 })();

@@ -269,7 +269,7 @@ Persistence details worth knowing before editing:
 
 A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. **Data-minimized by design**: rows hold time, patient *initials only* (no MRN/DOB/name fields exist), manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…"** button beside the date picker reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
 
-Workflow/storage: the schedule **and every patient's files** now live in a **single `.crmdb` database file** — see *The `.crmdb` database container* below for the full model. On Mac/PC it auto-saves in place as you edit; on iPad you press **Save** to write it back through the Files sheet. Data-lifetime is user-controlled **per database** via the **Memory** menu (retention window + Clear-all-past + a size readout; default is keep-everything — the old fixed 7-day purge is gone). Also: a header **All patients** overview, a manual **+ PDF** attach chip per row (for device types with no parser), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** action (now inside the Memory menu) that saves the database, wipes localStorage, and forgets the connection — the file keeps the data; only the browser is cleaned. Storage is deliberately *not* encrypted (user decision: relies on the Access gate, workstation login, and the walk-away habit) — revisit if that assumption changes. Never wire this page to the mileage sync Worker or any other backend.
+Workflow/storage: the schedule **and every patient's files** now live in a **single `.crmdb` database file** — see *The `.crmdb` database container* below for the full model. On Mac/PC it auto-saves in place as you edit; on iPad you press **Save** to write it back through the Files sheet. Data-lifetime is user-controlled **per database** via the **Memory** menu (retention window + Clear-all-past + a size readout; default is keep-everything — the old fixed 7-day purge is gone). Also: a header **All patients** overview, a manual **+ PDF** attach chip per row (for device types with no parser), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** action (now inside the Memory menu) that saves the database, wipes localStorage, and forgets the connection — the file keeps the data; only the browser is cleaned. Optional per-database password protection encrypts both the `.crmdb` file and its IndexedDB working copy entirely on-device; protected databases suppress the plaintext schedule localStorage mirror. There is deliberately no password recovery or server involvement. Never wire this page to the mileage sync Worker or any other backend.
 
 ### The `.crmdb` database container (`src/crmdb-store.js` + `vendor/crmdb-zip.js`)
 
@@ -279,8 +279,8 @@ which drove the File System Access **directory** API and was Chrome/Edge-desktop
 (iPadOS has no directory API at all). `workspace.js` is retired; both the Schedule and the CRM
 tool now load `crmdb-store.js`. The original trigger was an NTFS bug — see the caveat at the end.
 
-**Format.** A `.crmdb` is just a standard **ZIP** (rename it to `.zip` and Finder/Explorer opens
-it — fully recoverable without the app), written by `vendor/crmdb-zip.js`, a dependency-free
+**Format.** An unprotected `.crmdb` is a standard **ZIP** (rename it to `.zip` and Finder/Explorer
+opens it — fully recoverable without the app), written by `vendor/crmdb-zip.js`, a dependency-free
 reader/writer (STORE on write with correct CRC-32s; inflates DEFLATE on read via the browser's
 `DecompressionStream`). It's self-hosted because the pages run under `connect-src 'none'` /
 `script-src 'self'` — no CDN allowed. The internal layout mirrors the old folder tree, so it's
@@ -294,6 +294,17 @@ schedule.crmdb  (zip)
     report.json  report.txt  report.pdf            CRM tool exports
     <vendor export>.pdf / .log                     raw programmer files (optional)
 ```
+
+When password protection is enabled, the complete ZIP bytes are wrapped in a versioned binary
+envelope and authenticated/encrypted with **AES-256-GCM**. The key is derived locally from the
+password with **PBKDF2-HMAC-SHA-256** (unique 16-byte salt, 600,000 iterations); every save uses
+a new random 12-byte IV, and the envelope header is authenticated as additional data. This uses
+only the browser's built-in Web Crypto API: no password, key, or database content is uploaded.
+The password is never stored. After a successful unlock, a temporary derived key is kept in
+that tab's `sessionStorage`, allowing Schedule / Report Generator navigation without another
+prompt. **Lock database**, closing the database, or closing the tab clears that session unlock;
+the next open requires the password. Encrypted files cannot be recovered by renaming them to
+`.zip`.
 
 **Engine (`crmdb-store.js`).** It exposes the **same `window.CRMWorkspace` API the two pages
 already called** (`connect`, `slotDir`, `readText`, `writeFile`, `listFiles`, `moveSlot`,
@@ -319,7 +330,8 @@ chip still opens inline after a round-trip strips the raw blob's type.
 
 **Schedule-side features built on the container:**
 - **Database menu** (replaces the old dual "schedule file" + "USB workspace" menus): Open / New
-  database, Export/Import schedule JSON, USB-only, Close database. A separate **Save** button
+  database, Export/Import schedule JSON, add/change/remove password protection, USB-only, Close
+  database. A separate **Save** button
   ("Save now" on desktop, "Save database" on iPad) sits in the header; **Leave Station** moved
   into the **Memory** menu. Header order: Modules · All patients · Memory · Database · Save.
 - **Memory menu** — a **per-database retention window** (`state.retentionDays`, stored **inside**

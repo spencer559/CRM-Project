@@ -2263,6 +2263,10 @@ loadSaved();
   var exExtra = document.getElementById('export-usb-extra');
   var CARET = ' <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+  if (WS) WS.onPasswordRequest = function (details) {
+    return window.prompt((details && details.message) || 'Database password:');
+  };
+
   function escT(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function item(label, fn, dim) {
     var b = document.createElement('button');
@@ -2298,6 +2302,51 @@ loadSaved();
   }
   function setPatientBtn() {
     patientBtn.innerHTML = escT(slotName ? 'Patient: ' + (slotLabel || slotName) : 'Patient List') + CARET;
+  }
+  function askNewDatabasePassword() {
+    var password = prompt('Create a database password or PIN (at least 4 characters):');
+    if (password === null) return null;
+    if (password.length < 4) { alert('Use at least 4 characters for the database password or PIN.'); return null; }
+    var confirmPassword = prompt('Enter the new password again:');
+    if (confirmPassword === null) return null;
+    if (password !== confirmPassword) { alert('The passwords did not match.'); return null; }
+    return password;
+  }
+  function addProtectionItems(menu) {
+    if (!WS || !WS.isOpen || !WS.isOpen()) return;
+    var encrypted = !!(WS.isEncrypted && WS.isEncrypted());
+    menu.appendChild(divEl());
+    menu.appendChild(noteEl(encrypted ? 'Password protection: ON — encrypted locally' : 'Password protection: OFF'));
+    if (!encrypted) {
+      menu.appendChild(item('Add database password…', function () {
+        if (!confirm('Add password protection to this database?\n\nEncryption is completely local. There is no password recovery: forgetting the password permanently locks the protected database.')) return;
+        var password = askNewDatabasePassword(); if (password === null) return;
+        WS.enableProtection(password).then(function () {
+          try { localStorage.removeItem('crm-digital'); } catch (e) {}
+          toast('Password protection enabled. Save DB to update the USB copy.', 'ok');
+        }).catch(function (e) { toast(e.message || 'Could not enable password protection.', 'err'); });
+      }));
+      return;
+    }
+    menu.appendChild(item('Change database password…', function () {
+      var current = prompt('Enter the current database password:'); if (current === null) return;
+      var next = askNewDatabasePassword(); if (next === null) return;
+      WS.changePassword(current, next).then(function () {
+        toast('Database password changed. Save DB to update the USB copy.', 'ok');
+      }).catch(function (e) { toast(e.message || 'Could not change the database password.', 'err'); });
+    }));
+    menu.appendChild(item('Lock database', function () {
+      if (!confirm('Lock this database?\n\nThe password will be required the next time this database is opened or after you switch pages.')) return;
+      WS.lockSession();
+      toast('Database locked — password required on the next open.', 'ok');
+    }));
+    menu.appendChild(item('Remove database password…', function () {
+      if (!confirm('Remove password protection?\n\nThe database file and browser working copy will be stored without encryption.')) return;
+      var current = prompt('Enter the current database password:'); if (current === null) return;
+      WS.disableProtection(current).then(function () {
+        toast('Password protection removed. Save DB to update the USB copy.', 'ok');
+      }).catch(function (e) { toast(e.message || 'Could not remove password protection.', 'err'); });
+    }, true));
   }
 
   /* ---- live sync indicator (small text next to the save status) ---- */
@@ -2354,7 +2403,7 @@ loadSaved();
     setSync('USB sync ON' + (WS.usbOnly && WS.usbOnly() ? ' · USB-only' : ''));
     updateDbSaveBtn();
     // USB-only: the slot's report.json is the recovery copy — drop the browser one
-    if (WS.usbOnly && WS.usbOnly()) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
+    if ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted())) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
   }
   function disarm() { syncArmed = false; clearTimeout(syncTimer); syncTimer = null; setSync(''); }
   function writeJsonNow() {
@@ -2418,7 +2467,7 @@ loadSaved();
     var origDoSave = window.doSave;
     if (typeof origDoSave === 'function') {
       window.doSave = function () {
-        if (syncArmed && slotRoot && WS.usbOnly && WS.usbOnly()) {
+        if (syncArmed && slotRoot && ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted()))) {
           try { localStorage.removeItem('crm-digital'); } catch (e) {}
           var ss = document.getElementById('save-status');
           if (ss) { ss.textContent = 'USB-only'; ss.className = 'save-status saved'; }
@@ -2542,6 +2591,7 @@ loadSaved();
               });
             });
             if (!any) pdMenu.appendChild(noteEl('The USB schedule has no patients yet — build it on the Patient Schedule page.'));
+            addProtectionItems(pdMenu);
             pdMenu.appendChild(divEl());
             pdMenu.appendChild(item('USB-only mode: ' + (WS.usbOnly() ? 'ON' : 'OFF') + ' — click to toggle', function () {
               WS.setUsbOnly(!WS.usbOnly());

@@ -9,7 +9,8 @@
  *     bundle : Map<path, Blob>     e.g. "schedule.json", "patients/2026-07-13/0800_JS/report.pdf"
  *
  * The bundle is the one database. It is:
- *   • serialized to a single .crmdb file (a standard zip — see vendor/crmdb-zip.js);
+ *   • serialized to a single .crmdb file (a standard zip when password protection is
+ *     off; an authenticated, locally-encrypted envelope when it is on);
  *   • mirrored to IndexedDB on every change, so navigating between the two pages carries
  *     the working copy across (this is what makes the two-page handoff work on iPad, which
  *     has no File System Access API);
@@ -35,8 +36,71 @@
   var suggestedName = DEFAULT_NAME;
   var persistTimer = null;
   var statusCb = null;        // pages set CRMWorkspace.onStatus = fn(msg, cls)
+  var passwordCb = null;      // pages set CRMWorkspace.onPasswordRequest = fn(details)
+  var protection = null;      // { key: CryptoKey, salt: Uint8Array, iterations: number }
+
+  // Encrypted .crmdb envelope (all fixed-width fields are authenticated as AES-GCM AAD):
+  // magic[8] + version[1] + PBKDF2 iterations[4] + salt[16] + iv[12] + ciphertext/tag.
+  var ENC_MAGIC = new Uint8Array([67, 82, 77, 68, 66, 69, 78, 67]); // "CRMDBENC"
+  var ENC_VERSION = 1;
+  var ENC_ITERATIONS = 600000;
+  var ENC_HEADER_SIZE = 41;
+  var SESSION_UNLOCK_KEY = "crmdbSessionUnlockV1";
 
   function status(msg, cls) { try { if (statusCb) statusCb(msg, cls); } catch (e) {} }
+
+  function abortError(message) {
+    var e = new Error(message || "Password entry cancelled"); e.name = "AbortError"; return e;
+  }
+  function cryptoApi() {
+    var c = (typeof globalThis !== "undefined" && globalThis.crypto) || (typeof window !== "undefined" && window.crypto);
+    if (!c || !c.subtle || !c.getRandomValues) throw new Error("Password protection is not supported by this browser");
+    return c;
+  }
+  function isEncryptedBytes(bytes) {
+    if (!bytes || bytes.byteLength < ENC_MAGIC.length) return false;
+    var u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    for (var i = 0; i < ENC_MAGIC.length; i++) if (u[i] !== ENC_MAGIC[i]) return false;
+    return true;
+  }
+  function deriveMaterial(password, salt, iterations) {
+    var c = cryptoApi();
+    var encoded = new TextEncoder().encode(String(password));
+    return c.subtle.importKey("raw", encoded, "PBKDF2", false, ["deriveBits"]).then(function (baseKey) {
+      return c.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: salt, iterations: iterations }, baseKey, 256);
+    }).then(function (raw) {
+      return c.subtle.importKey("raw", raw, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"])
+        .then(function (key) { return { key: key, raw: new Uint8Array(raw) }; });
+    });
+  }
+  function deriveKey(password, salt, iterations) {
+    return deriveMaterial(password, salt, iterations).then(function (m) { return m.key; });
+  }
+  function b64(bytes) {
+    var s = ""; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  }
+  function fromB64(value) {
+    var s = atob(value), out = new Uint8Array(s.length);
+    for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    return out;
+  }
+  function rememberSessionKey(raw, salt, iterations) {
+    try { sessionStorage.setItem(SESSION_UNLOCK_KEY, JSON.stringify({ key: b64(raw), salt: b64(salt), iterations: iterations })); } catch (e) {}
+  }
+  function clearSessionKey() { try { sessionStorage.removeItem(SESSION_UNLOCK_KEY); } catch (e) {} }
+  function sessionKey(salt, iterations) {
+    try {
+      var saved = JSON.parse(sessionStorage.getItem(SESSION_UNLOCK_KEY) || "null");
+      if (!saved || saved.salt !== b64(salt) || saved.iterations !== iterations) return Promise.resolve(null);
+      return cryptoApi().subtle.importKey("raw", fromB64(saved.key), { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    } catch (e) { clearSessionKey(); return Promise.resolve(null); }
+  }
+  function requestPassword(details) {
+    if (passwordCb) return Promise.resolve().then(function () { return passwordCb(details); });
+    if (typeof window !== "undefined" && window.prompt) return Promise.resolve(window.prompt(details.message || "Database password:"));
+    return Promise.reject(new Error("A password is required to open this database"));
+  }
 
   /* ---------------------------------------------------------- small helpers */
   function toBlob(data) {
@@ -62,7 +126,7 @@
   function slotPrefix(date, slot) { return "patients/" + date + "/" + slot + "/"; }
 
   /* --------------------------------------------------- bundle <-> .crmdb bytes */
-  function serialize() {
+  function serializeZip() {
     var entries = [
       { name: "manifest.json", data: JSON.stringify({ type: "crm-workspace-bundle", version: 1, modified: new Date().toISOString(), fileCount: bundle.size }, null, 2) }
     ];
@@ -73,7 +137,53 @@
         .then(function (ab) { entries.push({ name: path, data: new Uint8Array(ab) }); });
     }, Promise.resolve()).then(function () { return window.CRMDB.write(entries); });
   }
-  function ingest(arrayBuffer) {
+  function encryptZip(blob) {
+    if (!protection) return Promise.resolve(blob);
+    var c = cryptoApi(), iv = new Uint8Array(12); c.getRandomValues(iv);
+    var header = new Uint8Array(ENC_HEADER_SIZE);
+    header.set(ENC_MAGIC, 0); header[8] = ENC_VERSION;
+    new DataView(header.buffer).setUint32(9, protection.iterations, false);
+    header.set(protection.salt, 13); header.set(iv, 29);
+    return blob.arrayBuffer().then(function (plain) {
+      return c.subtle.encrypt({ name: "AES-GCM", iv: iv, additionalData: header, tagLength: 128 }, protection.key, plain);
+    }).then(function (ciphertext) { return new Blob([header, ciphertext], { type: "application/octet-stream" }); });
+  }
+  function serialize() { return serializeZip().then(encryptZip); }
+
+  function decryptEnvelope(arrayBuffer) {
+    var bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length <= ENC_HEADER_SIZE || bytes[8] !== ENC_VERSION) return Promise.reject(new Error("Unsupported encrypted database format"));
+    var iterations = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(9, false);
+    if (iterations < 10000 || iterations > 10000000) return Promise.reject(new Error("Invalid encrypted database header"));
+    var salt = bytes.slice(13, 29), iv = bytes.slice(29, 41), header = bytes.slice(0, ENC_HEADER_SIZE);
+    var ciphertext = bytes.slice(ENC_HEADER_SIZE), retry = false;
+    function decryptWith(key) {
+      return cryptoApi().subtle.decrypt({ name: "AES-GCM", iv: iv, additionalData: header, tagLength: 128 }, key, ciphertext)
+        .then(function (plain) { protection = { key: key, salt: salt, iterations: iterations }; return plain; });
+    }
+    function attempt() {
+      return requestPassword({ action: "unlock", retry: retry, fileName: suggestedName,
+        message: retry ? "Incorrect password. Try again:" : "Enter the password for " + (suggestedName || "this database") + ":" })
+        .then(function (password) {
+          if (password === null || password === undefined) throw abortError();
+          return deriveMaterial(password, salt, iterations).then(function (material) {
+            return decryptWith(material.key).then(function (plain) {
+              rememberSessionKey(material.raw, salt, iterations);
+              return plain;
+            });
+          });
+        }).catch(function (e) {
+          if (e && e.name === "AbortError") throw e;
+          if (e && (e.name === "OperationError" || e.name === "DataError")) { retry = true; return attempt(); }
+          throw e;
+        });
+    }
+    return sessionKey(salt, iterations).then(function (key) {
+      if (!key) return attempt();
+      return decryptWith(key).catch(function () { clearSessionKey(); return attempt(); });
+    });
+  }
+  function ingestZip(arrayBuffer) {
     return window.CRMDB.read(arrayBuffer).then(function (entries) {
       bundle.clear();
       entries.forEach(function (e) {
@@ -83,6 +193,53 @@
       if (!bundle.has("schedule.json")) bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
       opened = true;
     });
+  }
+  function ingest(arrayBuffer) {
+    var bytes = arrayBuffer instanceof Uint8Array ? arrayBuffer : new Uint8Array(arrayBuffer);
+    if (isEncryptedBytes(bytes)) return decryptEnvelope(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)).then(ingestZip);
+    protection = null;
+    return ingestZip(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  }
+
+  function verifyPassword(password) {
+    if (!protection) return Promise.resolve(true);
+    return deriveKey(password, protection.salt, protection.iterations).then(function (candidate) {
+      var c = cryptoApi(), iv = new Uint8Array(12), sample = new Uint8Array([67, 82, 77, 68, 66]); c.getRandomValues(iv);
+      return c.subtle.encrypt({ name: "AES-GCM", iv: iv }, candidate, sample)
+        .then(function (cipher) { return c.subtle.decrypt({ name: "AES-GCM", iv: iv }, protection.key, cipher); })
+        .then(function () { return true; }, function () { throw new Error("Incorrect password"); });
+    });
+  }
+
+  function enableProtection(password) {
+    if (!opened) return Promise.reject(new Error("Open a database first"));
+    if (!password) return Promise.reject(new Error("Password cannot be empty"));
+    var c = cryptoApi(), salt = new Uint8Array(16); c.getRandomValues(salt);
+    return deriveMaterial(password, salt, ENC_ITERATIONS).then(function (material) {
+      protection = { key: material.key, salt: salt, iterations: ENC_ITERATIONS };
+      rememberSessionKey(material.raw, salt, ENC_ITERATIONS);
+      return flush();
+    }).then(function () { status("Password protection enabled · save the database", "ok"); return true; });
+  }
+  function changePassword(currentPassword, newPassword) {
+    if (!protection) return Promise.reject(new Error("This database is not password protected"));
+    if (!newPassword) return Promise.reject(new Error("New password cannot be empty"));
+    return verifyPassword(currentPassword).then(function () {
+      var c = cryptoApi(), salt = new Uint8Array(16); c.getRandomValues(salt);
+      return deriveMaterial(newPassword, salt, ENC_ITERATIONS).then(function (material) {
+        protection = { key: material.key, salt: salt, iterations: ENC_ITERATIONS };
+        rememberSessionKey(material.raw, salt, ENC_ITERATIONS);
+        return flush();
+      });
+    }).then(function () { status("Database password changed · save the database", "ok"); return true; });
+  }
+  function disableProtection(password) {
+    if (!protection) return Promise.resolve(false);
+    return verifyPassword(password).then(function () {
+      protection = null;
+      clearSessionKey();
+      return flush();
+    }).then(function () { status("Password protection removed · save the database", "ok"); return true; });
   }
 
   /* -------------------------------------------------------------- IndexedDB */
@@ -249,7 +406,8 @@
         .then(function (hs) {
           // Switching from an already-open database: write its latest edits back to its own
           // file BEFORE we clear the bundle to load the newly-picked one, so nothing is lost.
-          var prev = fileHandle;
+          var prev = fileHandle, prevName = suggestedName, prevProtection = protection;
+          var next = hs[0];
           var saveOld = (opened && prev && canAutosave)
             ? serialize().then(function (blob) {
                 return prev.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); });
@@ -257,8 +415,10 @@
             : Promise.resolve();
           return saveOld.then(function () {
             clearTimeout(persistTimer);
-            fileHandle = hs[0]; suggestedName = hs[0].name;
-            return hs[0].getFile().then(function (f) { return f.arrayBuffer(); }).then(ingest); })
+            suggestedName = next.name;
+            return next.getFile().then(function (f) { return f.arrayBuffer(); }).then(ingest)
+              .catch(function (e) { fileHandle = prev; suggestedName = prevName; protection = prevProtection; throw e; }); })
+            .then(function () { fileHandle = next; })
             .then(function () { return idbSet("fileHandle", fileHandle); })
             .then(function () { return idbSet("bundle", null); })   // refreshed on next persist
             .then(function () { opened = true; return ROOT; });
@@ -271,8 +431,10 @@
       inp.onchange = function () {
         var f = inp.files && inp.files[0];
         if (!f) { rej(Object.assign(new Error("cancelled"), { name: "AbortError" })); return; }
-        fileHandle = null; suggestedName = f.name;
-        f.arrayBuffer().then(ingest).then(function () { opened = true; res(ROOT); }).catch(rej);
+        var prev = fileHandle, prevName = suggestedName, prevProtection = protection;
+        suggestedName = f.name;
+        f.arrayBuffer().then(ingest).then(function () { fileHandle = null; opened = true; res(ROOT); })
+          .catch(function (e) { fileHandle = prev; suggestedName = prevName; protection = prevProtection; rej(e); });
       };
       inp.click();
     });
@@ -280,15 +442,20 @@
 
   // Create a NEW empty database.
   function newDatabase() {
-    bundle.clear();
-    bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
-    opened = true;
     if (canAutosave) {
       return window.showSaveFilePicker({ suggestedName: DEFAULT_NAME, types: [{ description: "CRM database", accept: { "application/octet-stream": [".crmdb"] } }] })
-        .then(function (h) { fileHandle = h; suggestedName = h.name; return idbSet("fileHandle", h); })
+        .then(function (h) {
+          protection = null; bundle.clear();
+          bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
+          opened = true; fileHandle = h; suggestedName = h.name; return idbSet("fileHandle", h);
+        })
         .then(function () { return saveNow(); })
         .then(function () { return ROOT; });
     }
+    protection = null;
+    bundle.clear();
+    bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
+    opened = true;
     fileHandle = null; suggestedName = DEFAULT_NAME;
     return idbSet("bundle", null).then(function () { return ROOT; });
   }
@@ -329,7 +496,7 @@
   }
 
   function forget() {
-    fileHandle = null; opened = false; bundle.clear();
+    fileHandle = null; opened = false; protection = null; clearSessionKey(); bundle.clear();
     return Promise.all([idbDel("fileHandle"), idbDel("bundle")]).then(function () {});
   }
 
@@ -435,6 +602,11 @@
     stats: stats,
     saveNow: saveNow,
     flush: flush,
+    enableProtection: enableProtection,
+    changePassword: changePassword,
+    disableProtection: disableProtection,
+    lockSession: function () { clearSessionKey(); return true; },
+    isEncrypted: function () { return !!protection; },
     isOpen: function () { return opened; },
     // Filename of the bound database, or null when nothing is open. Browsers do NOT
     // expose the parent folder path through the File System Access API, so this is the
@@ -442,8 +614,10 @@
     fileName: function () { return opened ? suggestedName : null; },
     set onStatus(fn) { statusCb = fn; },
     get onStatus() { return statusCb; },
+    set onPasswordRequest(fn) { passwordCb = fn; },
+    get onPasswordRequest() { return passwordCb; },
     // test hooks (used by the Node unit test; harmless in the browser)
-    _bundle: bundle, _serialize: serialize, _ingest: ingest
+    _bundle: bundle, _serialize: serialize, _serializeZip: serializeZip, _ingest: ingest
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.CRMWorkspace = api;
