@@ -105,6 +105,19 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
   font: 700 8.5px Arial, Helvetica, sans-serif; letter-spacing: .35px; text-transform: uppercase;
 }
 .sec-clear:hover { background: rgba(255,255,255,.16); border-color: #fff; }
+.rate-calc {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  font: 700 9px Arial, Helvetica, sans-serif; letter-spacing: 0; text-transform: none;
+  white-space: nowrap;
+}
+.rate-calc + .sec-clear { margin-left: 0; height:21px; min-height:21px; }
+.rate-calc input[type=number] {
+  width: 58px; height: 21px; min-height: 21px; padding: 2px 5px;
+  border: 1px solid rgba(255,255,255,.55); border-radius: 3px;
+  background: rgba(255,255,255,.96); color: #111; font-size: 10px; text-align: right;
+}
+.rate-calc input[type=number]:focus { background:#fff; border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.2); }
+.rate-calc output { min-width: 57px; color:#fff; text-align:left; font-variant-numeric:tabular-nums; }
 .sec-body { padding: 12px 14px; }
 
 /* SUB LABEL */
@@ -196,6 +209,9 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 @media (max-width: 460px) {
   .app-bar .btn svg { display: none; }   /* icon-only would be ambiguous — keep labels, drop glyphs */
   .app-bar .btn { padding: 5px 7px; letter-spacing: 0; }
+  .rate-calc { gap:3px; }
+  .rate-calc input[type=number] { width:48px; }
+  .rate-calc output { min-width:50px; }
 }
 
 /* PRINT */
@@ -205,7 +221,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   .app-bar, .sidebar { display: none !important; }
   .main { position: static !important; overflow: visible !important; height: auto !important; left: 0 !important; padding: 0 !important; }
   .section { box-shadow: none; margin-bottom: 14px; page-break-inside: avoid; }
-  .add-btn, .del-btn, .sec-clear { display: none !important; }
+  .add-btn, .del-btn, .sec-clear, .rate-calc { display: none !important; }
   .dt input:not([type=checkbox]):not([type=radio]), .dt select { font-size: 9px; }
   input, select { background: #fff !important; }
   textarea { background: #fff !important; height: auto !important; overflow: visible !important; }
@@ -359,7 +375,13 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- §2 BATTERY -->
 <div class="section" id="s-battery">
-  <div class="sec-hdr">Battery / Device Status<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Battery and Device Status section">Clear section</button></div>
+  <div class="sec-hdr">Battery / Device Status
+    <span class="rate-calc" title="Rate = 60,000 divided by the interval in milliseconds">
+      <input type="number" min="1" step="1" inputmode="decimal" placeholder="ms" aria-label="Interval in milliseconds" oninput="event.stopPropagation(); calcIntervalRate(this.value)" onchange="event.stopPropagation()">
+      <span>ms =</span><output id="interval-rate-result" aria-live="polite">&mdash; bpm</output>
+    </span>
+    <button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Battery and Device Status section">Clear section</button>
+  </div>
   <div class="sec-body">
     <table class="dt">
       <thead><tr>
@@ -952,6 +974,15 @@ function updateLeadInfoTable() {
 }
 
 // ── SIDEBAR NAV ──
+function calcIntervalRate(value) {
+  var out = document.getElementById('interval-rate-result');
+  if (!out) return;
+  var ms = Number(value);
+  if (!isFinite(ms) || ms <= 0) { out.textContent = '— bpm'; return; }
+  var bpm = 60000 / ms;
+  out.textContent = (Math.round(bpm * 10) / 10).toLocaleString([], { maximumFractionDigits: 1 }) + ' bpm';
+}
+
 function navTo(id) {
   var el = document.getElementById(id);
   var main = document.querySelector('.main');
@@ -1127,6 +1158,7 @@ function resetFormState() {
     if (el.type === 'radio' || el.type === 'checkbox') el.checked = false;
     else el.value = '';
   });
+  calcIntervalRate('');
   // rebuild dynamic tables to their fresh defaults
   var ep = document.getElementById('ep-tbody'); if (ep) ep.innerHTML = ''; epN = 0; addEpRow();
   var rp = document.getElementById('rp-tbody'); if (rp) rp.innerHTML = ''; rpN = 0; addRpRow(); addRpRow(); addRpRow();
@@ -1164,6 +1196,8 @@ function clearSection(button) {
     var ac = document.getElementById('aveir-chambers'); if (ac) ac.style.display = 'none';
     var ll = document.getElementById('p-lrl-lbl'); if (ll) ll.textContent = 'LRL (bpm)';
     if (typeof updateLeadInfoTable === 'function') updateLeadInfoTable();
+  } else if (section.id === 's-battery') {
+    calcIntervalRate('');
   } else if (section.id === 's-episodes') {
     var ep = document.getElementById('ep-tbody'); if (ep) ep.innerHTML = '';
     epN = 0; addEpRow();
@@ -1992,8 +2026,14 @@ function buildSummaryRtf(lines) {
 // ── INIT ──
 updatePacingPct();
 updateEpMode();
-document.addEventListener('input', scheduleSave);
-document.addEventListener('change', scheduleSave);
+document.addEventListener('input', function(e) {
+  if (e.target && e.target.closest && e.target.closest('.rate-calc')) return;
+  scheduleSave();
+});
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.closest && e.target.closest('.rate-calc')) return;
+  scheduleSave();
+});
 loadSaved();
 </script>
 
@@ -2437,7 +2477,8 @@ loadSaved();
       return WS.flush ? WS.flush() : null;
     }).catch(function (e) { setSync('USB sync failed — reconnect', true); });
   }
-  document.addEventListener('input', function () {
+  document.addEventListener('input', function (e) {
+    if (e.target && e.target.closest && e.target.closest('.rate-calc')) return;
     if (!syncArmed) return;
     dirty = true;
     clearTimeout(syncTimer);
