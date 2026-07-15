@@ -315,7 +315,8 @@ relabel; `readText` on a missing file rejects (so the CRM "new patient" catch st
 Because the API surface is unchanged, migrating the 2500-line CRM tool was mostly a script-swap.
 The bundle **is** the one database, and it is:
 - **serialized to the `.crmdb`** on save;
-- **mirrored to IndexedDB** (`crmdbStore` db, `bundle` key) on every change (debounced) — this
+- **mirrored to IndexedDB immediately when opened and again on every change** (`crmdbStore` db,
+  `bundle` key; edits are debounced) — this
   working copy is what carries state **across the two pages** on a full navigation, which is
   what makes the two-page handoff work on iPad (there's no persistent file handle there);
 - on **desktop** (Chrome/Edge) additionally bound to a real `.crmdb` **file handle** (also stored
@@ -381,9 +382,9 @@ CRM tool works the same as opening it on the Schedule (shared IndexedDB working 
 When the Schedule opens a patient in a fresh browser session and the encrypted working copy is not
 yet unlocked, the Report Generator now places a blocking **Patient database is locked** guard over
 the form. Password entry happens directly in that guard (including an inline incorrect-password
-retry), avoiding unreliable startup password popups on iPad. On desktop, **Unlock database** also
-reauthorizes the remembered database file before decrypting, so a new browser session cannot stall
-between password acceptance and patient loading. It also offers **Open database…** and
+retry), avoiding unreliable startup password popups on iPad. Unlocking uses the encrypted local
+working copy directly; external-file permission affects desktop autosave but never blocks patient
+loading. It also offers **Open database…** and
 **Return to Schedule**, and does not allow report entry to begin against an unlinked blank form.
 
 **USB-only mode** is unchanged in spirit (preference key `usbOnlyMode`): while a database is open,

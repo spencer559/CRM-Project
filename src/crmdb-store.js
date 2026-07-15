@@ -433,7 +433,10 @@
               .catch(function (e) { fileHandle = prev; suggestedName = prevName; protection = prevProtection; throw e; }); })
             .then(function () { fileHandle = next; })
             .then(function () { return idbSet("fileHandle", fileHandle); })
-            .then(function () { return idbSet("bundle", null); })   // refreshed on next persist
+            // Keep an immediately reopenable working copy. Waiting for the next edit used to
+            // leave refresh/page handoff with only a permission-gated file handle and no data.
+            .then(function () { return serialize(); })
+            .then(function (blob) { return idbSet("bundle", blob); })
             .then(function () { opened = true; return ROOT; });
         });
     }
@@ -446,7 +449,10 @@
         if (!f) { rej(Object.assign(new Error("cancelled"), { name: "AbortError" })); return; }
         var prev = fileHandle, prevName = suggestedName, prevProtection = protection;
         suggestedName = f.name;
-        f.arrayBuffer().then(ingest).then(function () { fileHandle = null; opened = true; res(ROOT); })
+        f.arrayBuffer().then(ingest).then(function () {
+          fileHandle = null; opened = true;
+          return serialize().then(function (blob) { return idbSet("bundle", blob); });
+        }).then(function () { res(ROOT); })
           .catch(function (e) { fileHandle = prev; suggestedName = prevName; protection = prevProtection; rej(e); });
       };
       inp.click();
@@ -468,9 +474,9 @@
     protection = null;
     bundle.clear();
     bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
-    opened = true;
     fileHandle = null; suggestedName = DEFAULT_NAME;
-    return idbSet("bundle", null).then(function () { return ROOT; });
+    opened = true;
+    return serialize().then(function (blob) { return idbSet("bundle", blob); }).then(function () { return ROOT; });
   }
 
   // Auto-reconnect on page load: pull the working copy out of IndexedDB (both platforms),
@@ -487,20 +493,6 @@
         return (h && canAutosave) ? ROOT : null;
       });
     }).catch(function (e) { lastOpenError = e; return null; });
-  }
-
-  // Ask only for access to the remembered desktop file handle; do not read/ingest it here.
-  // The CRM handoff calls this directly from its Unlock button before resolving the pending
-  // password request. Keeping authorization and decryption separate avoids starting a second
-  // ingest while the first encrypted working-copy open is still waiting for its password.
-  function authorizeStoredFile() {
-    if (!fileHandle || !canAutosave) return Promise.resolve("granted");
-    if (fileHandle.requestPermission) {
-      try { return fileHandle.requestPermission({ mode: "readwrite" }); }
-      catch (e) { return Promise.reject(e); }
-    }
-    if (fileHandle.queryPermission) return fileHandle.queryPermission({ mode: "readwrite" });
-    return Promise.resolve("granted");
   }
 
   function permission(root, ask) {
@@ -614,7 +606,6 @@
     newDatabase: newDatabase,
     initScaffold: initScaffold,
     stored: stored,
-    authorizeStoredFile: authorizeStoredFile,
     permission: permission,
     forget: forget,
     usbOnly: usbOnly,

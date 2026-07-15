@@ -1444,12 +1444,20 @@
   // sessions and across the two pages; on desktop the file handle is re-bound for autosave).
   function tryWorkspaceAutoConnect() {
     if (!WS) return Promise.resolve(false);
+    setStatus("Reopening database…", "");
     return WS.stored().then(function (root) {
-      if (!root) return false;
-      return WS.permission(root, false).then(function () {
+      if (!root) { setStatus("Database is closed — open schedule.crmdb to reconnect", "warn"); return false; }
+      // The IndexedDB working copy is the active session database and does not depend on renewed
+      // permission to the external file. Permission affects desktop autosave, not reconnect/load.
+      if (WS.isOpen && WS.isOpen()) return adoptWorkspace(root, false, true).then(function () { return true; });
+      return WS.permission(root, false).then(function (p) {
+        if (p !== "granted") { setStatus("Database file access needs renewal — use Open database", "warn"); return false; }
         return adoptWorkspace(root, false, true).then(function () { return true; });
       });
-    }).catch(function () { return false; });
+    }).catch(function (e) {
+      setStatus("Could not reopen database: " + ((e && e.message) || "unknown error"), "warn");
+      return false;
+    });
   }
 
   /* ---------- leave station: save the database, then wipe this browser ---------- */
