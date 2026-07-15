@@ -842,11 +842,33 @@
     var existing = Array.isArray(state.dates[target]) ? state.dates[target] : [];
     if (existing.length && !confirm("That day already has " + existing.length + " appointment" + (existing.length === 1 ? "" : "s") +
         ". Merge this day's " + moving.length + " into it?")) return;
-    state.dates[target] = existing.concat(moving);
-    delete state.dates[curDate];
-    curDate = target;             // follow the schedule to its corrected date
-    moveDayCancel();
-    save(); render();
+    var source = curDate;
+    var moveBtn = $("moveBar").querySelector("button.primary");
+    if (moveBtn) { moveBtn.disabled = true; moveBtn.textContent = "Moving…"; }
+    var fileMove = (wsRoot && WS && WS.moveDate)
+      ? WS.moveDate(wsRoot, source, target)
+      : Promise.resolve({ files: 0, overwritten: 0 });
+    fileMove.then(function (result) {
+      state.dates[target] = existing.concat(moving);
+      delete state.dates[source];
+      curDate = target;             // follow the schedule to its corrected date
+      moveDayCancel();
+      save(); render();
+      // Commit schedule.json and the relocated patient folders together before reporting success.
+      clearTimeout(syncTimer);
+      return (dataFileHandle ? writeDataFile() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(function () {
+        if (wsRoot) {
+          var count = (result && result.files) || 0;
+          setWsStatus("Moved day to " + target + " — " + count + " patient file" + (count === 1 ? "" : "s") + " followed" +
+            (result && result.overwritten ? " (replaced " + result.overwritten + " duplicate destination file" + (result.overwritten === 1 ? "" : "s") + ")" : ""), "ok");
+        }
+      });
+    }).catch(function (e) {
+      setWsStatus("Could not move the day or its patient files: " + ((e && e.message) || "unknown error"), "warn");
+      alert("The day was not moved because its patient files could not be relocated.");
+    }).then(function () {
+      if (moveBtn) { moveBtn.disabled = false; moveBtn.textContent = "Move"; }
+    });
   };
   document.addEventListener("click", function (ev) {
     if (!ev.target.closest(".move-wrap")) moveDayCancel();

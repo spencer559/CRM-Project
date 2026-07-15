@@ -28,6 +28,12 @@ async function run() {
   await openPlainFixture();
   assert.strictEqual(WS.isEncrypted(), false);
 
+  const moved = await WS.moveDate(null, "2026-07-13", "2026-07-14");
+  assert.deepStrictEqual(moved, { files: 1, overwritten: 0 });
+  assert.strictEqual(WS._bundle.has("patients/2026-07-13/0800_AB/report.txt"), false);
+  assert.strictEqual(await WS._bundle.get("patients/2026-07-14/0800_AB/report.txt").text(), "local-only test");
+  await WS.moveDate(null, "2026-07-14", "2026-07-13");
+
   await WS.enableProtection("correct horse battery staple");
   const protectedBlob = await WS._serialize();
   const protectedBytes = new Uint8Array(await protectedBlob.arrayBuffer());

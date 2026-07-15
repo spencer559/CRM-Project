@@ -596,6 +596,24 @@
     if (moved) persist();
     return Promise.resolve(moved);
   }
+  // Move every patient folder for one schedule date to another date. This is deliberately a
+  // bundle-prefix move (rather than looping over the visible rows) so orphaned/manual attachments
+  // follow too. When merging into an existing day, the moving day's same-path file wins.
+  function moveDate(root, oldDate, newDate) {
+    if (!oldDate || !newDate || oldDate === newDate) return Promise.resolve({ files: 0, overwritten: 0 });
+    var op = "patients/" + oldDate + "/", np = "patients/" + newDate + "/";
+    var files = 0, overwritten = 0;
+    Array.from(bundle.keys()).forEach(function (k) {
+      if (k.indexOf(op) !== 0) return;
+      var target = np + k.slice(op.length);
+      if (bundle.has(target)) overwritten++;
+      bundle.set(target, bundle.get(k));
+      bundle.delete(k);
+      files++;
+    });
+    if (files) persist();
+    return Promise.resolve({ files: files, overwritten: overwritten });
+  }
 
   var api = {
     supported: true,           // open(file input)+save(download) work everywhere; autosave is desktop-only
@@ -612,6 +630,7 @@
     setUsbOnly: setUsbOnly,
     slotDir: slotDir,
     moveSlot: moveSlot,
+    moveDate: moveDate,
     listFiles: listFiles,
     readText: readText,
     writeFile: writeFile,

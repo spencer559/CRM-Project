@@ -307,10 +307,11 @@ the next open requires the password. Encrypted files cannot be recovered by rena
 `.zip`.
 
 **Engine (`crmdb-store.js`).** It exposes the **same `window.CRMWorkspace` API the two pages
-already called** (`connect`, `slotDir`, `readText`, `writeFile`, `listFiles`, `moveSlot`,
+already called** (`connect`, `slotDir`, `readText`, `writeFile`, `listFiles`, `moveSlot`, `moveDate`,
 `slotName`, `stored`, `permission`, `forget`, `usbOnly` …) but backed by an **in-memory
 `bundle` = `Map<path, Blob>`** instead of live directory handles. Slot/file ops became map
-reads/writes; `moveSlot` (renaming a slot when a row's time/patient name changes) became a key
+reads/writes; `moveSlot` (renaming a slot when a row's time/patient name changes) and `moveDate`
+(relocating every patient-folder prefix when Move Day changes the schedule date) became key
 relabel; `readText` on a missing file rejects (so the CRM "new patient" catch still fires).
 Because the API surface is unchanged, migrating the 2500-line CRM tool was mostly a script-swap.
 The bundle **is** the one database, and it is:
