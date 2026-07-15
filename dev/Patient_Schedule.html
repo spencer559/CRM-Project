@@ -877,7 +877,7 @@
         '<div class="p-date">' + dt.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" }) + "</div>" +
         '<div class="p-meta">' + esc(meta) + "</div>" +
       "</div>" +
-      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Provider</th><th>Check</th><th>Last Office</th><th>Remote</th><th>Cerner</th><th>Notes</th></tr></thead><tbody>" +
+      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Provider</th><th>Check</th><th>Last Office</th><th>Remote</th><th>Notes</th></tr></thead><tbody>" +
       rs.map(function (r) {
         var dev = [abMfr[r.mfr] || r.mfr, r.dtype].filter(Boolean).join(" ");
         return "<tr>" +
@@ -888,7 +888,6 @@
           '<td class="p-chk">' + esc(abChk[r.check] || r.check) + "</td>" +
           '<td class="p-lo">' + esc(fmtDate(r.lastOff)) + "</td>" +
           '<td class="p-rm">' + esc(abRm[r.rm] || r.rm || "") + "</td>" +
-          '<td class="p-cerner" style="text-align:center">' + (r.cerner ? "&#10003;" : "") + "</td>" +
           "<td>" + esc(r.notes) + "</td></tr>";
       }).join("") +
       "</tbody></table>";
