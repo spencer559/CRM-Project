@@ -2437,9 +2437,22 @@ loadSaved();
         return;
       }
       var resolvePassword = pendingPasswordResolve;
-      pendingPasswordResolve = null;
       if (dbUnlockBtn) { dbUnlockBtn.disabled = true; dbUnlockBtn.textContent = 'Unlocking…'; }
-      resolvePassword(password);
+      var authorize = WS.authorizeStoredFile ? WS.authorizeStoredFile() : Promise.resolve('granted');
+      Promise.resolve(authorize).then(function (permission) {
+        if (permission !== 'granted') {
+          showDatabaseGuard('Allow access to the saved database file, then try Unlock database again.', true);
+          if (dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = 'Try unlock again'; }
+          return;
+        }
+        // Only release the already-running encrypted open after file access is authorized.
+        // The original startup promise then completes normally and loads the linked patient.
+        if (pendingPasswordResolve === resolvePassword) pendingPasswordResolve = null;
+        resolvePassword(password);
+      }).catch(function (e) {
+        showDatabaseGuard('Database file access was not granted: ' + ((e && e.message) || 'Try again.'), true);
+        if (dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = 'Try unlock again'; }
+      });
       return;
     }
     if (dbUnlockBtn) { dbUnlockBtn.disabled = true; dbUnlockBtn.textContent = 'Unlocking…'; }

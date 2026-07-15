@@ -489,6 +489,20 @@
     }).catch(function (e) { lastOpenError = e; return null; });
   }
 
+  // Ask only for access to the remembered desktop file handle; do not read/ingest it here.
+  // The CRM handoff calls this directly from its Unlock button before resolving the pending
+  // password request. Keeping authorization and decryption separate avoids starting a second
+  // ingest while the first encrypted working-copy open is still waiting for its password.
+  function authorizeStoredFile() {
+    if (!fileHandle || !canAutosave) return Promise.resolve("granted");
+    if (fileHandle.requestPermission) {
+      try { return fileHandle.requestPermission({ mode: "readwrite" }); }
+      catch (e) { return Promise.reject(e); }
+    }
+    if (fileHandle.queryPermission) return fileHandle.queryPermission({ mode: "readwrite" });
+    return Promise.resolve("granted");
+  }
+
   function permission(root, ask) {
     if (fileHandle && canAutosave && fileHandle.queryPermission) {
       return fileHandle.queryPermission({ mode: "readwrite" }).then(function (p) {
@@ -600,6 +614,7 @@
     newDatabase: newDatabase,
     initScaffold: initScaffold,
     stored: stored,
+    authorizeStoredFile: authorizeStoredFile,
     permission: permission,
     forget: forget,
     usbOnly: usbOnly,
