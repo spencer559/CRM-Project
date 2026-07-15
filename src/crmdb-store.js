@@ -313,6 +313,15 @@
     });
   }
 
+  // Refresh this tab's in-memory bundle from the latest IndexedDB working copy. Schedule uses
+  // this after another open tab commits a newer revision, preventing stale-tab overwrites.
+  function reloadWorkingCopy() {
+    return idbGet("bundle").then(function (blob) {
+      if (!blob) return ROOT;
+      return blob.arrayBuffer().then(ingest).then(function () { opened = true; return ROOT; });
+    });
+  }
+
   // Explicit save (the separate button). Desktop: flush to file now. iPad: download.
   function saveNow() {
     if (!opened) return Promise.resolve();
@@ -605,6 +614,7 @@
     stats: stats,
     saveNow: saveNow,
     flush: flush,
+    reloadWorkingCopy: reloadWorkingCopy,
     enableProtection: enableProtection,
     changePassword: changePassword,
     disableProtection: disableProtection,

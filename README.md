@@ -267,7 +267,7 @@ Persistence details worth knowing before editing:
 
 ### Patient Schedule (`dev/Patient_Schedule.html`)
 
-A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. Rows hold time, the patient's **full name**, manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…"** button beside the date picker reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
+A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. Rows hold time, the patient's **full name**, manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…" dropdown** beside the date picker contains the destination date and confirmation controls; it reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
 
 Workflow/storage: the schedule **and every patient's files** now live in a **single `.crmdb` database file** — see *The `.crmdb` database container* below for the full model. On Mac/PC it auto-saves in place as you edit; on iPad you press **Save** to write it back through the Files sheet. Data-lifetime is user-controlled **per database** via the **Memory** menu (retention window + Clear-all-past + a size readout; default is keep-everything — the old fixed 7-day purge is gone). Also: a header **All patients** overview, a manual **+ PDF** attach chip per row (for device types with no parser), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** action (now inside the Memory menu) that saves the database, wipes localStorage, and forgets the connection — the file keeps the data; only the browser is cleaned. Optional per-database password protection encrypts both the `.crmdb` file and its IndexedDB working copy entirely on-device; protected databases suppress the plaintext schedule localStorage mirror. There is deliberately no password recovery or server involvement. Never wire this page to the mileage sync Worker or any other backend.
 
@@ -342,16 +342,33 @@ chip still opens inline after a round-trip strips the raw blob's type.
   7-day `purge()` on load was removed in favor of this.
 - **All patients** overview (header button) — a searchable modal listing every appointment across
   all dates with a green file-count badge (`WS.slotFileCounts`); click a row to jump to that day.
-- **Manual "+ PDF"** chip on each row's Files cell — attach a programmer export (loop recorder,
-  Aveir, S-ICD — anything with no parser) straight into the slot; it shows as a **PROG** chip.
+- **Provider roster and day filter** — the schedule stores an ordered provider list inside the
+  database, starting with **Tech**. The All Providers menu supports add, drag-to-reorder, and
+  accessible up/down controls, plus deletion of non-Tech providers. **Tech cannot be deleted**;
+  appointments assigned to a deleted provider automatically fall back to Tech. Each appointment
+  has a Provider field between Device and Check type.
+  The table gives provider names extra width and shortens display labels after 17 characters with
+  an ellipsis (the stored name, roster, and printout remain complete). Filtering changes the visible
+  day, counts, and printout without deleting or moving appointments.
+- **Multi-tab schedule safety** — schedule revisions are announced across same-origin tabs. A tab
+  with an older revision skips its pending write instead of replacing newer Cerner/provider/row
+  edits, then reloads the committed IndexedDB working bundle from the tab that saved most recently.
+- **Files menu** on each row condenses the old chip list into one status button. It exposes only
+  the two useful clinical links — the generated `report.pdf` and the raw programmer report — while
+  JSON/TXT support files stay hidden. **Report ✓** appears in green only when a programmer report
+  is attached; a generated report by itself reads **Generated**. The menu retains remove controls
+  and the manual attach action for loop recorders, Aveir, S-ICD, or anything with no parser.
   Won't clobber a generated `report.*` (an upload named `report.pdf` is stored `prog-report.pdf`).
 - **Delete a patient** (the row ×) confirms only when the row is substantially filled
   (time + patient name + manufacturer + device + check all set) and **also removes that slot's files**
   from the database (`WS.removeSlotFiles`); a mostly-blank new row still deletes silently.
 - UI: the page is a **scroll-locked shell** (`body{overflow:hidden}` + a `.main-scroll` pane) so
   the iPad share popover never drifts off-screen no matter how many rows exist; the table was
-  compacted and **Notes is a wrapping, auto-growing textarea**; the Files column is kept narrow
-  (chips wrap ~2 rows) to give Notes width.
+  compacted and **Notes is a wrapping, auto-growing textarea spanning the visible schedule width**;
+  the header divider spans that same visible pane, and each row's delete control aligns with the
+  Notes field's right edge. Each patient has a separate narrow
+  **CRM** column for opening the Report Generator, while the compact Files status/menu preserves
+  horizontal room on an iPad and leaves space for future columns.
 
 **CRM-tool-side:** the app-bar gained a **Save DB** button (force-rebuilds json+txt+pdf, then
 writes/downloads the whole database as a backup). On **leave** (the Schedule button),

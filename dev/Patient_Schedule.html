@@ -76,35 +76,67 @@
   .date-step { min-width:36px; padding:8px 10px; font-weight:700; line-height:1; }
   .datebar input[type=date] { background:var(--panel2); border:1px solid var(--border); color:var(--text);
       border-radius:8px; padding:7px 10px; font:inherit; font-size:.9rem; color-scheme:dark; }
+  .move-wrap { position:relative; }
+  .move-menu { position:absolute; z-index:350; top:calc(100% + 5px); left:0; width:250px; padding:10px;
+               background:var(--panel); border:1px solid var(--border); border-radius:9px;
+               box-shadow:0 12px 34px rgba(0,0,0,.55); }
+  .move-menu[hidden] { display:none; }
+  .move-menu label { display:block; margin-bottom:8px; color:var(--muted); font-size:.76rem; font-weight:600;
+                     text-transform:uppercase; letter-spacing:.04em; }
+  .move-menu input[type=date] { display:block; width:100%; margin-top:5px; }
+  .move-actions { display:flex; gap:6px; }
+  .move-actions button { flex:1; }
+  .provider-wrap { position:relative; }
+  #providerBtn { min-width:128px; text-align:left; }
+  .provider-menu { position:absolute; z-index:350; top:calc(100% + 5px); left:0; width:300px; max-height:min(420px,65vh);
+                   overflow:auto; padding:7px; background:var(--panel); border:1px solid var(--border);
+                   border-radius:9px; box-shadow:0 12px 34px rgba(0,0,0,.55); }
+  .provider-menu[hidden] { display:none; }
+  .provider-all, .provider-add { width:100%; text-align:left; padding:7px 9px; border-radius:6px; }
+  .provider-all.active { color:var(--green); border-color:var(--green); }
+  .provider-list { margin:6px 0; padding:5px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+  .provider-item { display:flex; align-items:center; gap:5px; margin:3px 0; border-radius:6px; }
+  .provider-item.dragging { opacity:.55; background:var(--panel2); }
+  .provider-grip { flex:0 0 30px; padding:7px 5px; border:1px solid var(--border); border-radius:6px;
+                   color:var(--muted); background:var(--panel2); cursor:grab; touch-action:none; text-align:center; }
+  .provider-grip:active { cursor:grabbing; }
+  .provider-choice { flex:1; min-width:0; text-align:left; padding:7px 9px; overflow:hidden; text-overflow:ellipsis; }
+  .provider-choice.active { color:var(--green); border-color:var(--green); }
+  .provider-order { display:flex; gap:3px; }
+  .provider-order button { width:28px; padding:7px 2px; border-radius:6px; color:var(--muted); }
+  .provider-delete { flex:0 0 28px; width:28px; padding:7px 2px; border-radius:6px; color:var(--muted); }
+  .provider-delete:hover { color:var(--red); border-color:var(--red); }
+  .provider-protected { flex:0 0 28px; width:28px; text-align:center; color:var(--muted); font-size:.68rem; }
   #dayLabel { font-size:1.02rem; font-weight:600; }
   #counts { color:var(--muted); font-size:.83rem; margin-left:auto; }
   .twrap { overflow-x:auto; }
   table { width:100%; border-collapse:collapse; font-size:.82rem; }
-  /* Fixed layout so column widths are honored exactly: the left fields stay packed at their
-     own widths instead of the browser inflating every column to fill the row. Files is left
-     without a fixed width, so it flexes to absorb all the leftover space after Cerner. */
-  .twrap table { table-layout:fixed; min-width:1080px; }
+  /* Keep every data column at its compact fixed width. One intentionally empty spacer column
+     absorbs any extra landscape width so the delete control can sit against the right edge. */
+  .twrap table { table-layout:fixed; width:100%; min-width:1138px; }
   th, td { padding:3px 5px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top; }
   /* Bottom-align header labels so that when a label wraps to two lines (e.g. "Check type"),
      the single-line labels sit snug against the first row instead of floating up and leaving
      a gap above it — keeping the top spacing even with the bottom of the table. */
   th { color:var(--muted); font-weight:600; font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; vertical-align:bottom; }
+  th.row-spacer, td.row-spacer { padding:0; }
   td input, td select, td textarea { background:var(--panel2); border:1px solid var(--border); color:var(--text);
       border-radius:5px; padding:3px 5px; font:inherit; font-size:.8rem; width:100%; }
   td input:focus, td select:focus, td textarea:focus { outline:2px solid var(--accent); outline-offset:0; }
   td select { padding:3px 2px; }
+  td.provider-cell select { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   /* Native time/date controls have different intrinsic heights across browsers (especially
      iPad Safari), so pin both to the same height as the other row controls. */
   td.time input, td.lo input { height:25px; min-height:25px; }
-  td.time input { width:112px; color-scheme:dark; }
+  td.time input { width:106px; color-scheme:dark; }
   td.lo { vertical-align:middle; }
-  td.lo input { width:116px; color-scheme:dark; }
-  td.pt input { width:170px; }
+  td.lo input { width:108px; color-scheme:dark; }
+  td.pt input { width:160px; }
   /* The appointment row and its full-width notes row read as one block: drop the divider
      between them, and let the notes row carry the bottom border. */
   tr.appt-row > td { border-bottom:none; }
   tr.notes-row > td { padding-top:0; padding-bottom:9px; }
-  /* Notes: a full-width row beneath each appointment; multi-line, wraps, and auto-grows. */
+  /* Notes uses the whole table width; the spacer keeps the header controls themselves compact. */
   td.notes-cell textarea { resize:vertical; min-height:28px; line-height:1.3; white-space:pre-wrap;
       overflow-wrap:break-word; overflow:hidden; }
   /* Uploaded-to-Cerner marker between Remote and Files — centered within its column.
@@ -128,26 +160,49 @@
   td.cerner input[type=checkbox]:checked { background:var(--green); border-color:var(--green); }
   td.cerner input[type=checkbox]:checked::before { transform:scale(1); }
   td.cerner input[type=checkbox]:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
-  td.del { width:34px; text-align:center; }
+  td.del { width:30px; text-align:center; }
   td.del button { border:none; background:none; color:var(--muted); font-size:1rem; padding:2px 4px; }
   td.del button:hover { color:var(--red); }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   #printView { display:none; }
-  /* Files: a fixed set of chips (JSON/TXT/REPORT/PROG/CRM). With Notes moved to its own
-     full-width row, this column gets extra room so the chips wrap comfortably. */
-  td.fbadges { white-space:normal; }
-  .fchip {
-    display:inline-block; background:var(--panel2); border:1px solid var(--border);
-    border-radius:5px; padding:1px 5px; font-size:.66rem; font-weight:600;
-    color:var(--accent); cursor:pointer; margin:2px 3px 0 0; text-transform:uppercase;
+  /* Per-patient actions stay deliberately narrow for the iPad's landscape viewport. CRM gets
+     its own one-tap column; Files collapses to one status button and opens a floating menu. */
+  th.crm-head, td.crm-cell, th.files-head, td.fbadges { text-align:center; }
+  td.crm-cell, td.fbadges { vertical-align:middle; }
+  .crm-link, .files-trigger {
+    width:100%; min-height:27px; border:1px solid var(--border); border-radius:6px;
+    background:var(--panel2); color:var(--text); font:inherit; font-size:.7rem; font-weight:700;
+    padding:3px 5px; white-space:nowrap; cursor:pointer;
   }
-  .fchip:hover { border-color:var(--accent); }
-  .fchip.crm { color:var(--green); }
-  .fchip.vendor { color:var(--amber); }
-  .fchip.add { color:var(--muted); border-style:dashed; }
-  .fchip.add:hover { color:var(--accent); }
-  .fchip .x { margin-left:4px; padding:0 1px; color:var(--muted); font-weight:700; border-radius:3px; }
-  .fchip .x:hover { color:var(--red); background:rgba(248,81,73,.12); }
+  .crm-link { color:var(--green); }
+  .crm-link:hover, .files-trigger:hover, .files-trigger[aria-expanded="true"] { border-color:var(--accent); }
+  .crm-link:disabled { color:var(--muted); cursor:default; opacity:.65; }
+  .files-trigger.complete { color:var(--green); }
+  .files-trigger.draft { color:var(--accent); }
+  .files-trigger.source { color:var(--amber); }
+  .files-trigger.empty { color:var(--muted); }
+  .file-menu {
+    position:fixed; z-index:500; width:min(290px,calc(100vw - 20px)); max-height:min(420px,70vh);
+    overflow:auto; padding:8px; background:var(--panel); border:1px solid var(--border);
+    border-radius:9px; box-shadow:0 12px 34px rgba(0,0,0,.55);
+  }
+  .file-menu[hidden] { display:none; }
+  .file-menu-title { padding:2px 4px 7px; color:var(--muted); font-size:.7rem; font-weight:700;
+                     text-transform:uppercase; letter-spacing:.04em; }
+  .file-menu-row { display:flex; align-items:center; gap:5px; margin-bottom:5px; }
+  .file-menu-open { min-width:0; flex:1; display:flex; align-items:center; gap:7px; text-align:left;
+                    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+                    border-radius:6px; padding:7px 8px; cursor:pointer; }
+  .file-menu-open:hover { border-color:var(--accent); }
+  .file-kind { flex:0 0 72px; color:var(--accent); font-size:.66rem; font-weight:800; text-transform:uppercase; }
+  .file-kind.vendor { color:var(--amber); }
+  .file-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.74rem; }
+  .file-menu-remove { flex:0 0 30px; align-self:stretch; border:1px solid var(--border); border-radius:6px;
+                      background:var(--panel2); color:var(--muted); cursor:pointer; font-size:.95rem; }
+  .file-menu-remove:hover { color:var(--red); border-color:var(--red); }
+  .file-menu-add { width:100%; border:1px dashed var(--border); border-radius:6px; background:transparent;
+                   color:var(--muted); padding:7px; cursor:pointer; font:inherit; font-size:.74rem; }
+  .file-menu-add:hover { color:var(--accent); border-color:var(--accent); }
   .fnone { color:var(--muted); font-size:.78rem; }
   /* ---- All-patients overview modal ---- */
   .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:400; display:none;
@@ -189,7 +244,7 @@
     #printView td { border:1px solid #999; padding:4px 6px; vertical-align:top; }
     #printView tr:nth-child(even) td { background:#fafafa; }
     /* every column except Notes shrinks to its content — Notes gets all remaining width */
-    #printView .p-time, #printView .p-pt, #printView .p-dev, #printView .p-chk, #printView .p-lo, #printView .p-rm {
+    #printView .p-time, #printView .p-pt, #printView .p-dev, #printView .p-provider, #printView .p-chk, #printView .p-lo, #printView .p-rm {
       white-space:nowrap; width:1%; font-size:9pt; }
     #printView .p-time { font-weight:bold; }
     #printView .p-pt { white-space:normal; width:18%; }
@@ -270,30 +325,41 @@
       <button type="button" class="date-step" onclick="stepDate(1)" title="Next day" aria-label="Next day">&#8594;</button>
     </span>
     <button onclick="goToday()">Today</button>
-    <button onclick="moveDayStart()" title="Entered this day under the wrong date? Move every appointment to the right one.">Move day&hellip;</button>
+    <div class="move-wrap">
+      <button id="moveDayBtn" type="button" onclick="moveDayStart()" aria-haspopup="dialog" aria-expanded="false" title="Entered this day under the wrong date? Move every appointment to the right one.">Move day&hellip;</button>
+      <div id="moveBar" class="move-menu" role="dialog" aria-label="Move schedule day" hidden>
+        <label>Move this day to<input type="date" id="moveDate"></label>
+        <div class="move-actions">
+          <button class="primary" onclick="moveDayConfirm()">Move</button>
+          <button onclick="moveDayCancel()">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div class="provider-wrap">
+      <button id="providerBtn" type="button" aria-haspopup="menu" aria-expanded="false">All Providers &#9662;</button>
+      <div id="providerMenu" class="provider-menu" role="menu" hidden></div>
+    </div>
     <button onclick="printSchedule()">Print schedule</button>
-    <span id="moveBar" style="display:none; align-items:center; gap:8px;">
-      <span style="color:var(--muted); font-size:.85rem;">to</span>
-      <input type="date" id="moveDate">
-      <button class="primary" onclick="moveDayConfirm()">Move</button>
-      <button onclick="moveDayCancel()">Cancel</button>
-    </span>
     <span id="counts"></span>
   </div>
   <div class="twrap">
     <table>
       <thead><tr>
-        <th style="width:120px">Time</th>
-        <th style="width:180px">Patient</th>
-        <th style="width:108px">Manufacturer</th>
-        <th style="width:96px">Device</th>
-        <th style="width:100px">Check type</th>
-        <th style="width:120px">Last office</th>
-        <th style="width:108px">Remote</th>
-        <th class="cerner" style="width:70px" title="Mark once this patient has been entered into Cerner">Cerner</th>
-        <th>Files</th>
-        <th style="width:34px"></th>
-      </tr></thead>
+        <th style="width:114px">Time</th>
+        <th style="width:170px">Patient</th>
+        <th style="width:96px">Manufacturer</th>
+        <th style="width:82px">Device</th>
+        <th style="width:118px">Provider</th>
+        <th style="width:88px">Check type</th>
+        <th style="width:118px">Last office</th>
+        <th style="width:116px">Remote</th>
+        <th class="cerner" style="width:60px" title="Mark once this patient has been entered into Cerner">Cerner</th>
+        <th class="crm-head" style="width:54px">CRM</th>
+        <th class="files-head" style="width:92px">Files</th>
+        <th class="row-spacer"></th>
+        <th style="width:30px"></th>
+      </tr>
+      </thead>
       <tbody id="schedBody"></tbody>
     </table>
   </div>
@@ -311,10 +377,12 @@
       <span id="allTitle">All patients</span>
       <button onclick="closeAllPatients()" title="Close">&#10005;</button>
     </div>
-    <input id="allFilter" type="text" placeholder="Filter by patient name, device, check type, or notes&hellip;">
+    <input id="allFilter" type="text" placeholder="Filter by patient name, provider, device, check type, or notes&hellip;">
     <div id="allList" class="modal-body"></div>
   </div>
 </div>
+
+<div id="fileMenu" class="file-menu" role="menu" hidden></div>
 
 <div id="printView"></div>
 
@@ -325,6 +393,8 @@
   "use strict";
   var KEY = "patientSchedV1";
   var DATEKEY = "patientSchedDateV1";
+  var REVKEY = "patientSchedRevisionV1"; // timestamp only (no PHI); safe even in USB-only mode
+  var TAB_ID = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
   var MFRS = ["", "Medtronic", "Boston Sci", "Abbott", "Biotronik", "MicroPort", "Other"];
   var DEVS = ["", "PPM", "ICD", "CRT-P", "CRT-D", "ILR", "S-ICD", "Leadless"];
   var CHECKS = ["In-clinic", "Remote", "Pre-op", "Other"];
@@ -335,7 +405,7 @@
     d = d || new Date();
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   }
-  function blank() { return { type: "patient-schedule", version: 1, dates: {} }; }
+  function blank() { return { type: "patient-schedule", version: 1, providers: ["Tech"], dates: {} }; }
   function normalize(s) {
     if (!s || typeof s !== "object" || Array.isArray(s)) return blank();
     if (!s.dates || typeof s.dates !== "object") s.dates = {};
@@ -344,12 +414,19 @@
     return s;
   }
   function migrate(s) { // renames/new fields from older saves
+    if (!Array.isArray(s.providers)) s.providers = ["Tech"];
+    s.providers = s.providers.map(function (p) { return String(p || "").trim(); }).filter(function (p, i, all) {
+      return p && all.findIndex(function (x) { return x.toLowerCase() === p.toLowerCase(); }) === i;
+    });
+    if (!s.providers.some(function (p) { return p.toLowerCase() === "tech"; })) s.providers.unshift("Tech");
     Object.keys(s.dates).forEach(function (k) {
       (s.dates[k] || []).forEach(function (r) {
         if (!r) return;
         if (r.rm === "Needs setup") r.rm = "External clinic";
         if (r.lastOff === undefined) r.lastOff = ""; // added Jul 2026
         if (r.cerner === undefined) r.cerner = false; // "Uploaded to Cerner", added Jul 2026
+        r.provider = String(r.provider || "Tech").trim() || "Tech"; // provider assignment added Jul 2026
+        if (!s.providers.some(function (p) { return p.toLowerCase() === r.provider.toLowerCase(); })) s.providers.push(r.provider);
       });
     });
   }
@@ -366,9 +443,63 @@
 
   var state = load();
   var curDate = loadCurDate();
+  var providerFilter = ""; // UI-only; every visit starts on All Providers
+  var scheduleChannel = null;
+  var remotePendingRevision = 0;
+  try { if (typeof BroadcastChannel !== "undefined") scheduleChannel = new BroadcastChannel("patientScheduleSyncV1"); } catch (e) {}
+
+  function revisionOf(s) { return Number(s && s._updatedAt) || 0; }
+  function compareRevision(a, b) {
+    var d = revisionOf(a) - revisionOf(b);
+    if (d) return d;
+    return String((a && a._updatedBy) || "").localeCompare(String((b && b._updatedBy) || ""));
+  }
+  function sharedRevision() {
+    try { return Number(localStorage.getItem(REVKEY)) || 0; } catch (e) { return 0; }
+  }
+  function announceSchedule(kind) {
+    if (!scheduleChannel) return;
+    try { scheduleChannel.postMessage({ kind: kind || "state", sender: TAB_ID, state: state }); } catch (e) {}
+  }
+  function applyRemoteSchedule(next, committed) {
+    next = normalize(next);
+    var cmp = compareRevision(next, state);
+    if (cmp < 0 || (!committed && cmp === 0)) return;
+    clearTimeout(syncTimer);
+    var adopt = function () {
+      state = next;
+      remotePendingRevision = committed ? 0 : revisionOf(next);
+      if (!(WS && wsRoot && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted())))) {
+        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+      }
+      render();
+      if (wsRoot) setWsStatus("Updated from another open schedule tab", "ok");
+    };
+    if (committed && wsRoot && WS && WS.reloadWorkingCopy) {
+      WS.reloadWorkingCopy().then(adopt, adopt);
+    } else { adopt(); }
+  }
+  if (scheduleChannel) scheduleChannel.onmessage = function (ev) {
+    var m = ev.data || {};
+    if (m.sender === TAB_ID || !m.state) return;
+    applyRemoteSchedule(m.state, m.kind === "committed");
+  };
+  window.addEventListener("storage", function (ev) {
+    if (ev.key !== KEY || !ev.newValue) return;
+    try { applyRemoteSchedule(JSON.parse(ev.newValue), false); } catch (e) {}
+  });
 
   function rows() { if (!Array.isArray(state.dates[curDate])) state.dates[curDate] = []; return state.dates[curDate]; }
+  function visibleRows() {
+    return rows().map(function (r, i) { return { r: r, i: i }; }).filter(function (x) {
+      return !providerFilter || (x.r.provider || "Tech") === providerFilter;
+    });
+  }
   function save() {
+    remotePendingRevision = 0;
+    state._updatedAt = Math.max(Date.now(), revisionOf(state) + 1);
+    state._updatedBy = TAB_ID;
+    try { localStorage.setItem(REVKEY, String(state._updatedAt)); } catch (e) {}
     // drop empty day arrays so purge/export stay tidy
     Object.keys(state.dates).forEach(function (k) { if (!state.dates[k].length) delete state.dates[k]; });
     // USB-only mode: while the workspace is connected, the stick is the ONLY copy
@@ -377,6 +508,7 @@
     } else {
       try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
     }
+    announceSchedule("state");
     scheduleFileSync();
   }
   var $ = function (id) { return document.getElementById(id); };
@@ -386,6 +518,131 @@
       return '<option value="' + esc(v) + '"' + (v === sel ? " selected" : "") + ">" + (v || "&mdash;") + "</option>";
     }).join("");
   }
+  function providerOpts(list, sel) {
+    return list.map(function (name) {
+      var shortName = name.length > 17 ? name.slice(0, 17) + "\u2026" : name;
+      return '<option value="' + esc(name) + '" label="' + esc(shortName) + '" title="' + esc(name) + '"' + (name === sel ? " selected" : "") + ">" + esc(shortName) + "</option>";
+    }).join("");
+  }
+  function renderProviderControl() {
+    if (providerFilter && state.providers.indexOf(providerFilter) === -1) providerFilter = "";
+    var btn = $("providerBtn");
+    btn.textContent = (providerFilter || "All Providers") + " \u25be";
+    btn.setAttribute("aria-expanded", $("providerMenu").hidden ? "false" : "true");
+    if (!$("providerMenu").hidden) renderProviderMenu();
+  }
+  function renderProviderMenu() {
+    var menu = $("providerMenu");
+    var html = '<button type="button" class="provider-all' + (!providerFilter ? " active" : "") + '" data-provider-filter="" role="menuitem">All Providers</button>' +
+      '<div class="provider-list">';
+    state.providers.forEach(function (name, i) {
+      var isTech = name.toLowerCase() === "tech";
+      html += '<div class="provider-item" draggable="true" data-provider-name="' + esc(name) + '">' +
+        '<span class="provider-grip" title="Drag to reorder" aria-label="Drag ' + esc(name) + ' to reorder">&#8942;&#8942;</span>' +
+        '<button type="button" class="provider-choice' + (providerFilter === name ? " active" : "") + '" data-provider-filter="' + esc(name) + '" role="menuitem">' + esc(name) + '</button>' +
+        '<span class="provider-order"><button type="button" data-provider-move="-1" title="Move ' + esc(name) + ' up"' + (i === 0 ? " disabled" : "") + '>&uarr;</button>' +
+        '<button type="button" data-provider-move="1" title="Move ' + esc(name) + ' down"' + (i === state.providers.length - 1 ? " disabled" : "") + '>&darr;</button></span>' +
+        (isTech ? '<span class="provider-protected" title="Tech is the permanent fallback provider">&mdash;</span>' :
+          '<button type="button" class="provider-delete" data-provider-delete title="Delete ' + esc(name) + '" aria-label="Delete ' + esc(name) + '">&times;</button>') + '</div>';
+    });
+    menu.innerHTML = html + '</div><button type="button" class="provider-add" data-provider-add role="menuitem">+ Add provider</button>';
+  }
+  function closeProviderMenu() {
+    var menu = $("providerMenu");
+    if (menu.hidden) return;
+    menu.hidden = true; $("providerBtn").setAttribute("aria-expanded", "false");
+  }
+  function openProviderMenu() {
+    var menu = $("providerMenu");
+    if (!menu.hidden) { closeProviderMenu(); return; }
+    renderProviderMenu(); menu.hidden = false; $("providerBtn").setAttribute("aria-expanded", "true");
+  }
+  function refreshProviderOptions() {
+    document.querySelectorAll('select[data-f="provider"]').forEach(function (sel) {
+      var value = sel.value; sel.innerHTML = providerOpts(state.providers, value); sel.value = value; sel.title = value;
+    });
+    renderProviderMenu();
+  }
+  function moveProvider(name, delta) {
+    var i = state.providers.indexOf(name), to = i + delta;
+    if (i < 0 || to < 0 || to >= state.providers.length) return;
+    state.providers.splice(to, 0, state.providers.splice(i, 1)[0]);
+    save(); refreshProviderOptions();
+  }
+  function deleteProvider(name) {
+    if (!name || name.toLowerCase() === "tech") return;
+    var assigned = 0;
+    Object.keys(state.dates).forEach(function (date) {
+      (state.dates[date] || []).forEach(function (r) { if ((r.provider || "Tech") === name) assigned++; });
+    });
+    var msg = 'Delete provider "' + name + '"?' +
+      (assigned ? "\n\n" + assigned + " assigned appointment" + (assigned === 1 ? " will" : "s will") + " fall back to Tech." : "");
+    if (!confirm(msg)) return;
+    Object.keys(state.dates).forEach(function (date) {
+      (state.dates[date] || []).forEach(function (r) { if ((r.provider || "Tech") === name) r.provider = "Tech"; });
+    });
+    state.providers = state.providers.filter(function (p) { return p !== name; });
+    if (providerFilter === name) providerFilter = "Tech";
+    save(); render();
+  }
+  function persistProviderDomOrder() {
+    var ordered = Array.from($("providerMenu").querySelectorAll(".provider-item")).map(function (el) { return el.dataset.providerName; });
+    if (ordered.length === state.providers.length) { state.providers = ordered; save(); refreshProviderOptions(); }
+  }
+  $("providerBtn").addEventListener("click", openProviderMenu);
+  $("providerMenu").addEventListener("click", function (ev) {
+    var filter = ev.target.closest("[data-provider-filter]");
+    if (filter) { providerFilter = filter.dataset.providerFilter; closeProviderMenu(); render(); return; }
+    var move = ev.target.closest("[data-provider-move]");
+    if (move) { moveProvider(move.closest(".provider-item").dataset.providerName, +move.dataset.providerMove); return; }
+    var del = ev.target.closest("[data-provider-delete]");
+    if (del) { deleteProvider(del.closest(".provider-item").dataset.providerName); return; }
+    if (ev.target.closest("[data-provider-add]")) {
+      var name = String(prompt("Provider name:") || "").trim();
+      if (!name) return;
+      if (name.length > 50) { alert("Provider names must be 50 characters or fewer."); return; }
+      if (state.providers.some(function (p) { return p.toLowerCase() === name.toLowerCase(); })) { alert("That provider is already in the list."); return; }
+      state.providers.push(name); save(); refreshProviderOptions();
+    }
+  });
+  var draggedProvider = "", pointerProviderItem = null;
+  $("providerMenu").addEventListener("dragstart", function (ev) {
+    var item = ev.target.closest(".provider-item"); if (!item) return;
+    draggedProvider = item.dataset.providerName; item.classList.add("dragging");
+    if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", draggedProvider); }
+  });
+  $("providerMenu").addEventListener("dragover", function (ev) { if (ev.target.closest(".provider-item")) ev.preventDefault(); });
+  $("providerMenu").addEventListener("drop", function (ev) {
+    var target = ev.target.closest(".provider-item"); if (!target || !draggedProvider) return;
+    ev.preventDefault(); var item = Array.from($("providerMenu").querySelectorAll(".provider-item")).find(function (el) { return el.dataset.providerName === draggedProvider; });
+    if (item && item !== target) target.parentNode.insertBefore(item, ev.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2 ? target.nextSibling : target);
+    persistProviderDomOrder(); draggedProvider = "";
+  });
+  $("providerMenu").addEventListener("dragend", function () {
+    $("providerMenu").querySelectorAll(".dragging").forEach(function (el) { el.classList.remove("dragging"); });
+    draggedProvider = "";
+  });
+  $("providerMenu").addEventListener("pointerdown", function (ev) {
+    if (!ev.target.closest(".provider-grip") || ev.pointerType === "mouse") return;
+    pointerProviderItem = ev.target.closest(".provider-item"); pointerProviderItem.classList.add("dragging"); ev.preventDefault();
+  });
+  document.addEventListener("pointermove", function (ev) {
+    if (!pointerProviderItem) return;
+    var target = document.elementFromPoint(ev.clientX, ev.clientY);
+    target = target && target.closest(".provider-item");
+    if (target && target !== pointerProviderItem && target.parentNode === pointerProviderItem.parentNode) {
+      target.parentNode.insertBefore(pointerProviderItem, ev.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2 ? target.nextSibling : target);
+    }
+    ev.preventDefault();
+  }, { passive:false });
+  document.addEventListener("pointerup", function () {
+    if (!pointerProviderItem) return;
+    pointerProviderItem.classList.remove("dragging"); pointerProviderItem = null; persistProviderDomOrder();
+  });
+  document.addEventListener("click", function (ev) {
+    if (!ev.target.closest(".provider-wrap")) closeProviderMenu();
+  });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") closeProviderMenu(); });
   function fmtTime(t) {   // "13:30" -> "1:30 PM" on the printout; anything else prints as-is
     var m = /^(\d{2}):(\d{2})$/.exec(t || "");
     if (!m) return t || "";
@@ -413,8 +670,10 @@
     var dt = new Date(+d[0], +d[1] - 1, +d[2]);
     $("dayLabel").textContent = dt.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
     $("schedDate").value = curDate;
+    renderProviderControl();
     var tb = $("schedBody"); tb.innerHTML = "";
-    rows().forEach(function (r, i) {
+    visibleRows().forEach(function (x) {
+      var r = x.r, i = x.i;
       var tr = document.createElement("tr");
       tr.className = "appt-row";
       tr.innerHTML =
@@ -422,11 +681,14 @@
         '<td class="pt"><input maxlength="80" placeholder="Last, First" aria-label="Patient full name" data-i="' + i + '" data-f="pt" value="' + esc(r.pt) + '"></td>' +
         '<td><select data-i="' + i + '" data-f="mfr">' + opts(MFRS, r.mfr) + "</select></td>" +
         '<td><select data-i="' + i + '" data-f="dtype">' + opts(DEVS, r.dtype) + "</select></td>" +
+        '<td class="provider-cell"><select data-i="' + i + '" data-f="provider" title="' + esc(r.provider || "Tech") + '">' + providerOpts(state.providers, r.provider || "Tech") + "</select></td>" +
         '<td><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
         '<td class="lo"><input type="date" title="Date of the last in-office check" data-i="' + i + '" data-f="lastOff" value="' + esc(r.lastOff) + '"></td>' +
         '<td><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
         '<td class="cerner"><input type="checkbox" data-i="' + i + '" data-f="cerner" title="Uploaded to Cerner"' + (r.cerner ? " checked" : "") + "></td>" +
+        '<td class="crm-cell" data-cslot="' + i + '"><button class="crm-link" type="button" disabled>Open</button></td>' +
         '<td class="fbadges" data-fslot="' + i + '"><span class="fnone">&mdash;</span></td>' +
+        '<td class="row-spacer"></td>' +
         '<td class="del"><button title="Remove" data-del="' + i + '">&#10005;</button></td>';
       tb.appendChild(tr);
 
@@ -434,7 +696,7 @@
       var ntr = document.createElement("tr");
       ntr.className = "notes-row";
       ntr.innerHTML =
-        '<td class="notes-cell" colspan="10">' +
+        '<td class="notes-cell" colspan="13">' +
           '<textarea rows="1" placeholder="Notes &mdash; post-shock, ERI watch, needs interpreter&hellip;" data-i="' + i + '" data-f="notes">' + esc(r.notes) + '</textarea>' +
         '</td>';
       tb.appendChild(ntr);
@@ -445,14 +707,14 @@
   }
   function autoGrow(el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 220) + "px"; }
   function renderCounts() {
-    var rs = rows(), by = {};
+    var all = rows(), rs = visibleRows().map(function (x) { return x.r; }), by = {};
     rs.forEach(function (r) { by[r.check] = (by[r.check] || 0) + 1; });
     var rmIssues = rs.filter(function (r) { return RM_ISSUES.indexOf(r.rm) !== -1; }).length;
     $("counts").textContent = rs.length
-      ? rs.length + " appointment" + (rs.length === 1 ? "" : "s") + " · " +
+      ? rs.length + (providerFilter ? " of " + all.length : "") + " appointment" + (rs.length === 1 ? "" : "s") + " · " +
         CHECKS.filter(function (c) { return by[c]; }).map(function (c) { return by[c] + " " + c.toLowerCase(); }).join(" · ") +
         (rmIssues ? " · " + rmIssues + " RM issue" + (rmIssues === 1 ? "" : "s") : "")
-      : "no appointments yet";
+      : (providerFilter ? "no " + providerFilter + " appointments" : "no appointments yet");
   }
 
   /* ---------- events ---------- */
@@ -463,6 +725,7 @@
     else r[el.dataset.f] = el.value;
     if (el.dataset.f === "notes" && el.tagName === "TEXTAREA") autoGrow(el);
     save();
+    if (el.dataset.f === "provider") { render(); return; }
     if (el.dataset.f === "check" || el.dataset.f === "rm") renderCounts();
     if (el.dataset.f === "time" || el.dataset.f === "pt") scheduleScan();
   });
@@ -486,7 +749,7 @@
     } else { render(); }
   });
   window.addRow = function () {
-    rows().push({ time: "", pt: "", mfr: "", dtype: "", check: "In-clinic", lastOff: "", rm: "", cerner: false, notes: "" });
+    rows().push({ time: "", pt: "", mfr: "", dtype: "", provider: "Tech", check: "In-clinic", lastOff: "", rm: "", cerner: false, notes: "" });
     save(); render();
     var t = $("schedBody").querySelectorAll("td.time input");
     if (t.length) t[t.length - 1].focus();
@@ -521,12 +784,12 @@
       var rowsHtml = "";
       (state.dates[date] || []).slice().sort(function (a, b) { return timeVal(a.time) - timeVal(b.time); }).forEach(function (r) {
         var dev = [r.mfr, r.dtype].filter(Boolean).join(" ");
-        var hay = (r.pt + " " + dev + " " + (r.check || "") + " " + (r.rm || "") + " " + (r.notes || "")).toLowerCase();
+        var hay = (r.pt + " " + dev + " " + (r.provider || "Tech") + " " + (r.check || "") + " " + (r.rm || "") + " " + (r.notes || "")).toLowerCase();
         if (filter && hay.indexOf(filter) === -1) return;
         total++;
         var slot = WS ? WS.slotName(r.time, r.pt) : "";
         var fc = counts[date + "/" + slot] || 0;
-        var meta = [dev, r.check].filter(Boolean).join(" · ") + (r.notes ? " — " + r.notes : "");
+        var meta = [dev, r.provider || "Tech", r.check].filter(Boolean).join(" · ") + (r.notes ? " — " + r.notes : "");
         rowsHtml +=
           '<div class="all-row" data-date="' + esc(date) + '">' +
             '<span class="all-time">' + esc(fmtTime(r.time) || "—") + '</span>' +
@@ -551,7 +814,7 @@
   $("allFilter").addEventListener("input", function () { renderAllPatients(this.value); });
   $("allList").addEventListener("click", function (ev) {
     var row = ev.target.closest(".all-row"); if (!row) return;
-    curDate = row.dataset.date; render(); closeAllPatients();
+    curDate = row.dataset.date; providerFilter = ""; render(); closeAllPatients();
   });
   $("allModal").addEventListener("click", function (ev) { if (ev.target === this) closeAllPatients(); });
   document.addEventListener("keydown", function (ev) {
@@ -561,10 +824,15 @@
   /* ---------- move day: fix a schedule entered under the wrong date ---------- */
   window.moveDayStart = function () {
     if (!rows().length) { alert("Nothing on this day to move."); return; }
+    if (!$("moveBar").hidden) { moveDayCancel(); return; }
     $("moveDate").value = curDate;
-    $("moveBar").style.display = "inline-flex";
+    $("moveBar").hidden = false;
+    $("moveDayBtn").setAttribute("aria-expanded", "true");
   };
-  window.moveDayCancel = function () { $("moveBar").style.display = "none"; };
+  window.moveDayCancel = function () {
+    $("moveBar").hidden = true;
+    $("moveDayBtn").setAttribute("aria-expanded", "false");
+  };
   window.moveDayConfirm = function () {
     var target = $("moveDate").value;
     if (!target || target === curDate) { alert("Pick a different date to move this day to."); return; }
@@ -577,9 +845,13 @@
     state.dates[target] = existing.concat(moving);
     delete state.dates[curDate];
     curDate = target;             // follow the schedule to its corrected date
-    $("moveBar").style.display = "none";
+    moveDayCancel();
     save(); render();
   };
+  document.addEventListener("click", function (ev) {
+    if (!ev.target.closest(".move-wrap")) moveDayCancel();
+  });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") moveDayCancel(); });
   $("schedDate").addEventListener("change", function () {
     if (this.value) { curDate = this.value; render(); }
   });
@@ -588,7 +860,7 @@
   function buildPrintView() {
     var d = curDate.split("-");
     var dt = new Date(+d[0], +d[1] - 1, +d[2]);
-    var rs = rows().slice().sort(function (a, b) { return timeVal(a.time) - timeVal(b.time); });
+    var rs = visibleRows().map(function (x) { return x.r; }).sort(function (a, b) { return timeVal(a.time) - timeVal(b.time); });
     var abMfr = { "Medtronic": "MDT", "Boston Sci": "BSci", "Abbott": "ABT", "Biotronik": "BIO", "MicroPort": "MPT" };
     var abChk = { "In-clinic": "Clinic", "Remote": "Remote", "Pre-op": "Pre-op", "Other": "Other" };
     var abRm  = { "Connected": "Conn.", "Not connected": "NOT CONN", "External clinic": "Ext. clinic", "N/A": "N/A" };
@@ -596,6 +868,7 @@
     rs.forEach(function (r) { by[r.check] = (by[r.check] || 0) + 1; });
     var rmIssues = rs.filter(function (r) { return RM_ISSUES.indexOf(r.rm) !== -1; }).length;
     var meta = rs.length + " appointment" + (rs.length === 1 ? "" : "s") +
+      (providerFilter ? " — Provider: " + providerFilter : "") +
       (rs.length ? " — " + CHECKS.filter(function (c) { return by[c]; }).map(function (c) { return by[c] + " " + c.toLowerCase(); }).join(", ") : "") +
       (rmIssues ? " — " + rmIssues + " remote-monitoring issue" + (rmIssues === 1 ? "" : "s") + " to address" : "");
     $("printView").innerHTML =
@@ -604,13 +877,14 @@
         '<div class="p-date">' + dt.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" }) + "</div>" +
         '<div class="p-meta">' + esc(meta) + "</div>" +
       "</div>" +
-      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Check</th><th>Last Office</th><th>Remote</th><th>Cerner</th><th>Notes</th></tr></thead><tbody>" +
+      "<table><thead><tr><th>Time</th><th>Patient</th><th>Device</th><th>Provider</th><th>Check</th><th>Last Office</th><th>Remote</th><th>Cerner</th><th>Notes</th></tr></thead><tbody>" +
       rs.map(function (r) {
         var dev = [abMfr[r.mfr] || r.mfr, r.dtype].filter(Boolean).join(" ");
         return "<tr>" +
           '<td class="p-time">' + esc(fmtTime(r.time)) + "</td>" +
           '<td class="p-pt">' + esc(r.pt) + "</td>" +
           '<td class="p-dev">' + esc(dev) + "</td>" +
+          '<td class="p-provider">' + esc(r.provider || "Tech") + "</td>" +
           '<td class="p-chk">' + esc(abChk[r.check] || r.check) + "</td>" +
           '<td class="p-lo">' + esc(fmtDate(r.lastOff)) + "</td>" +
           '<td class="p-rm">' + esc(abRm[r.rm] || r.rm || "") + "</td>" +
@@ -757,14 +1031,30 @@
   }
   function writeDataFile() {
     if (!dataFileHandle) return Promise.resolve();
+    // A newer revision belongs to another tab. Never let this tab's older in-memory copy replace it.
+    if (sharedRevision() > revisionOf(state) || remotePendingRevision >= revisionOf(state)) {
+      setWsStatus("Skipped a stale-tab save; waiting for the newer schedule", "warn");
+      return Promise.resolve();
+    }
     return dataFileHandle.createWritable().then(function (w) {
       return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); });
+    }).then(function () {
+      // Commit the full working bundle before notifying other tabs, so they can safely refresh it.
+      return (WS && WS.flush ? WS.flush() : Promise.resolve()).then(function () { announceSchedule("committed"); });
     }).catch(function (e) { setStatus("Save failed: " + e.message, "warn"); });
   }
-  function loadFromHandle(h) {
+  function loadFromHandle(h, preferNewerLocal) {
     return h.getFile().then(function (f) { return f.text(); }).then(function (txt) {
       if (txt.trim()) {
-        state = normalize(JSON.parse(txt));
+        var incoming = normalize(JSON.parse(txt));
+        // Auto-reconnect can briefly see the previous IndexedDB bundle while another tab's flush
+        // is finishing. Keep the newer localStorage revision instead of restoring the stale one.
+        if (preferNewerLocal && compareRevision(state, incoming) > 0 && revisionOf(state) >= sharedRevision()) {
+          return seedHandle(h).then(function () {
+            return (WS && WS.flush ? WS.flush() : Promise.resolve()).then(function () { announceSchedule("committed"); });
+          });
+        }
+        state = incoming;
         if (!(WS && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted())))) localStorage.setItem(KEY, JSON.stringify(state));
         else { try { localStorage.removeItem(KEY); } catch (e) {} }
       }
@@ -784,11 +1074,11 @@
     });
   }
 
-  function adoptWorkspace(root, seed) {
+  function adoptWorkspace(root, seed, preferNewerLocal) {
     wsRoot = root;
     return root.getFileHandle("schedule.json", { create: true }).then(function (fh) {
       dataFileHandle = fh;
-      return seed ? seedHandle(fh) : loadFromHandle(fh);
+      return seed ? seedHandle(fh) : loadFromHandle(fh, preferNewerLocal);
     }).then(function () {
       // Leave the Open button enabled so it can switch to a different database while one
       // is already connected — just relabel it so the intent is clear.
@@ -821,7 +1111,7 @@
     if (!WS) return;
     WS.connect()
       .then(function (root) { return WS.initScaffold(root); })   // seeds an empty schedule.json if brand new
-      .then(adoptWorkspace)
+      .then(function (root) { return adoptWorkspace(root, false, false); })
       .catch(function (e) { if (e && e.name !== "AbortError") setStatus("Open failed: " + e.message, "warn"); });
   };
   window.newDatabase = function () {
@@ -985,13 +1275,23 @@
       });
   });
   function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scanSlots, 600); }
+  var slotFiles = {};
   function scanSlots() {
-    var cells = document.querySelectorAll("td.fbadges");
+    closeFileMenu();
+    var cells = document.querySelectorAll("td.fbadges"), rs = rows();
+    document.querySelectorAll("td.crm-cell").forEach(function (td) {
+      var r = rs[+td.dataset.cslot], b = td.querySelector(".crm-link");
+      if (!r || !b) return;
+      var slot = WS ? WS.slotName(r.time, r.pt) : "";
+      b.dataset.crm = slot;
+      b.disabled = !wsRoot || !r.time || !String(r.pt || "").trim();
+      b.title = b.disabled ? "Enter a time and patient name, then open a database" : "Open this patient in the CRM Report Generator";
+      b.setAttribute("aria-label", "Open " + (r.pt || "this patient") + " in the CRM Report Generator");
+    });
     if (!wsRoot) {
       cells.forEach(function (td) { td.innerHTML = '<span class="fnone">&mdash;</span>'; });
       return;
     }
-    var rs = rows();
     cells.forEach(function (td) {
       var r = rs[+td.dataset.fslot];
       if (r) renderSlotCell(td, WS.slotName(r.time, r.pt));
@@ -999,22 +1299,21 @@
   }
   function chipLabel(name) {
     var n = String(name).toLowerCase();
-    if (n === "report.json") return { l: "JSON", cls: "" };
-    if (n === "report.txt") return { l: "TXT", cls: "" };
-    if (n === "report.pdf") return { l: "REPORT", cls: "" };      // our generated report PDF
-    // Raw programmer exports — distinguish the Abbott .log from the vendor PDF report.
-    if (/\.log$/.test(n)) return { l: "LOG", cls: " vendor" };
-    if (/\.pdf$/.test(n)) return { l: "PDF", cls: " vendor" };    // raw vendor/programmer PDF
-    return { l: "PROG", cls: " vendor" };                          // any other raw export
+    if (n === "report.pdf") return { l: "Generated", cls: "" };
+    return { l: "Programmer", cls: " vendor" };
+  }
+  function isProgrammerReport(name) {
+    var n = String(name).toLowerCase();
+    return n !== "report.pdf" && n !== "report.json" && n !== "report.txt";
+  }
+  function isScheduleReport(name) {
+    return String(name).toLowerCase() === "report.pdf" || isProgrammerReport(name);
   }
   function chipOrder(name) {
     var n = String(name).toLowerCase();
-    if (n !== "report.pdf" && /\.pdf$/.test(n)) return 0; // programmer/vendor PDF
-    if (n === "report.pdf") return 1;                    // generated report PDF
-    if (n === "report.json") return 2;
-    if (n === "report.txt") return 3;
-    if (/\.log$/.test(n)) return 4;
-    return 5;
+    if (n === "report.pdf") return 0;
+    if (isProgrammerReport(name)) return 1;
+    return 2;
   }
   function renderSlotCell(td, slot) {
     WS.slotDir(wsRoot, curDate, slot, false)
@@ -1024,53 +1323,94 @@
         files.sort(function (a, b) {
           return (chipOrder(a.name) - chipOrder(b.name)) || a.name.localeCompare(b.name);
         });
-        var html = '<span class="fchip crm" data-crm="' + esc(slot) + '" title="Open this patient in the CRM Report Generator">CRM</span>';
-        files.forEach(function (fh) {
-          var c = chipLabel(fh.name);
-          html += '<span class="fchip' + c.cls + '" data-open="' + esc(slot) + '" data-name="' + esc(fh.name) + '" title="Open ' + esc(fh.name) + '">' + c.l +
-            '<span class="x" data-rm-slot="' + esc(slot) + '" data-rm-name="' + esc(fh.name) + '" title="Remove ' + esc(fh.name) + ' from this patient">&times;</span></span>';
-        });
-        html += '<span class="fchip add" data-add="' + esc(slot) + '" title="Attach a programmer PDF to this patient (no auto-fill)">+ PDF</span>';
-        td.innerHTML = html;
+        slotFiles[slot] = files.map(function (fh) { return fh.name; }).filter(isScheduleReport);
+        var names = slotFiles[slot];
+        var hasProgrammerReport = names.some(isProgrammerReport);
+        var hasGeneratedReport = names.some(function (n) { return n.toLowerCase() === "report.pdf"; });
+        var cls = "empty", label = "No files";
+        if (hasProgrammerReport) { cls = "complete"; label = "Report \u2713" + (names.length > 1 ? " \u00b7 " + names.length : ""); }
+        else if (hasGeneratedReport) { cls = "draft"; label = "Generated"; }
+        td.innerHTML = '<button type="button" class="files-trigger ' + cls + '" data-files-slot="' + esc(slot) +
+          '" aria-haspopup="menu" aria-expanded="false" title="Show files for this patient">' + label + ' \u25be</button>';
       });
   }
-  $("schedBody").addEventListener("click", function (ev) {
-    // remove a wrong file association (the × on a file chip)
-    var rm = ev.target.closest(".x[data-rm-name]");
-    if (rm && wsRoot) {
-      ev.stopPropagation();
-      var nm = rm.dataset.rmName, sl = rm.dataset.rmSlot;
-      if (!confirm('Remove "' + nm + '" from this patient?\n\nThis deletes the file from the database (it cannot be undone here).')) return;
-      WS.removeFile(wsRoot, curDate, sl, nm)
-        .then(function () { return WS.flush ? WS.flush() : null; })
-        .then(function () { setWsStatus("Removed " + nm + " from " + sl, "ok"); scanSlots(); })
-        .catch(function (e) { setWsStatus("Could not remove " + nm + ": " + e.message, "warn"); });
-      return;
-    }
-    var chip = ev.target.closest(".fchip");
-    if (!chip || !wsRoot) return;
-    if (chip.dataset.add) {   // attach a programmer PDF directly (loop recorders, Aveir, S-ICD, etc.)
-      pendingAddSlot = chip.dataset.add;
-      var inp = $("attachFile"); inp.value = ""; inp.click();
-      return;
-    }
-    if (chip.dataset.crm) {
-      var url = "../app/CRM_Report_Generator.html#slot=" + curDate + "/" + chip.dataset.crm;
-      // flush the working copy first so the Report Generator opens the latest bundle
-      (WS && WS.flush ? WS.flush() : Promise.resolve()).then(function () { location.href = url; });
-      return;
-    }
-    if (!chip.dataset.open) return;
-    WS.slotDir(wsRoot, curDate, chip.dataset.open, false)
-      .then(function (dir) { return dir.getFileHandle(chip.dataset.name); })
+  function closeFileMenu() {
+    var menu = $("fileMenu");
+    if (!menu || menu.hidden) return;
+    menu.hidden = true; menu.innerHTML = ""; menu.dataset.slot = "";
+    var trigger = document.querySelector('.files-trigger[aria-expanded="true"]');
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+  }
+  function openFileMenu(trigger) {
+    var menu = $("fileMenu"), slot = trigger.dataset.filesSlot;
+    if (!menu.hidden && menu.dataset.slot === slot) { closeFileMenu(); return; }
+    closeFileMenu();
+    var names = slotFiles[slot] || [];
+    var html = '<div class="file-menu-title">' + (names.length ? names.length + " saved file" + (names.length === 1 ? "" : "s") : "No saved files yet") + '</div>';
+    names.forEach(function (name) {
+      var c = chipLabel(name);
+      html += '<div class="file-menu-row"><button type="button" class="file-menu-open" data-open="' + esc(slot) + '" data-name="' + esc(name) +
+        '" role="menuitem" title="Open ' + esc(name) + '"><span class="file-kind' + c.cls + '">' + c.l + '</span><span class="file-name">' + esc(name) +
+        '</span></button><button type="button" class="file-menu-remove" data-rm-slot="' + esc(slot) + '" data-rm-name="' + esc(name) +
+        '" title="Remove ' + esc(name) + ' from this patient" aria-label="Remove ' + esc(name) + '">&times;</button></div>';
+    });
+    html += '<button type="button" class="file-menu-add" data-add="' + esc(slot) + '" role="menuitem">+ Attach programmer file</button>';
+    menu.innerHTML = html; menu.dataset.slot = slot; menu.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    var r = trigger.getBoundingClientRect(), mw = menu.offsetWidth, mh = menu.offsetHeight;
+    var left = Math.max(10, Math.min(r.right - mw, window.innerWidth - mw - 10));
+    var top = r.bottom + 5;
+    if (top + mh > window.innerHeight - 10) top = Math.max(10, r.top - mh - 5);
+    menu.style.left = left + "px"; menu.style.top = top + "px";
+  }
+  function openPatientFile(slot, name) {
+    WS.slotDir(wsRoot, curDate, slot, false)
+      .then(function (dir) { return dir.getFileHandle(name); })
       .then(function (fh) { return fh.getFile(); })
       .then(function (file) {
         var url = URL.createObjectURL(file);
         window.open(url, "_blank");
         setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
       })
-      .catch(function (e) { setWsStatus("Could not open " + chip.dataset.name + ": " + e.message, "warn"); });
+      .catch(function (e) { setWsStatus("Could not open " + name + ": " + e.message, "warn"); });
+  }
+  $("schedBody").addEventListener("click", function (ev) {
+    var crm = ev.target.closest(".crm-link[data-crm]");
+    if (crm && !crm.disabled) {
+      var url = "../app/CRM_Report_Generator.html#slot=" + curDate + "/" + crm.dataset.crm;
+      (WS && WS.flush ? WS.flush() : Promise.resolve()).then(function () { location.href = url; });
+      return;
+    }
+    var trigger = ev.target.closest(".files-trigger[data-files-slot]");
+    if (trigger && wsRoot) openFileMenu(trigger);
   });
+  $("fileMenu").addEventListener("click", function (ev) {
+    var add = ev.target.closest("[data-add]");
+    if (add && wsRoot) {
+      pendingAddSlot = add.dataset.add; closeFileMenu();
+      var inp = $("attachFile"); inp.value = ""; inp.click();
+      return;
+    }
+    var rm = ev.target.closest("[data-rm-name]");
+    if (rm && wsRoot) {
+      var nm = rm.dataset.rmName, sl = rm.dataset.rmSlot;
+      if (!confirm('Remove "' + nm + '" from this patient?\n\nThis deletes the file from the database (it cannot be undone here).')) return;
+      closeFileMenu();
+      WS.removeFile(wsRoot, curDate, sl, nm)
+        .then(function () { return WS.flush ? WS.flush() : null; })
+        .then(function () { setWsStatus("Removed " + nm + " from " + sl, "ok"); scanSlots(); })
+        .catch(function (e) { setWsStatus("Could not remove " + nm + ": " + e.message, "warn"); });
+      return;
+    }
+    var open = ev.target.closest("[data-open]");
+    if (open && wsRoot) { closeFileMenu(); openPatientFile(open.dataset.open, open.dataset.name); }
+  });
+  document.addEventListener("click", function (ev) {
+    if (!ev.target.closest("#fileMenu") && !ev.target.closest(".files-trigger")) closeFileMenu();
+  });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") closeFileMenu(); });
+  document.addEventListener("scroll", closeFileMenu, true);
+  window.addEventListener("resize", closeFileMenu);
 
   /* ---------- manually attach a programmer PDF to a patient (no auto-fill) ---------- */
   var pendingAddSlot = null;
@@ -1094,7 +1434,7 @@
     return WS.stored().then(function (root) {
       if (!root) return false;
       return WS.permission(root, false).then(function () {
-        return adoptWorkspace(root).then(function () { return true; });
+        return adoptWorkspace(root, false, true).then(function () { return true; });
       });
     }).catch(function () { return false; });
   }
