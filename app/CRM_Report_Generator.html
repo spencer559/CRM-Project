@@ -69,6 +69,10 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 }
 .db-handoff-title { color:#7b4100; font-size:17px; font-weight:700; margin-bottom:7px; }
 .db-handoff-copy { color:#374657; font-size:12px; line-height:1.55; }
+.db-password-row { margin-top:14px; }
+.db-password-row[hidden] { display:none; }
+.db-password-row label { display:block; color:var(--navy); font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.35px; margin-bottom:4px; }
+.db-password-row input { height:34px; font-size:16px; background:#fff; }
 .db-handoff-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
 .db-handoff-actions .btn { min-height:32px; justify-content:center; }
 
@@ -286,6 +290,10 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="db-handoff-card">
     <div class="db-handoff-title" id="db-handoff-title">Patient database is locked</div>
     <div class="db-handoff-copy" id="db-handoff-copy">Unlock the database before entering report data so this patient loads correctly and the report saves back to the schedule.</div>
+    <div class="db-password-row" id="db-password-row" hidden>
+      <label for="db-password-input">Database password</label>
+      <input type="password" id="db-password-input" autocomplete="current-password" onkeydown="if(event.key==='Enter'){event.preventDefault();retryDatabaseHandoff();}">
+    </div>
     <div class="db-handoff-actions">
       <button class="btn btn-primary" id="db-unlock-btn" onclick="retryDatabaseHandoff()">Unlock database</button>
       <button class="btn btn-ghost" id="db-open-btn" onclick="openDatabaseFromHandoff()">Open database…</button>
@@ -2331,11 +2339,22 @@ loadSaved();
   var dbGuard = document.getElementById('db-handoff-guard');
   var dbGuardCopy = document.getElementById('db-handoff-copy');
   var dbUnlockBtn = document.getElementById('db-unlock-btn');
+  var dbPasswordRow = document.getElementById('db-password-row');
+  var dbPasswordInput = document.getElementById('db-password-input');
+  var pendingPasswordResolve = null;
   var CARET = ' <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   if (WS) WS.onPasswordRequest = function (details) {
-    if (parseHash()) showDatabaseGuard('Enter the database password to load this scheduled patient.');
-    return window.prompt((details && details.message) || 'Database password:');
+    if (!parseHash()) return window.prompt((details && details.message) || 'Database password:');
+    return new Promise(function (resolve) {
+      pendingPasswordResolve = resolve;
+      if (dbPasswordInput) dbPasswordInput.value = '';
+      showDatabaseGuard(details && details.retry
+        ? 'That password was incorrect. Try again to load this scheduled patient.'
+        : 'Enter the database password to load this scheduled patient.', true);
+      if (dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = details && details.retry ? 'Try again' : 'Unlock database'; }
+      setTimeout(function () { if (dbPasswordInput) dbPasswordInput.focus(); }, 0);
+    });
   };
 
   function escT(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -2371,9 +2390,10 @@ loadSaved();
     el.textContent = msg;
     if (cls !== 'err') setTimeout(function () { if (el.textContent === msg) el.className = ''; }, 6000);
   }
-  function showDatabaseGuard(message) {
+  function showDatabaseGuard(message, requestPassword) {
     if (!dbGuard || !parseHash()) return;
     if (message) dbGuardCopy.textContent = message;
+    if (dbPasswordRow && requestPassword !== undefined) dbPasswordRow.hidden = !requestPassword;
     dbGuard.hidden = false;
     patientBtn.classList.add('db-locked');
     patientBtn.setAttribute('aria-label', 'Patient database locked');
@@ -2382,6 +2402,9 @@ loadSaved();
     if (dbGuard) dbGuard.hidden = true;
     patientBtn.classList.remove('db-locked');
     patientBtn.removeAttribute('aria-label');
+    pendingPasswordResolve = null;
+    if (dbPasswordInput) dbPasswordInput.value = '';
+    if (dbPasswordRow) dbPasswordRow.hidden = true;
     if (dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = 'Unlock database'; }
   }
   function handoffFailureMessage() {
@@ -2406,9 +2429,25 @@ loadSaved();
   }
   window.retryDatabaseHandoff = function () {
     if (!WS) return;
+    if (pendingPasswordResolve) {
+      var password = dbPasswordInput ? dbPasswordInput.value : '';
+      if (!password) {
+        showDatabaseGuard('Enter the database password first.', true);
+        if (dbPasswordInput) dbPasswordInput.focus();
+        return;
+      }
+      var resolvePassword = pendingPasswordResolve;
+      pendingPasswordResolve = null;
+      if (dbUnlockBtn) { dbUnlockBtn.disabled = true; dbUnlockBtn.textContent = 'Unlocking…'; }
+      resolvePassword(password);
+      return;
+    }
     if (dbUnlockBtn) { dbUnlockBtn.disabled = true; dbUnlockBtn.textContent = 'Unlocking…'; }
     WS.stored().then(function (root) { return activateHandoffRoot(root, true); }).then(function (ok) {
       if (!ok && dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = 'Try unlock again'; }
+    }).catch(function (e) {
+      showDatabaseGuard('The patient database could not be unlocked: ' + ((e && e.message) || 'Unknown error'));
+      if (dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = 'Try unlock again'; }
     });
   };
   function setPatientBtn() {
@@ -2662,7 +2701,11 @@ loadSaved();
       });
   }
   window.openDatabaseFlow = connectFlow;   // exposed so a "New Database" action could reuse it
-  window.openDatabaseFromHandoff = function () { return connectFlow(true); };
+  window.openDatabaseFromHandoff = function () {
+    if (pendingPasswordResolve) { var cancel = pendingPasswordResolve; pendingPasswordResolve = null; cancel(null); }
+    if (dbPasswordRow) dbPasswordRow.hidden = true;
+    return connectFlow(true);
+  };
   window.buildPatientMenu = function () {
     pdMenu.innerHTML = '';
     if (!supported) { pdMenu.appendChild(noteEl('USB workspace needs Chrome or Edge on desktop.')); return; }

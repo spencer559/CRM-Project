@@ -380,8 +380,9 @@ now sourcing the patient list from the bundle's `schedule.json`. A `.crmdb` open
 CRM tool works the same as opening it on the Schedule (shared IndexedDB working copy + file handle).
 When the Schedule opens a patient in a fresh browser session and the encrypted working copy is not
 yet unlocked, the Report Generator now places a blocking **Patient database is locked** guard over
-the form. It offers **Unlock database**, **Open database…**, and **Return to Schedule** actions and
-does not allow report entry to begin against an unlinked blank form.
+the form. Password entry happens directly in that guard (including an inline incorrect-password
+retry), avoiding unreliable startup password popups on iPad. It also offers **Open database…** and
+**Return to Schedule**, and does not allow report entry to begin against an unlinked blank form.
 
 **USB-only mode** is unchanged in spirit (preference key `usbOnlyMode`): while a database is open,
 the browser keeps no schedule mirror. **NTFS caveat** — the bug that started all this: macOS and
