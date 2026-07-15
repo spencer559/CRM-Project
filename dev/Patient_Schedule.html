@@ -941,11 +941,25 @@
   // the store reports autosave / unsaved / errors through here
   if (WS) WS.onStatus = function (msg, cls) { setStatus(msg, cls); updateSaveBtn(); };
 
-  // flush the working copy before jumping to the Report Generator so it opens the latest bundle
+  // Commit the latest schedule before handing off. File/IndexedDB writes can occasionally stall
+  // when another tab has the database open, so navigation also has a bounded fallback; a failed
+  // background save must never turn the CRM button into a no-op.
+  function navigateToReportGenerator(url) {
+    var navigated = false;
+    var fallback = setTimeout(go, 1800);
+    function go() {
+      if (navigated) return;
+      navigated = true;
+      clearTimeout(fallback);
+      location.href = url;
+    }
+    clearTimeout(syncTimer);
+    var commit = dataFileHandle ? writeDataFile() : (WS && WS.flush ? WS.flush() : Promise.resolve());
+    Promise.resolve(commit).then(go, go);
+  }
   window.goToReportGen = function (ev) {
     if (ev) ev.preventDefault();
-    var go = function () { location.href = "../app/CRM_Report_Generator.html"; };
-    (WS && WS.flush ? WS.flush() : Promise.resolve()).then(go, go);
+    navigateToReportGenerator("../app/CRM_Report_Generator.html");
     return false;
   };
   window.toggleStorageMenu = function () { $("storageMenu").classList.toggle("open"); };
@@ -1377,7 +1391,7 @@
     var crm = ev.target.closest(".crm-link[data-crm]");
     if (crm && !crm.disabled) {
       var url = "../app/CRM_Report_Generator.html#slot=" + curDate + "/" + crm.dataset.crm;
-      (WS && WS.flush ? WS.flush() : Promise.resolve()).then(function () { location.href = url; });
+      navigateToReportGenerator(url);
       return;
     }
     var trigger = ev.target.closest(".files-trigger[data-files-slot]");
