@@ -54,6 +54,23 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .btn-save { background: var(--green); color: #fff; border-color: var(--green); }
 .btn-save:hover { filter: brightness(1.08); }
 .btn-save:disabled { background: #eef1f5; color: #aab; border-color: var(--border); cursor: default; filter: none; }
+.btn.db-locked { background:#fff4df; color:#8a4b00; border-color:#d99a43; }
+
+/* A scheduled-patient handoff must not quietly become an unlinked blank report. */
+.db-handoff-guard {
+  position:fixed; inset:44px 0 0; z-index:850; display:flex; align-items:flex-start;
+  justify-content:center; padding:clamp(36px, 10vh, 92px) 18px 24px;
+  background:rgba(24,38,55,.62); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+}
+.db-handoff-guard[hidden] { display:none; }
+.db-handoff-card {
+  width:min(460px, 100%); background:#fff; border:1px solid #d7a04d; border-top:5px solid #c87000;
+  border-radius:7px; padding:20px 22px; box-shadow:0 14px 40px rgba(0,0,0,.3);
+}
+.db-handoff-title { color:#7b4100; font-size:17px; font-weight:700; margin-bottom:7px; }
+.db-handoff-copy { color:#374657; font-size:12px; line-height:1.55; }
+.db-handoff-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.db-handoff-actions .btn { min-height:32px; justify-content:center; }
 
 /* JSON import/export dropdown — position:fixed so it's anchored in VIEWPORT coordinates under the
    fixed app-bar button. This keeps the menu (and the native iOS share popover it triggers, which
@@ -218,7 +235,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 @media print {
   @page { size: letter; margin: .45in .5in; }
   html, body { background: #fff; height: auto !important; overflow: visible !important; }
-  .app-bar, .sidebar { display: none !important; }
+  .app-bar, .sidebar, .db-handoff-guard { display: none !important; }
   .main { position: static !important; overflow: visible !important; height: auto !important; left: 0 !important; padding: 0 !important; }
   .section { box-shadow: none; margin-bottom: 14px; page-break-inside: avoid; }
   .add-btn, .del-btn, .sec-clear, .rate-calc { display: none !important; }
@@ -266,6 +283,17 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div id="export-usb-extra"></div>
 </div>
 <input type="file" id="json-import-file" accept="application/json,.json" style="display:none" onchange="onJsonFileChosen(event)">
+<div id="db-handoff-guard" class="db-handoff-guard" hidden role="alertdialog" aria-modal="true" aria-labelledby="db-handoff-title" aria-describedby="db-handoff-copy">
+  <div class="db-handoff-card">
+    <div class="db-handoff-title" id="db-handoff-title">Patient database is locked</div>
+    <div class="db-handoff-copy" id="db-handoff-copy">Unlock the database before entering report data so this patient loads correctly and the report saves back to the schedule.</div>
+    <div class="db-handoff-actions">
+      <button class="btn btn-primary" id="db-unlock-btn" onclick="retryDatabaseHandoff()">Unlock database</button>
+      <button class="btn btn-ghost" id="db-open-btn" onclick="openDatabaseFromHandoff()">Open database…</button>
+      <button class="btn btn-ghost" onclick="goToSchedule()">Return to Schedule</button>
+    </div>
+  </div>
+</div>
 <!-- relocated auto-fill status: the drop panel below is hidden (its importer is driven from
      the Import menu now); its status line floats as a toast under the app bar instead -->
 <div id="pdp-status"></div>
@@ -2301,9 +2329,13 @@ loadSaved();
   var pdMenu = document.getElementById('patient-dropdown');
   var imMenu = document.getElementById('import-dropdown');
   var exExtra = document.getElementById('export-usb-extra');
+  var dbGuard = document.getElementById('db-handoff-guard');
+  var dbGuardCopy = document.getElementById('db-handoff-copy');
+  var dbUnlockBtn = document.getElementById('db-unlock-btn');
   var CARET = ' <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   if (WS) WS.onPasswordRequest = function (details) {
+    if (parseHash()) showDatabaseGuard('Enter the database password to load this scheduled patient.');
     return window.prompt((details && details.message) || 'Database password:');
   };
 
@@ -2340,6 +2372,46 @@ loadSaved();
     el.textContent = msg;
     if (cls !== 'err') setTimeout(function () { if (el.textContent === msg) el.className = ''; }, 6000);
   }
+  function showDatabaseGuard(message) {
+    if (!dbGuard || !parseHash()) return;
+    if (message) dbGuardCopy.textContent = message;
+    dbGuard.hidden = false;
+    patientBtn.classList.add('db-locked');
+    patientBtn.setAttribute('aria-label', 'Patient database locked');
+  }
+  function hideDatabaseGuard() {
+    if (dbGuard) dbGuard.hidden = true;
+    patientBtn.classList.remove('db-locked');
+    patientBtn.removeAttribute('aria-label');
+    if (dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = 'Unlock database'; }
+  }
+  function handoffFailureMessage() {
+    var e = WS && WS.lastOpenError ? WS.lastOpenError() : null;
+    if (e && e.name === 'AbortError') return 'The database is still locked. Unlock it before entering report data so this patient loads correctly and the report saves back to the schedule.';
+    if (e && e.message) return 'The patient database could not be unlocked: ' + e.message;
+    return 'No database is open in this browser session. Unlock the saved working copy, or open the schedule.crmdb file from the USB.';
+  }
+  function activateHandoffRoot(root, askPermission) {
+    if (!root) { showDatabaseGuard(handoffFailureMessage()); return Promise.resolve(false); }
+    return WS.permission(root, !!askPermission).then(function (p) {
+      if (p !== 'granted') { showDatabaseGuard('Database access is required before this scheduled patient can be loaded.'); return false; }
+      slotRoot = root;
+      updateDbSaveBtn();
+      hideDatabaseGuard();
+      routeFromHash(true);
+      return true;
+    }).catch(function (e) {
+      showDatabaseGuard('The patient database could not be opened: ' + ((e && e.message) || 'Unknown error'));
+      return false;
+    });
+  }
+  window.retryDatabaseHandoff = function () {
+    if (!WS) return;
+    if (dbUnlockBtn) { dbUnlockBtn.disabled = true; dbUnlockBtn.textContent = 'Unlocking…'; }
+    WS.stored().then(function (root) { return activateHandoffRoot(root, true); }).then(function (ok) {
+      if (!ok && dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = 'Try unlock again'; }
+    });
+  };
   function setPatientBtn() {
     patientBtn.innerHTML = escT(slotName ? 'Patient: ' + (slotLabel || slotName) : 'Patient List') + CARET;
   }
@@ -2577,13 +2649,21 @@ loadSaved();
   }
 
   /* ---- Patient List menu ---- */
-  function connectFlow() {
-    WS.connect()
+  function connectFlow(fromHandoff) {
+    return WS.connect()
       .then(function (r) { return WS.initScaffold(r); })   // fresh database: seeds an empty schedule.json
-      .then(function (r) { slotRoot = r; updateDbSaveBtn(); toast('Database opened', 'ok'); })
-      .catch(function (e) { if (e && e.name !== 'AbortError') toast('Open failed: ' + e.message, 'err'); });
+      .then(function (r) {
+        slotRoot = r; updateDbSaveBtn(); hideDatabaseGuard(); routeFromHash(true);
+        toast('Database opened', 'ok'); return r;
+      })
+      .catch(function (e) {
+        if (fromHandoff) showDatabaseGuard(e && e.name === 'AbortError' ? handoffFailureMessage() : 'Open failed: ' + ((e && e.message) || 'Unknown error'));
+        if (e && e.name !== 'AbortError') toast('Open failed: ' + e.message, 'err');
+        return null;
+      });
   }
   window.openDatabaseFlow = connectFlow;   // exposed so a "New Database" action could reuse it
+  window.openDatabaseFromHandoff = function () { return connectFlow(true); };
   window.buildPatientMenu = function () {
     pdMenu.innerHTML = '';
     if (!supported) { pdMenu.appendChild(noteEl('USB workspace needs Chrome or Edge on desktop.')); return; }
@@ -2756,14 +2836,19 @@ loadSaved();
   }
   if (supported) {
     WS.stored().then(function (root) {
-      if (!root) { updateDbSaveBtn(); return; }
+      if (!root) { updateDbSaveBtn(); showDatabaseGuard(handoffFailureMessage()); return; }
       return WS.permission(root, false).then(function (p) {
-        if (p === 'granted') slotRoot = root;
+        if (p === 'granted') { slotRoot = root; hideDatabaseGuard(); }
+        else showDatabaseGuard('Database access is required before this scheduled patient can be loaded.');
         updateDbSaveBtn();
-        routeFromHash(true);
+        if (p === 'granted') routeFromHash(true);
       });
+    }).catch(function (e) { showDatabaseGuard('The patient database could not be opened: ' + ((e && e.message) || 'Unknown error')); });
+    window.addEventListener('hashchange', function () {
+      if (!parseHash()) { hideDatabaseGuard(); return; }
+      if (slotRoot) routeFromHash(true);
+      else showDatabaseGuard(handoffFailureMessage());
     });
-    window.addEventListener('hashchange', function () { routeFromHash(true); });
   }
   setPatientBtn();
   updateDbSaveBtn();

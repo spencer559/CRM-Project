@@ -38,6 +38,7 @@
   var statusCb = null;        // pages set CRMWorkspace.onStatus = fn(msg, cls)
   var passwordCb = null;      // pages set CRMWorkspace.onPasswordRequest = fn(details)
   var protection = null;      // { key: CryptoKey, salt: Uint8Array, iterations: number }
+  var lastOpenError = null;   // retained so pages can explain a cancelled/failed quiet reopen
 
   // Encrypted .crmdb envelope (all fixed-width fields are authenticated as AES-GCM AAD):
   // magic[8] + version[1] + PBKDF2 iterations[4] + salt[16] + iv[12] + ciphertext/tag.
@@ -475,6 +476,7 @@
   // Auto-reconnect on page load: pull the working copy out of IndexedDB (both platforms),
   // and re-bind the desktop file handle if one was remembered. Returns ROOT or null.
   function stored() {
+    lastOpenError = null;
     return idbGet("fileHandle").then(function (h) {
       if (h && canAutosave) fileHandle = h;
       return idbGet("bundle").then(function (blob) {
@@ -484,7 +486,7 @@
         // no working copy yet, but a desktop handle may still let us open the file later
         return (h && canAutosave) ? ROOT : null;
       });
-    }).catch(function () { return null; });
+    }).catch(function (e) { lastOpenError = e; return null; });
   }
 
   function permission(root, ask) {
@@ -615,6 +617,7 @@
     saveNow: saveNow,
     flush: flush,
     reloadWorkingCopy: reloadWorkingCopy,
+    lastOpenError: function () { return lastOpenError; },
     enableProtection: enableProtection,
     changePassword: changePassword,
     disableProtection: disableProtection,
