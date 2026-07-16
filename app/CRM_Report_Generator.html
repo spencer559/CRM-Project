@@ -51,9 +51,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .btn-ghost:hover { background: #e5e9ef; }
 .btn-danger { background: #fff; color: #b03030; border-color: #dbb; }
 .btn-danger:hover { background: #fdf0f0; }
-.btn-save { background: var(--green); color: #fff; border-color: var(--green); }
-.btn-save:hover { filter: brightness(1.08); }
-.btn-save:disabled { background: #eef1f5; color: #aab; border-color: var(--border); cursor: default; filter: none; }
+.btn:disabled { background: #eef1f5; color: #aab; border-color: var(--border); cursor: default; filter: none; }
 .btn.db-locked { background:#fff4df; color:#8a4b00; border-color:#d99a43; }
 
 /* A scheduled-patient handoff must not quietly become an unlinked blank report. */
@@ -83,6 +81,21 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; }
 .json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
 .json-dd-item:active { background: var(--navy-lt); color: var(--navy); }
+/* Files ▸ rows: a fixed-width kind tag keeps the filenames aligned in a column. The grab cursor
+   is the only affordance that these drag out to an upload target. */
+.json-dd-item.file-row { display: flex; align-items: baseline; gap: 8px; cursor: grab; }
+.json-dd-item.file-row:active { cursor: grabbing; }
+.json-dd-item.file-row .file-kind { flex: none; width: 62px; font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+.json-dd-item.file-row .file-name { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9.5px; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; }
+/* Toggle rows in a dropdown (e.g. Import ▸ Merge): a state switch, not an action. The switch is
+   pushed to the right edge and has fixed dimensions, so the label never shifts as it flips. */
+.json-dd-toggle { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.json-dd-toggle .dd-switch { position: relative; flex: none; width: 26px; height: 14px; border-radius: 7px; background: #c6ced6; transition: background .15s ease; }
+.json-dd-toggle .dd-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.28); transition: transform .15s ease; }
+.json-dd-toggle.on { color: var(--navy); font-weight: 600; }
+.json-dd-toggle.on .dd-switch { background: var(--navy); }
+.json-dd-toggle.on .dd-switch::after { transform: translateX(12px); }
+@media (prefers-reduced-motion: reduce) { .json-dd-toggle .dd-switch, .json-dd-toggle .dd-switch::after { transition: none; } }
 
 /* SIDEBAR */
 .sidebar {
@@ -270,7 +283,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     <button class="btn btn-danger" onclick="clearForm()">New Patient</button>
     <button class="btn btn-ghost" onclick="toggleImportMenu(event)">Import <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn btn-primary" onclick="toggleExportMenu(event)">Export <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-    <button class="btn btn-save" id="db-save-btn" onclick="saveDatabase()" disabled title="Save the database (.crmdb) back to your USB">Save DB</button>
+    <button class="btn btn-ghost" id="files-btn" onclick="toggleFilesMenu(event)" disabled title="This patient's saved files — open the programmer report while you fill in the rest">Files <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
 </header>
 
@@ -278,6 +291,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
      fixed-position descendant in WebKit). As a body child it stacks above everything. -->
 <div id="patient-dropdown" class="json-dd" style="display:none; min-width:240px; max-height:60vh; overflow:auto;" onclick="event.stopPropagation()"></div>
 <div id="import-dropdown" class="json-dd" style="display:none; min-width:240px;" onclick="event.stopPropagation()"></div>
+<div id="files-dropdown" class="json-dd" style="display:none; min-width:250px; max-height:60vh; overflow:auto;" onclick="event.stopPropagation()"></div>
 <div id="export-dropdown" class="json-dd" style="display:none; min-width:200px;" onclick="event.stopPropagation()">
   <button class="json-dd-item" onclick="savePDF()">PDF (save file)</button>
   <button class="json-dd-item" onclick="exportSummary()">.txt</button>
@@ -306,7 +320,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 <div id="pdp-status"></div>
 <style>
   #pdp-status{ position:fixed; top:52px; right:14px; z-index:900; background:#fff;
-    border:1px solid #cfd6dd; border-radius:6px; padding:7px 11px; max-width:340px;
+    border:1px solid #cfd6dd; border-radius:6px; padding:7px 20px 7px 11px; max-width:340px;
     box-shadow:0 6px 18px rgba(20,40,60,.18); margin-top:0; }
 </style>
 
@@ -400,9 +414,10 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     </div>
     <div id="leadinfo-wrap" style="display:none;">
       <table class="dt">
-        <thead><tr><th id="li-loc-hdr" style="width:18%">Lead Location</th><th id="li-mfr-hdr" style="width:16%">Lead Manufacturer</th><th id="li-model-hdr">Lead Model</th><th id="li-serial-hdr">Lead Serial #</th><th style="width:16%">Implant Date</th></tr></thead>
+        <thead><tr><th id="li-loc-hdr" style="width:18%">Lead Location</th><th id="li-mfr-hdr" style="width:16%">Lead Manufacturer</th><th id="li-model-hdr">Lead Model</th><th id="li-serial-hdr">Lead Serial #</th><th style="width:16%">Implant Date</th><th style="width:24px"></th></tr></thead>
         <tbody id="leadinfo-tbody"></tbody>
       </table>
+      <button class="add-btn" onclick="addLeadRow()">+ Add Lead</button>
       <div class="field" style="margin-top:6px;"><span class="lbl">Notes</span><textarea id="leadinfo-notes" placeholder="Optional notes…" style="width:100%;min-height:48px;"></textarea></div>
     </div>
   </div>
@@ -877,7 +892,49 @@ function liRowHTML(locVal, p){
     +'<td><input type="text" class="li-mfr" value="'+liEsc(mfr)+'" placeholder="Manufacturer"></td>'
     +'<td><input type="text" class="li-model" value="'+liEsc(p.model||'')+'" placeholder="Model"></td>'
     +'<td><input type="text" class="li-serial" value="'+liEsc(p.serial||'')+'" placeholder="Serial #"></td>'
-    +'<td><input type="text" class="li-date" value="'+liEsc(p.date||'')+'" placeholder="Implant date"></td>';
+    +'<td><input type="text" class="li-date" value="'+liEsc(p.date||'')+'" placeholder="Implant date"></td>'
+    +'<td><button class="del-btn" onclick="delLeadRow(this)" title="Remove this lead">×</button></td>';
+}
+// Lead rows are keyed by data-loc, not an id (they get rebuilt by device type and by import),
+// so remove by element rather than through delRow's id lookup. Abandoned/capped leads are
+// scraped verbatim along with the live ones — this is how they come off the report.
+function delLeadRow(btn){
+  var tr = btn.closest('tr');
+  if (tr) tr.remove();
+  scheduleSave();
+}
+// A lead the importer didn't produce, or to undo a mistaken removal. The unique data-loc keeps
+// the row from colliding with a default chamber row in updateLeadInfoTable's preserve map.
+var liManualN = 0;
+function addLeadRow(){
+  var tb = document.getElementById('leadinfo-tbody'); if (!tb) return;
+  var tr = document.createElement('tr');
+  tr.setAttribute('data-loc', 'manual#' + (++liManualN));
+  tr.innerHTML = liRowHTML('', {});
+  tb.appendChild(tr);
+  scheduleSave();
+}
+// The three report builders (print HTML, vector PDF, text summary) all render this table, so
+// they read it through here. A row cleared of every cell is dropped, which is the other way —
+// besides × — to keep a lead off the report.
+function leadInfoOn(){
+  var yn = document.querySelector('input[name="leadinfo-yn"]:checked');
+  return !!yn && yn.value === 'Yes';
+}
+function leadInfoRows(){
+  if (!leadInfoOn()) return [];
+  var out = [];
+  document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr){
+    function cell(c){ return (((tr.querySelector(c)||{}).value) || '').trim(); }
+    var r = { loc:cell('.li-loc'), mfr:cell('.li-mfr'), model:cell('.li-model'),
+              serial:cell('.li-serial'), date:cell('.li-date') };
+    if (!r.loc && !r.mfr && !r.model && !r.serial && !r.date) return;
+    // data-loc is the chamber key ("RV", or "RV#0" on a scraped row) — a label of last resort
+    // for a row that has content but no typed location.
+    if (!r.loc) r.loc = (tr.getAttribute('data-loc') || '').split('#')[0];
+    out.push(r);
+  });
+  return out;
 }
 // Replace the lead table with one row per scraped lead, verbatim. Used by the PDF importer so
 // the table reads exactly like the report (no chamber slotting; duplicates/typos preserved).
@@ -1069,17 +1126,12 @@ function collectFormData() {
     }
   });
   // Lead-info table cells use CSS classes (no id/name), so the generic loop above can't capture
-  // them — serialize each row into a structured array instead.
-  var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
-  if (liYN && liYN.value === 'Yes') {
-    d.__leadinfo = Array.prototype.map.call(document.querySelectorAll('#leadinfo-tbody tr'), function(tr){
-      return {
-        location:     (tr.querySelector('.li-loc')   ||{value:''}).value,
-        manufacturer: (tr.querySelector('.li-mfr')   ||{value:''}).value,
-        model:        (tr.querySelector('.li-model') ||{value:''}).value,
-        serial:       (tr.querySelector('.li-serial')||{value:''}).value,
-        date:         (tr.querySelector('.li-date')  ||{value:''}).value
-      };
+  // them — serialize each row into a structured array instead. Blank rows are dropped:
+  // setLeadInfoRows labels a location-less row "Lead N" on restore, which would turn an
+  // untouched "+ Add Lead" row into a junk line on the report.
+  if (leadInfoOn()) {
+    d.__leadinfo = leadInfoRows().map(function(r){
+      return { location:r.loc, manufacturer:r.mfr, model:r.model, serial:r.serial, date:r.date };
     });
   }
   return d;
@@ -1363,15 +1415,8 @@ function buildReportPdfBlob() {
   grid([['Patient Name',val('pt-name')],['DOB',val('pt-dob')],['MRN',val('pt-mrn')],['Date',val('pt-date')],['Provider',val('pt-provider')],
         ['Device Type',dtype],['Manufacturer',radio('mfr')],['Model',val('dev-model')],['Serial #',val('dev-serial')],['Implant Date',val('dev-implant')]], 5);
 
-  if (radio('leadinfo-yn') === 'Yes') {
-    var liBody = [];
-    document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr){
-      var loc=(tr.querySelector('.li-loc')||{value:''}).value || tr.getAttribute('data-loc') || '';
-      var r=[loc,(tr.querySelector('.li-mfr')||{value:''}).value,(tr.querySelector('.li-model')||{value:''}).value,(tr.querySelector('.li-serial')||{value:''}).value,(tr.querySelector('.li-date')||{value:''}).value];
-      if (r.some(function(c){return c;})) liBody.push(r);
-    });
-    if (liBody.length){ h2('Lead Information'); table(['Location','Manufacturer','Lead Model','Lead Serial #','Implant Date'], liBody); para('Notes', val('leadinfo-notes')); }
-  }
+  var liBody = leadInfoRows().map(function(r){ return [r.loc, r.mfr, r.model, r.serial, r.date]; });
+  if (liBody.length){ h2('Lead Information'); table(['Location','Manufacturer','Lead Model','Lead Serial #','Implant Date'], liBody); para('Notes', val('leadinfo-notes')); }
 
   // Battery / Device Status renders as three aligned 3-column grids so each logical group gets
   // its own row: basics on row 1, the two rhythms (Presenting before Intrinsic) on row 2, and
@@ -1592,18 +1637,13 @@ function exportPDF() {
       )
 
     + (function(){
-        var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
-        if (!liYN || liYN.value !== 'Yes') return '';
-        var liRows = '';
-        document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
-          var loc    = (tr.querySelector('.li-loc')||{value:''}).value || tr.getAttribute('data-loc') || '';
-          var mfr    = (tr.querySelector('.li-mfr')  ||{value:''}).value;
-          var model  = (tr.querySelector('.li-model') ||{value:''}).value;
-          var serial = (tr.querySelector('.li-serial')||{value:''}).value;
-          var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
-          liRows += '<tr><td>'+loc+'</td><td>'+mfr+'</td><td>'+model+'</td><td>'+serial+'</td><td>'+date+'</td></tr>';
-        });
+        if (!leadInfoOn()) return '';
+        var rows = leadInfoRows();
         var liNotes = v('leadinfo-notes');
+        if (!rows.length && !liNotes) return '';
+        var liRows = rows.map(function(r){
+          return '<tr><td>'+r.loc+'</td><td>'+r.mfr+'</td><td>'+r.model+'</td><td>'+r.serial+'</td><td>'+r.date+'</td></tr>';
+        }).join('');
         return '<h2>Lead Information</h2>'
           + '<table><thead><tr><th>Location</th><th>Manufacturer</th><th>Lead Model</th><th>Lead Serial #</th><th>Implant Date</th></tr></thead><tbody>'
           + liRows + '</tbody></table>'
@@ -1775,6 +1815,7 @@ function toggleMenu(e, id) {
 function togglePatientMenu(e){ toggleMenu(e, 'patient-dropdown'); if (window.buildPatientMenu) window.buildPatientMenu(); }
 function toggleImportMenu(e){ toggleMenu(e, 'import-dropdown'); if (window.buildImportMenu) window.buildImportMenu(); }
 function toggleExportMenu(e){ toggleMenu(e, 'export-dropdown'); if (window.buildExportExtra) window.buildExportExtra(); }
+function toggleFilesMenu(e){ toggleMenu(e, 'files-dropdown'); if (window.buildFilesMenu) window.buildFilesMenu(); }
 document.addEventListener('click', closeMenus);
 
 function importJSON() {
@@ -1836,18 +1877,10 @@ function buildSummaryLines() {
   if (devParts.length) { lines.push('DEVICE'); push(devParts); }
 
   // LEADS (verbatim inventory) — location | mfr+model | SN | date
-  var liYN = document.querySelector('input[name="leadinfo-yn"]:checked');
-  if (liYN && liYN.value === 'Yes') {
-    var liLines = [];
-    document.querySelectorAll('#leadinfo-tbody tr').forEach(function(tr) {
-      var loc    = (tr.querySelector('.li-loc')   ||{value:''}).value || tr.getAttribute('data-loc') || '';
-      var mfr    = (tr.querySelector('.li-mfr')   ||{value:''}).value;
-      var model  = (tr.querySelector('.li-model') ||{value:''}).value;
-      var serial = (tr.querySelector('.li-serial')||{value:''}).value;
-      var date   = (tr.querySelector('.li-date')  ||{value:''}).value;
-      var mm = [mfr, model].filter(Boolean).join(' ');
-      var parts = [loc, mm, serial ? 'SN: ' + serial : '', date].filter(Boolean);
-      if (parts.length) liLines.push('  ' + parts.join(SEP));
+  if (leadInfoOn()) {
+    var liLines = leadInfoRows().map(function(r) {
+      var mm = [r.mfr, r.model].filter(Boolean).join(' ');
+      return '  ' + [r.loc, mm, r.serial ? 'SN: ' + r.serial : '', r.date].filter(Boolean).join(SEP);
     });
     var liNotes = val('leadinfo-notes');
     if (liLines.length || liNotes) {
@@ -2091,6 +2124,11 @@ loadSaved();
 #pdp-status.err{ color:#b03030; }
 #pdp-status .pdp-dev{ font-family:monospace; font-size:9.5px; color:#778; }
 #pdp-status .pdp-rev{ color:#c87000; font-size:9.5px; }
+/* Dismiss control for the floating import toast; the fixed-position rule below reserves the
+   gutter it sits in so long "Verify:" lists don't run underneath it. */
+#pdp-status .pdp-x{ position:absolute; top:3px; right:4px; background:none; border:none;
+  color:#98a2ac; font-size:13px; line-height:1; cursor:pointer; padding:0 3px; }
+#pdp-status .pdp-x:hover{ color:#b03030; }
 @media (max-width:1180px){ #pdf-drop-panel{ position:static; width:auto; margin:0 0 16px; box-shadow:none; } }
 @media print{ #pdf-drop-panel{ display:none !important; } }
 </style>
@@ -2120,7 +2158,39 @@ loadSaved();
   var statusEl = document.getElementById('pdp-status');
   if (!drop) return;
 
-  function setStatus(html, cls){ statusEl.className = 'show ' + (cls||''); statusEl.innerHTML = html; }
+  // The import summary is transient — at narrow widths it sits over the form, and once you've
+  // read "N fields filled" it has served its purpose. After PDP_LINGER a successful import
+  // collapses to just the parser's "Verify:" list, which stays until dismissed: that list is the
+  // only record of what the parser was unsure about (contrary to the old copy, no form field is
+  // actually highlighted). Errors and in-progress messages never auto-clear.
+  var PDP_LINGER = 6000, pdpTimer = null, pdpCollapse = null;
+  var PDP_X = '<button type="button" class="pdp-x" aria-label="Dismiss">&times;</button>';
+  function pdpStop(){ if (pdpTimer){ clearTimeout(pdpTimer); pdpTimer = null; } }
+  function pdpClear(){ pdpStop(); pdpCollapse = null; statusEl.className = ''; statusEl.innerHTML = ''; }
+  function pdpArm(){ pdpStop(); if (pdpCollapse) pdpTimer = setTimeout(pdpCollapse, PDP_LINGER); }
+  // keep: HTML that outlives the timeout. Omit it and an 'ok' status just disappears.
+  function setStatus(html, cls, keep){
+    pdpStop();
+    pdpCollapse = null;
+    statusEl.className = 'show ' + (cls || '');
+    statusEl.innerHTML = html + (cls ? PDP_X : '');   // no × on the transient "Reading…" line
+    if (cls !== 'ok') return;
+    pdpCollapse = function(){
+      pdpTimer = null;
+      if (!keep){ pdpClear(); return; }
+      pdpCollapse = null;                 // collapsed form is final — it stays until dismissed
+      statusEl.className = 'show ok';
+      statusEl.innerHTML = keep + PDP_X;
+    };
+    pdpArm();
+  }
+  // Hovering pauses the collapse so reading the summary doesn't race the timer; leaving re-arms
+  // it (never leave it paused — a stray hover would strand the banner, which is the whole bug).
+  statusEl.addEventListener('mouseenter', pdpStop);
+  statusEl.addEventListener('mouseleave', pdpArm);
+  statusEl.addEventListener('click', function(e){
+    if (e.target.classList.contains('pdp-x')) pdpClear();
+  });
 
   // Resolve a parser field key to the matching form control (radio group, #id, or [name]).
   // onlyIfEmpty (merge mode): don't overwrite a field the user has already filled.
@@ -2261,9 +2331,10 @@ loadSaved();
         var adev = (aout.RESULT['dev-model']||{}).v || '';
         var amsg = '<b>'+ (aout.ROUTE.label || aout.ROUTE.dtype || 'Abbott device') +'</b>'
           + (adev ? '<br><span class="pdp-dev">'+adev+'</span>' : '')
-          + '<br>'+ ares.filled +' fields filled — review highlighted ones.';
-        if (ares.review.length) amsg += '<br><span class="pdp-rev">Verify: '+ ares.review.join(', ') +'</span>';
-        setStatus(amsg, 'ok');
+          + '<br>'+ ares.filled +' fields filled.';
+        var averify = ares.review.length ? '<span class="pdp-rev">Verify: '+ ares.review.join(', ') +'</span>' : '';
+        if (averify) amsg += '<br>' + averify;
+        setStatus(amsg, 'ok', averify);
       } catch(e){ console.error(e); setStatus('Could not parse .log: '+ e.message, 'err'); }
       return;
     }
@@ -2297,9 +2368,10 @@ loadSaved();
       var dev = (out.RESULT['dev-model']||{}).v || '';
       var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'
         + (dev ? '<br><span class="pdp-dev">'+dev+'</span>' : '')
-        + '<br>'+ res.filled +' fields filled — review highlighted ones.';
-      if (res.review.length) msg += '<br><span class="pdp-rev">Verify: '+ res.review.join(', ') +'</span>';
-      setStatus(msg, 'ok');
+        + '<br>'+ res.filled +' fields filled.';
+      var verify = res.review.length ? '<span class="pdp-rev">Verify: '+ res.review.join(', ') +'</span>' : '';
+      if (verify) msg += '<br>' + verify;
+      setStatus(msg, 'ok', verify);
     } catch(e){
       console.error(e);
       setStatus('Could not parse: '+ e.message +' (a scanned PDF with no selectable text needs OCR).', 'err');
@@ -2319,8 +2391,9 @@ loadSaved();
    Patient List: connect/unlock the "CRM Toolkit" USB workspace (connect auto-creates
    and scaffolds a fresh stick), pick a patient from the USB schedule.json, disconnect.
    Import: Import Database (files in the active patient's slot folder), Import PDF/Log,
-   Merge PDF/Log (both drive the hidden auto-fill importer via its merge checkbox),
-   Import JSON. Export extra: save .json/.txt/.pdf into the active slot.
+   Import JSON, and a Merge toggle that governs all of them (it just drives the hidden
+   auto-fill importer's #pdp-merge checkbox, which handleFile already reads).
+   Export extra: save .json/.txt/.pdf into the active slot.
    LIVE SYNC: once a slot is active (opened / saved / auto-filled), every form edit
    debounce-rewrites the slot's report.json; New Patient / reset disarms it first and
    clears the #slot hash so a blank form can never overwrite a saved patient.
@@ -2383,6 +2456,27 @@ loadSaved();
     d.style.cssText = 'border-top:1px solid #e2e6ea;margin:4px 0;';
     return d;
   }
+  // A state switch rather than an action, so unlike item() it must NOT closeMenus() — you flip
+  // it and then pick a file from the same open menu.
+  function toggleItem(label, get, set) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'json-dd-item json-dd-toggle';
+    var text = document.createElement('span');
+    text.textContent = label;
+    var sw = document.createElement('span');
+    sw.className = 'dd-switch';
+    b.appendChild(text); b.appendChild(sw);
+    // State reads off the .on class + aria-pressed; the switch itself is pure CSS.
+    function paint() {
+      var on = !!get();
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    b.onclick = function (e) { e.stopPropagation(); set(!get()); paint(); };
+    paint();
+    return b;
+  }
   function toast(msg, cls) {
     var el = document.getElementById('pdp-status');
     if (!el) return;
@@ -2419,7 +2513,7 @@ loadSaved();
     // permission controls desktop autosave only and must not block patient loading or report entry.
     if (WS.isOpen && WS.isOpen()) {
       slotRoot = root;
-      updateDbSaveBtn();
+      updateFilesBtn();
       hideDatabaseGuard();
       routeFromHash(true);
       return Promise.resolve(true);
@@ -2427,7 +2521,7 @@ loadSaved();
     return WS.permission(root, !!askPermission).then(function (p) {
       if (p !== 'granted') { showDatabaseGuard('Database access is required before this scheduled patient can be loaded.'); return false; }
       slotRoot = root;
-      updateDbSaveBtn();
+      updateFilesBtn();
       hideDatabaseGuard();
       routeFromHash(true);
       return true;
@@ -2463,6 +2557,7 @@ loadSaved();
   };
   function setPatientBtn() {
     patientBtn.innerHTML = escT(slotName ? 'Patient: ' + (slotLabel || slotName) : 'Patient List') + CARET;
+    updateFilesBtn();   // Files are per-patient — this is the hook every slot change runs through
   }
   function askNewDatabasePassword() {
     var password = prompt('Create a database password or PIN (at least 4 characters):');
@@ -2527,15 +2622,18 @@ loadSaved();
     syncEl.textContent = msg;
   }
 
-  /* ---- separate "Save DB" button: desktop flushes the .crmdb in place, iPad downloads it ---- */
-  function updateDbSaveBtn() {
-    var b = document.getElementById('db-save-btn'); if (!b) return;
-    var open = !!slotRoot || !!(WS && WS.isOpen && WS.isOpen());
-    b.disabled = !open;
-    b.textContent = (WS && WS.canAutosave) ? 'Save now' : 'Save DB';
-    b.title = (WS && WS.canAutosave)
-      ? 'Auto-saves as you edit — click to force a save right now'
-      : 'Save the database (.crmdb) back to your USB via the Files sheet';
+  /* ---- app-bar button state. "Save DB" used to be its own button here; it moved into the Export
+     menu (buildExportExtra) to free the top-right slot for the Files menu, so the only app-bar
+     state left to track is the Files button. ---- */
+  function dbIsOpen() { return !!slotRoot || !!(WS && WS.isOpen && WS.isOpen()); }
+  function updateFilesBtn() {
+    var f = document.getElementById('files-btn'); if (!f) return;
+    // Files are per-patient, so this needs a selected slot, not merely an open database.
+    var ready = dbIsOpen() && !!slotName;
+    f.disabled = !ready;
+    f.title = ready
+      ? "This patient's saved files — open the programmer report while you fill in the rest"
+      : 'Pick a patient (Patient List) to see their files';
   }
   window.saveDatabase = function () {
     if (!WS || !WS.saveNow) return;
@@ -2555,14 +2653,14 @@ loadSaved();
     (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(go, go);
   };
   // the store reports autosave / unsaved / errors through the USB-sync indicator
-  if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateDbSaveBtn(); };
+  if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateFilesBtn(); };
 
   /* ---- live sync core ---- */
   function arm() {
     syncArmed = true;
     dirty = false;   // freshly opened patient — no unsaved report changes yet
     setSync('USB sync ON' + (WS.usbOnly && WS.usbOnly() ? ' · USB-only' : ''));
-    updateDbSaveBtn();
+    updateFilesBtn();
     // USB-only: the slot's report.json is the recovery copy — drop the browser one
     if ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted())) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
   }
@@ -2702,7 +2800,7 @@ loadSaved();
     return WS.connect()
       .then(function (r) { return WS.initScaffold(r); })   // fresh database: seeds an empty schedule.json
       .then(function (r) {
-        slotRoot = r; updateDbSaveBtn(); hideDatabaseGuard(); routeFromHash(true);
+        slotRoot = r; updateFilesBtn(); hideDatabaseGuard(); routeFromHash(true);
         toast('Database opened', 'ok'); return r;
       })
       .catch(function (e) {
@@ -2734,7 +2832,7 @@ loadSaved();
         if (p !== 'granted') {
           pdMenu.appendChild(item('Unlock USB workspace', function () {
             WS.permission(root, true).then(function (p2) {
-              if (p2 === 'granted') { slotRoot = root; updateDbSaveBtn(); toast('Database unlocked', 'ok'); }
+              if (p2 === 'granted') { slotRoot = root; updateFilesBtn(); toast('Database unlocked', 'ok'); }
               else toast('Permission denied.', 'err');
             });
           }));
@@ -2742,7 +2840,7 @@ loadSaved();
           pdMenu.appendChild(item('Disconnect workspace', doDisconnect, true));
           return;
         }
-        slotRoot = root; updateDbSaveBtn();
+        slotRoot = root; updateFilesBtn();
         root.getFileHandle('schedule.json')
           .then(function (fh) { return fh.getFile(); })
           .then(function (f) { return f.text(); })
@@ -2786,19 +2884,25 @@ loadSaved();
   function doDisconnect() {
     WS.forget().then(function () {
       slotRoot = null; slotDate = slotName = null; slotLabel = '';
-      disarm(); setPatientBtn(); updateDbSaveBtn();
+      disarm(); setPatientBtn(); updateFilesBtn();
       toast('Database closed.', '');
     });
   }
 
   /* ---- Import menu ---- */
-  function pickVendor(merge) {
+  // #pdp-merge (in the hidden drop panel) stays the single source of truth: handleFile reads it
+  // for both the .pdf and .log paths, and the "Auto-fill from <file>" database items go through
+  // handleFile too — so the one Merge toggle governs database and file imports alike.
+  function mergeOn() { return !!(document.getElementById('pdp-merge') || {}).checked; }
+  function setMergeOn(v) {
     var cb = document.getElementById('pdp-merge');
-    if (cb) cb.checked = !!merge;
+    if (cb) cb.checked = !!v;
+  }
+  function pickVendor() {
     var fi = document.getElementById('pdp-file');
     if (fi) { fi.value = ''; fi.click(); }
   }
-  // Import/Merge PDF-.log: archive the chosen vendor file into the active patient's slot
+  // Import PDF/.log: archive the chosen vendor file into the active patient's slot
   // folder too, so the raw programmer export lives beside the report on the USB. (The
   // auto-fill importer has its own change listener on the same input — both run; File
   // objects are immutable snapshots, so reading twice is safe.)
@@ -2850,17 +2954,120 @@ loadSaved();
         .catch(function () { holder.appendChild(noteEl('No slot folder yet — it is created on first save.')); });
     }
     imMenu.appendChild(divEl());
-    imMenu.appendChild(item('Import PDF / .log…', function () { pickVendor(false); }));
-    imMenu.appendChild(item('Merge PDF / .log… (keep entered data)', function () { pickVendor(true); }));
+    imMenu.appendChild(item('Import PDF / .log…', function () { pickVendor(); }));
     imMenu.appendChild(item('Import JSON…', function () { importJSON(); }));
+    imMenu.appendChild(divEl());
+    imMenu.appendChild(toggleItem('Merge — keep what I’ve entered', mergeOn, setMergeOn));
   };
 
   /* ---- Export menu extra: save all into the slot ---- */
   window.buildExportExtra = function () {
     exExtra.innerHTML = '';
-    if (!supported || !slotRoot || !slotName) return;
-    exExtra.appendChild(divEl());
-    exExtra.appendChild(item('Save all to patient folder (.json/.txt/.pdf)', saveAll));
+    if (supported && slotRoot && slotName) {
+      exExtra.appendChild(divEl());
+      exExtra.appendChild(item('Save all to patient folder (.json/.txt/.pdf)', saveAll));
+    }
+    // "Save DB" moved off the app bar into here. It needs an open database but NOT a selected
+    // patient, so it sits outside the block above.
+    if (dbIsOpen()) {
+      exExtra.appendChild(divEl());
+      exExtra.appendChild(item((WS && WS.canAutosave)
+        ? 'Save database now (autosaves anyway)'
+        : 'Save database to USB…', saveDatabase));
+    }
+  };
+
+  /* ---- Files menu: this patient's saved files, opened as blobs in a new tab ---- */
+  // Mirrors the Schedule's Files menu: only the two clinically useful fronts are listed — the
+  // generated report.pdf and the raw programmer export. report.json/.txt are support files.
+  function isProgrammerFile(n) {
+    n = String(n).toLowerCase();
+    return n !== 'report.pdf' && n !== 'report.json' && n !== 'report.txt';
+  }
+  function isListableFile(n) { return String(n).toLowerCase() === 'report.pdf' || isProgrammerFile(n); }
+  function fileKind(n) {
+    return String(n).toLowerCase() === 'report.pdf'
+      ? { label: 'Generated', colour: '#5a6b7c' }
+      : { label: 'Programmer', colour: '#1e3a5f' };
+  }
+  // Open a stored file in a new tab. MUST stay synchronous: window.open called from a promise
+  // callback has lost the click's user activation and gets popup-blocked (Safari is strictest,
+  // and this runs on iPad). The File is resolved up front in buildFilesMenu so this can be.
+  // getFile() re-assigns the MIME by extension, so a PDF renders inline in the browser's viewer
+  // instead of downloading — which is the point: read the programmer report while filling the form.
+  function openStoredFile(file) {
+    var url = URL.createObjectURL(file);
+    var w = window.open(url, '_blank');
+    if (!w) toast('Your browser blocked the new tab for ' + file.name + ' — allow pop-ups for this page.', 'err');
+    // Revoking immediately would kill the tab before it loads; the loaded document keeps its own
+    // reference after that.
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    return !!w;
+  }
+  // Drag a stored file straight out to an upload target (Cerner's document upload, the desktop),
+  // so the report never has to be exported to disk and cleaned up afterwards. Nothing in the
+  // .crmdb is reachable from a native file dialog — it's one ZIP — so dragging IS the export.
+  // Two payloads, because the plausible targets read different things:
+  //   • DataTransfer.files  — what a web drop zone reads. Set via items.add(File).
+  //   • DownloadURL         — what the OS shell honours when dropping on the desktop/Explorer,
+  //                           which materialises a real file at the drop location.
+  // Chrome picks whichever the drop target understands; setting both costs nothing.
+  function attachDragOut(btn, file) {
+    btn.draggable = true;
+    btn.addEventListener('dragstart', function (e) {
+      var dt = e.dataTransfer;
+      if (!dt) return;
+      try { dt.items.add(file); } catch (err) { /* older engines: DownloadURL still covers it */ }
+      var url = URL.createObjectURL(file);
+      try { dt.setData('DownloadURL', (file.type || 'application/octet-stream') + ':' + file.name + ':' + url); } catch (err) {}
+      dt.effectAllowed = 'copy';
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    });
+  }
+  window.buildFilesMenu = function () {
+    var m = document.getElementById('files-dropdown'); if (!m) return;
+    m.innerHTML = '';
+    if (!dbIsOpen() || !slotName) { m.appendChild(noteEl('Pick a patient first (Patient List).')); return; }
+    m.appendChild(headerEl(slotLabel || slotName));
+    var holder = document.createElement('div');
+    m.appendChild(holder);
+    WS.slotDir(slotRoot, slotDate, slotName, false)
+      .then(function (dir) { return WS.listFiles(dir); })
+      .catch(function () { return []; })
+      .then(function (files) {
+        var listable = files.filter(function (fh) { return isListableFile(fh.name); })
+          // programmer export first — it's the one you actually read from
+          .sort(function (a, b) { return (isProgrammerFile(b.name) ? 1 : 0) - (isProgrammerFile(a.name) ? 1 : 0); });
+        if (!listable.length) {
+          holder.appendChild(noteEl('No files saved for this patient yet. Attach a programmer report from the Schedule, or Export ▸ Save all.'));
+          return;
+        }
+        // Resolve every File before rendering, so each row's click handler can open its tab
+        // synchronously (see openStoredFile). The bytes are already in memory — getFile() is
+        // only nominally async — so this costs nothing but buys popup-blocker immunity.
+        return Promise.all(listable.map(function (fh) { return fh.getFile(); })).then(function (resolved) {
+          resolved.forEach(function (file) {
+            var k = fileKind(file.name);
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'json-dd-item file-row';
+            b.title = 'Click to open ' + file.name + ' in a new tab · drag it onto Cerner\'s upload to attach it directly';
+            var tag = document.createElement('span');
+            tag.className = 'file-kind';
+            tag.textContent = k.label;
+            tag.style.color = k.colour;
+            var nm = document.createElement('span');
+            nm.className = 'file-name';
+            nm.textContent = file.name;
+            b.appendChild(tag); b.appendChild(nm);
+            b.onclick = function (e) { e.stopPropagation(); openStoredFile(file); };
+            attachDragOut(b, file);
+            holder.appendChild(b);
+          });
+          holder.appendChild(noteEl('Click to open · drag onto Cerner to attach'));
+        });
+      })
+      .catch(function (e) { holder.appendChild(noteEl('Could not read this patient\'s files: ' + e.message)); });
   };
   function saveAll() {
     toast('Saving to USB…', '');
@@ -2889,7 +3096,7 @@ loadSaved();
   }
   if (supported) {
     WS.stored().then(function (root) {
-      if (!root) { updateDbSaveBtn(); showDatabaseGuard(handoffFailureMessage()); return; }
+      if (!root) { updateFilesBtn(); showDatabaseGuard(handoffFailureMessage()); return; }
       return activateHandoffRoot(root, false);
     }).catch(function (e) { showDatabaseGuard('The patient database could not be opened: ' + ((e && e.message) || 'Unknown error')); });
     window.addEventListener('hashchange', function () {
@@ -2899,7 +3106,7 @@ loadSaved();
     });
   }
   setPatientBtn();
-  updateDbSaveBtn();
+  updateFilesBtn();
 })();
 </script>
 </body>

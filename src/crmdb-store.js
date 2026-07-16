@@ -40,6 +40,36 @@
   var protection = null;      // { key: CryptoKey, salt: Uint8Array, iterations: number }
   var lastOpenError = null;   // retained so pages can explain a cancelled/failed quiet reopen
 
+  // ---- cross-tab safety ------------------------------------------------------
+  // Two same-origin tabs (typically Schedule + Report Generator) each hold their OWN in-memory
+  // `bundle`, and a save serializes the WHOLE bundle. A plain write therefore replaces whatever
+  // the other tab committed — silently reverting schedule edits, reverting a report, or outright
+  // DELETING a file the other tab attached (serialize only emits paths this tab happens to hold).
+  //
+  // So every commit is a compare-and-swap against a revision counter stored beside the bundle:
+  //   • revision unchanged (the normal case, and always when only one tab is open) → straight
+  //     write, costing one extra ~0.3ms read of a tiny key;
+  //   • revision moved → another tab wrote, so adopt the shared copy and replay only the paths
+  //     THIS tab actually touched (`journal`) on top of it.
+  // The journal is what makes the merge safe: replaying only touched paths means we never
+  // resurrect a file another tab deleted, nor delete one it added.
+  var journal = new Map();     // path -> Blob (written) | null (deleted), since the last commit
+  var myRev = 0;               // the shared revision this tab's bundle is based on
+  var authoritative = false;   // our bundle is a whole new database (opened/created) — overwrite
+  var REV_KEY = "rev", BUNDLE_KEY = "bundle";
+  // Record a mutation as well as applying it, so a later rebase can replay it.
+  function bset(path, blob) { bundle.set(path, blob); journal.set(path, blob); }
+  function bdel(path) { var had = bundle.delete(path); journal.set(path, null); return had; }
+  function applyJournal() {
+    journal.forEach(function (blob, path) {
+      if (blob === null) bundle.delete(path); else bundle.set(path, blob);
+    });
+  }
+  // Our bundle is a whole database we just opened / created / re-encrypted, so it supersedes the
+  // shared copy wholesale instead of merging into it. (Without this, opening a .crmdb would
+  // rebase onto — and therefore keep — the working copy it was meant to replace.)
+  function markAuthoritative() { journal.clear(); authoritative = true; }
+
   // Encrypted .crmdb envelope (all fixed-width fields are authenticated as AES-GCM AAD):
   // magic[8] + version[1] + PBKDF2 iterations[4] + salt[16] + iv[12] + ciphertext/tag.
   var ENC_MAGIC = new Uint8Array([67, 82, 77, 68, 66, 69, 78, 67]); // "CRMDBENC"
@@ -215,34 +245,46 @@
     });
   }
 
+  // Re-encryption rewrites the whole database, so these three adopt any other tab's work first
+  // and then publish authoritatively. Order matters: ingest() resets `protection` from the
+  // envelope it reads, so the new key can only be installed AFTER adopting.
   function enableProtection(password) {
     if (!opened) return Promise.reject(new Error("Open a database first"));
     if (!password) return Promise.reject(new Error("Password cannot be empty"));
     var c = cryptoApi(), salt = new Uint8Array(16); c.getRandomValues(salt);
-    return deriveMaterial(password, salt, ENC_ITERATIONS).then(function (material) {
-      protection = { key: material.key, salt: salt, iterations: ENC_ITERATIONS };
-      rememberSessionKey(material.raw, salt, ENC_ITERATIONS);
-      return flush();
-    }).then(function () { status("Password protection enabled · save the database", "ok"); return true; });
+    return adoptShared()
+      .then(function () { return deriveMaterial(password, salt, ENC_ITERATIONS); })
+      .then(function (material) {
+        protection = { key: material.key, salt: salt, iterations: ENC_ITERATIONS };
+        rememberSessionKey(material.raw, salt, ENC_ITERATIONS);
+        markAuthoritative();
+        return flush();
+      }).then(function () { status("Password protection enabled · save the database", "ok"); return true; });
   }
   function changePassword(currentPassword, newPassword) {
     if (!protection) return Promise.reject(new Error("This database is not password protected"));
     if (!newPassword) return Promise.reject(new Error("New password cannot be empty"));
     return verifyPassword(currentPassword).then(function () {
       var c = cryptoApi(), salt = new Uint8Array(16); c.getRandomValues(salt);
-      return deriveMaterial(newPassword, salt, ENC_ITERATIONS).then(function (material) {
-        protection = { key: material.key, salt: salt, iterations: ENC_ITERATIONS };
-        rememberSessionKey(material.raw, salt, ENC_ITERATIONS);
-        return flush();
-      });
+      return adoptShared()
+        .then(function () { return deriveMaterial(newPassword, salt, ENC_ITERATIONS); })
+        .then(function (material) {
+          protection = { key: material.key, salt: salt, iterations: ENC_ITERATIONS };
+          rememberSessionKey(material.raw, salt, ENC_ITERATIONS);
+          markAuthoritative();
+          return flush();
+        });
     }).then(function () { status("Database password changed · save the database", "ok"); return true; });
   }
   function disableProtection(password) {
     if (!protection) return Promise.resolve(false);
     return verifyPassword(password).then(function () {
-      protection = null;
-      clearSessionKey();
-      return flush();
+      return adoptShared().then(function () {
+        protection = null;
+        clearSessionKey();
+        markAuthoritative();
+        return flush();
+      });
     }).then(function () { status("Password protection removed · save the database", "ok"); return true; });
   }
 
@@ -280,21 +322,97 @@
       });
     }).catch(function () {});
   }
+  // Publish the bundle only if the shared revision is still what we based our work on. The
+  // re-read and both puts ride in ONE readwrite transaction, so a tab that commits while we were
+  // busy serializing loses the race here rather than silently clobbering.
+  //   → { ok:true, rev }        committed
+  //   → { ok:false }            another tab moved the revision; caller rebases and retries
+  //   → { ok:true, noIdb:true } no IndexedDB (Node / private mode) — nothing to race with
+  function idbCas(expectedRev, blob) {
+    return idb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction("kv", "readwrite"), st = tx.objectStore("kv");
+        var rq = st.get(REV_KEY), wrote = false;
+        rq.onsuccess = function () {
+          if ((Number(rq.result) || 0) !== expectedRev) return;   // conflict: complete without writing
+          st.put(blob, BUNDLE_KEY);
+          st.put(expectedRev + 1, REV_KEY);
+          wrote = true;
+        };
+        tx.oncomplete = function () { res(wrote ? { ok: true, rev: expectedRev + 1 } : { ok: false }); };
+        tx.onerror = function () { rej(tx.error); };
+      });
+    }).catch(function () { return { ok: true, noIdb: true }; });
+  }
 
   /* ------------------------------------------------------------- persistence */
-  // Every write goes here: mirror to IndexedDB (cross-page copy) and, on desktop,
-  // autosave to the bound .crmdb file — both debounced so bursts of edits coalesce.
+  // Replace our bundle with the shared working copy, then replay this tab's un-committed edits
+  // on top so adopting another tab's work never drops our own.
+  function adoptShared() {
+    return idbGet(REV_KEY).then(function (r) {
+      return idbGet(BUNDLE_KEY).then(function (blob) {
+        if (!blob) return ROOT;
+        return blob.arrayBuffer().then(ingest).then(function () {
+          applyJournal();
+          myRev = Number(r) || 0;
+          opened = true;
+          return ROOT;
+        });
+      });
+    });
+  }
+
+  // The one write path. Rebases onto the shared copy when another tab has committed, then
+  // compare-and-swaps. Returns the committed blob (or null when there was nothing to write).
+  var COMMIT_RETRIES = 3;
+  function commit() {
+    // Nothing of ours to publish: don't touch the shared copy at all. This is what stops an
+    // idle tab's flush (e.g. on navigation) from re-publishing its stale bundle over newer work.
+    if (!opened) return Promise.resolve(null);
+    if (!journal.size && !authoritative) return Promise.resolve(null);
+    var tries = 0;
+    function attempt() {
+      return idbGet(REV_KEY).then(function (r) {
+        var shared = Number(r) || 0;
+        // authoritative = we just opened/created a whole database; ours is the truth by intent.
+        var stale = !authoritative && journal.size && shared !== myRev;
+        return (stale ? adoptShared() : Promise.resolve()).then(function () {
+          return serialize().then(function (blob) {
+            return idbCas(shared, blob).then(function (res) {
+              if (!res.ok) {                       // another tab committed mid-serialize
+                if (++tries >= COMMIT_RETRIES) return null;
+                return attempt();
+              }
+              if (!res.noIdb) myRev = res.rev;
+              journal.clear();
+              authoritative = false;
+              return blob;
+            });
+          });
+        });
+      });
+    }
+    return attempt();
+  }
+
+  // Write the committed bytes out to the bound .crmdb (desktop autosave only).
+  function writeThroughToFile(blob, loud) {
+    if (!blob || !fileHandle || !canAutosave) return Promise.resolve();
+    return fileHandle.createWritable()
+      .then(function (w) { return w.write(blob).then(function () { return w.close(); }); })
+      .then(function () { if (loud) status("Saved ✓", "ok"); })
+      .catch(function (e) { if (loud) status("Save failed: " + e.message, "warn"); });
+  }
+
+  // Every write goes here: commit to the shared IndexedDB copy and, on desktop, autosave to the
+  // bound .crmdb file — both debounced so bursts of edits coalesce.
   function persist() {
     if (!opened) return;
     clearTimeout(persistTimer);
     persistTimer = setTimeout(function () {
-      serialize().then(function (blob) {
-        idbSet("bundle", blob);
-        if (fileHandle && canAutosave) {
-          return fileHandle.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); })
-            .then(function () { status("Saved ✓", "ok"); })
-            .catch(function (e) { status("Save failed: " + e.message, "warn"); });
-        }
+      commit().then(function (blob) {
+        if (!blob) return;
+        if (fileHandle && canAutosave) return writeThroughToFile(blob, true);
         status("Unsaved — tap Save database updates", "warn");
       });
     }, 1200);
@@ -305,29 +423,23 @@
   function flush() {
     clearTimeout(persistTimer);
     if (!opened) return Promise.resolve();
-    return serialize().then(function (blob) {
-      return idbSet("bundle", blob).then(function () {
-        if (fileHandle && canAutosave) {
-          return fileHandle.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); }).catch(function () {});
-        }
-      });
-    });
+    return commit().then(function (blob) { return writeThroughToFile(blob, false); });
   }
 
   // Refresh this tab's in-memory bundle from the latest IndexedDB working copy. Schedule uses
   // this after another open tab commits a newer revision, preventing stale-tab overwrites.
-  function reloadWorkingCopy() {
-    return idbGet("bundle").then(function (blob) {
-      if (!blob) return ROOT;
-      return blob.arrayBuffer().then(ingest).then(function () { opened = true; return ROOT; });
-    });
-  }
+  function reloadWorkingCopy() { return adoptShared(); }
 
   // Explicit save (the separate button). Desktop: flush to file now. iPad: download.
   function saveNow() {
     if (!opened) return Promise.resolve();
-    return serialize().then(function (blob) {
-      idbSet("bundle", blob);
+    clearTimeout(persistTimer);
+    // Goes through the same rebase + compare-and-swap as any other save. When we have nothing of
+    // our own to publish, adopt the shared copy first so Save writes the NEWEST bytes to the
+    // USB/file rather than this tab's possibly-stale ones.
+    return commit().then(function (blob) {
+      return blob || adoptShared().then(serialize);
+    }).then(function (blob) {
       if (fileHandle && canAutosave) {
         return fileHandle.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); })
           .then(function () { status("Saved to " + (suggestedName) + " ✓", "ok"); });
@@ -385,7 +497,7 @@
         return Promise.resolve({
           write: function (d) { chunks.push(d); return Promise.resolve(); },
           truncate: function () { return Promise.resolve(); },
-          close: function () { bundle.set(path, new Blob(chunks)); persist(); return Promise.resolve(); }
+          close: function () { bset(path, new Blob(chunks)); persist(); return Promise.resolve(); }
         });
       }
     };
@@ -407,7 +519,7 @@
 
   /* --------------------------------------------------------- CRMWorkspace API */
   function initScaffold(root) {
-    if (!bundle.has("schedule.json")) bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
+    if (!bundle.has("schedule.json")) bset("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
     return Promise.resolve(root || ROOT);
   }
 
@@ -435,9 +547,8 @@
             .then(function () { return idbSet("fileHandle", fileHandle); })
             // Keep an immediately reopenable working copy. Waiting for the next edit used to
             // leave refresh/page handoff with only a permission-gated file handle and no data.
-            .then(function () { return serialize(); })
-            .then(function (blob) { return idbSet("bundle", blob); })
-            .then(function () { opened = true; return ROOT; });
+            .then(function () { opened = true; markAuthoritative(); return commit(); })
+            .then(function () { return ROOT; });
         });
     }
     // iPad
@@ -451,7 +562,8 @@
         suggestedName = f.name;
         f.arrayBuffer().then(ingest).then(function () {
           fileHandle = null; opened = true;
-          return serialize().then(function (blob) { return idbSet("bundle", blob); });
+          markAuthoritative();
+          return commit();
         }).then(function () { res(ROOT); })
           .catch(function (e) { fileHandle = prev; suggestedName = prevName; protection = prevProtection; rej(e); });
       };
@@ -466,7 +578,9 @@
         .then(function (h) {
           protection = null; bundle.clear();
           bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
-          opened = true; fileHandle = h; suggestedName = h.name; return idbSet("fileHandle", h);
+          opened = true; fileHandle = h; suggestedName = h.name;
+          markAuthoritative();                  // a brand-new database replaces the working copy
+          return idbSet("fileHandle", h);
         })
         .then(function () { return saveNow(); })
         .then(function () { return ROOT; });
@@ -476,7 +590,8 @@
     bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
     fileHandle = null; suggestedName = DEFAULT_NAME;
     opened = true;
-    return serialize().then(function (blob) { return idbSet("bundle", blob); }).then(function () { return ROOT; });
+    markAuthoritative();
+    return commit().then(function () { return ROOT; });
   }
 
   // Auto-reconnect on page load: pull the working copy out of IndexedDB (both platforms),
@@ -485,9 +600,16 @@
     lastOpenError = null;
     return idbGet("fileHandle").then(function (h) {
       if (h && canAutosave) fileHandle = h;
-      return idbGet("bundle").then(function (blob) {
+      return idbGet(BUNDLE_KEY).then(function (blob) {
         if (blob) {
-          return blob.arrayBuffer().then(ingest).then(function () { opened = true; return ROOT; });
+          // Adopting the shared copy: record which revision we're based on, so the first save
+          // knows whether anyone else has moved since.
+          return idbGet(REV_KEY).then(function (r) {
+            return blob.arrayBuffer().then(ingest).then(function () {
+              opened = true; myRev = Number(r) || 0; journal.clear(); authoritative = false;
+              return ROOT;
+            });
+          });
         }
         // no working copy yet, but a desktop handle may still let us open the file later
         return (h && canAutosave) ? ROOT : null;
@@ -516,8 +638,11 @@
   }
 
   function forget() {
+    clearTimeout(persistTimer);
     fileHandle = null; opened = false; protection = null; clearSessionKey(); bundle.clear();
-    return Promise.all([idbDel("fileHandle"), idbDel("bundle")]).then(function () {});
+    // Drop any pending edits with the database — nothing may be replayed into the next one.
+    journal.clear(); authoritative = false; myRev = 0;
+    return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY)]).then(function () {});
   }
 
   /* USB-only preference (unchanged semantics: whether pages keep a localStorage mirror) */
@@ -532,7 +657,7 @@
     return bundle.get(path).text();
   }
   function writeFile(dir, name, data) {
-    bundle.set(dir.prefix + name, toBlob(data));
+    bset(dir.prefix + name, toBlob(data));
     persist();
     return Promise.resolve();
   }
@@ -547,14 +672,14 @@
     return Promise.resolve(out);
   }
   function removeFile(root, date, slot, name) {
-    var had = bundle.delete(slotPrefix(date, slot) + name);
+    var had = bdel(slotPrefix(date, slot) + name);
     if (had) persist();
     return Promise.resolve(had);
   }
   // Remove every file in one patient's slot (used when a patient is deleted from the schedule).
   function removeSlotFiles(root, date, slot) {
     var pre = slotPrefix(date, slot), removed = 0;
-    Array.from(bundle.keys()).forEach(function (k) { if (k.indexOf(pre) === 0) { bundle.delete(k); removed++; } });
+    Array.from(bundle.keys()).forEach(function (k) { if (k.indexOf(pre) === 0) { bdel(k); removed++; } });
     if (removed) persist();
     return Promise.resolve(removed);
   }
@@ -564,7 +689,7 @@
     var removed = 0, bytes = 0;
     Array.from(bundle.keys()).forEach(function (path) {
       var m = /^patients\/(\d{4}-\d{2}-\d{2})\//.exec(path);
-      if (m && m[1] < cutISO) { var b = bundle.get(path); bytes += (b && b.size) || 0; bundle.delete(path); removed++; }
+      if (m && m[1] < cutISO) { var b = bundle.get(path); bytes += (b && b.size) || 0; bdel(path); removed++; }
     });
     if (removed) persist();
     return Promise.resolve({ files: removed, bytes: bytes });
@@ -591,7 +716,7 @@
     if (!oldSlot || !newSlot || oldSlot === newSlot) return Promise.resolve(false);
     var op = slotPrefix(date, oldSlot), np = slotPrefix(date, newSlot), moved = false;
     Array.from(bundle.keys()).forEach(function (k) {
-      if (k.indexOf(op) === 0) { bundle.set(np + k.slice(op.length), bundle.get(k)); bundle.delete(k); moved = true; }
+      if (k.indexOf(op) === 0) { bset(np + k.slice(op.length), bundle.get(k)); bdel(k); moved = true; }
     });
     if (moved) persist();
     return Promise.resolve(moved);
@@ -607,8 +732,8 @@
       if (k.indexOf(op) !== 0) return;
       var target = np + k.slice(op.length);
       if (bundle.has(target)) overwritten++;
-      bundle.set(target, bundle.get(k));
-      bundle.delete(k);
+      bset(target, bundle.get(k));
+      bdel(k);
       files++;
     });
     if (files) persist();
@@ -658,7 +783,8 @@
     set onPasswordRequest(fn) { passwordCb = fn; },
     get onPasswordRequest() { return passwordCb; },
     // test hooks (used by the Node unit test; harmless in the browser)
-    _bundle: bundle, _serialize: serialize, _serializeZip: serializeZip, _ingest: ingest
+    _bundle: bundle, _serialize: serialize, _serializeZip: serializeZip, _ingest: ingest,
+    _markAuthoritativeForTest: markAuthoritative, _journal: journal
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.CRMWorkspace = api;

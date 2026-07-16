@@ -4,7 +4,8 @@
 "use strict";
 
 const assert = require("assert");
-global.crypto = require("crypto").webcrypto;
+// Node >=20 already exposes webcrypto as a getter-only global; assigning over it throws.
+if (!global.crypto) global.crypto = require("crypto").webcrypto;
 const sessionValues = new Map();
 global.sessionStorage = {
   getItem: (key) => sessionValues.has(key) ? sessionValues.get(key) : null,

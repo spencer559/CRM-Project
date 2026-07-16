@@ -106,8 +106,19 @@ Every parser returns the **same bundle** (`EPISODES` optional):
 { RESULT, LEADS, ROUTE, ORDER, GOTCHAS, EPISODES? }
 ```
 
-**Merge import.** The auto-fill panel has a **"Merge — keep what I've entered"** checkbox. With it
-off (default), import resets the form and fills fresh. With it on, `resetFormState()` is skipped and
+**Merge import.** Merge is a **toggle at the bottom of the Import menu** (`Import ▸ Merge — keep
+what I've entered`) that governs **every** import path: `Import PDF / .log…`, and the
+`Auto-fill from <file>` items under **Import Database** (a programmer export attached to the
+patient's slot in the Schedule). It works because `#pdp-merge` — the checkbox in the hidden
+auto-fill panel — is the single source of truth that `handleFile` reads, and the database items go
+through `handleFile` too; the toggle just drives that checkbox. (It replaced a separate
+`Merge PDF / .log…` menu item, which only ever covered the file-picker path — there was no way to
+merge a database import.) Merge is a **sticky mode**, so note the safety property: `openSlot()`
+calls `resetFormState()`, which unchecks every checkbox including `#pdp-merge` — opening a patient
+turns Merge back **off**, so it can't leak across patients and merge one patient's export into
+another's form. Don't make `#pdp-merge` survive a patient switch.
+
+With it off (default), import resets the form and fills fresh. With it on, `resetFormState()` is skipped and
 `prefillForm(..., { merge:true })`: scalar fields fill **only where blank** (your typed values are
 kept), the lead table is left alone if you've already started one, and parser `EPISODES` are
 **appended** as new logbook rows instead of overwriting. Use it to chart episodes live, then drop the
@@ -135,6 +146,8 @@ PDF later to fill in the rest.
 ```
 
 `setLeadInfoRows(LEADS)` rebuilds the form's lead-information table with one editable row per lead. Location/Manufacturer/Model/Serial/Implant-Date are all free-text so the table reads exactly like the source.
+
+Parsers capture **every** lead the report prints, including abandoned/capped ones (a CRT-P with 5 leads is a real case) — deciding which are still in use is the tech's job, not the parser's, so each row has an **×** to remove it and a **+ Add Lead** button for one the importer missed. All three report builders read the table through `leadInfoRows()`, which drops rows whose cells are all blank; clearing a row is equivalent to ×-ing it. Don't reintroduce a `data-loc` fallback that fires on a fully-blank row — that's what used to keep a cleared row (and once, a literal `RV#0`) on the PDF.
 
 ### Field keys used by `RESULT`
 
@@ -213,16 +226,18 @@ Unifying tricks:
 
 ## Form / UI features (in `app/CRM_Report_Generator.html`)
 
-- **Auto-fill drop panel** accepts PDF (Medtronic/Boston) and `.log` (Abbott), with the **"Merge — keep what I've entered"** checkbox described in the data-flow section above.
+- **Auto-fill drop panel** accepts PDF (Medtronic/Boston) and `.log` (Abbott). Its `#pdp-merge` checkbox is hidden but live — it's the state behind the Import menu's **Merge** toggle (see the data-flow section).
+- **Import toast** (`#pdp-status`, a fixed-position card under the app bar) — after a successful import it shows route/model/`N fields filled`, then after `PDP_LINGER` (6 s) **collapses to just the parser's `Verify:` list**, which stays until the **×** dismisses it. It obstructed the form at some window sizes, and the summary has no use once read. Hovering pauses the collapse and leaving re-arms it (never leave it paused — a stray hover stranding the card is the bug this fixed). **Errors never auto-clear**, and the transient "Reading…" line gets no ×. `setStatus(html, cls, keep)` — `keep` is the HTML that outlives the timeout.
+  - **Nothing in the form is actually highlighted.** `setField` has never applied a review class, so that `Verify:` list is the *only* surface for parser uncertainty — which is why it survives the collapse. (The old copy said "review highlighted ones"; it was never true and was dropped.) If per-field highlighting is ever added, the list can safely go.
 - **Force "New Patient" on every import** — `resetFormState()` clears the form in-memory (no page reload, which would abort the file read) so nothing from a prior patient lingers. (Skipped in merge mode.)
-- **Lead-info table is verbatim**: editable Location, a **Manufacturer** column, free-text model/serial/implant-date; one row per scraped lead. (Aveir relabels these columns "Module …".)
+- **Lead-info table is verbatim**: editable Location, a **Manufacturer** column, free-text model/serial/implant-date; one row per scraped lead. (Aveir relabels these columns "Module …".) Rows are **removable** (× per row, `delLeadRow`) and addable (**+ Add Lead**, `addLeadRow`) — the importer scrapes abandoned leads too, and only the tech knows which are live.
 - **Dynamic AV** Yes/No toggle with min/max fields (defaults No; importer flips it for true ranges).
 - **% paced & AF burden are text inputs** and comparator-aware (`<1` survives instead of becoming `1`).
 - **Aveir leadless mode** — picking the `Aveir` device type reveals RA/RV chamber checkboxes that drive the lead-info rows, per-module Longevity rows, and which pacing-% fields show (see Conventions above).
 - **Episode logbook** — a **"Logbook / Free text"** radio (`ep-mode`, default Logbook) lets you either use the row-based table or type a single free-text block (`ep-freetext`). The logbook defaults to 1 row ("+ Add Episode" for more); a parser's `EPISODES` rows are written in automatically. **Observations** (`obs-yn` + `obs-text`) live at the bottom of this section.
 - **Section layout — follows the in-room device-check flow:** Patient & Device · Battery / Device Status · Stored Episodes / Arrhythmia Log (+ Observations) · Lead / Electrode Measurements · Programmed Parameters · **Final Session Summary** (a merge of Reprogramming changes + Remote Monitoring + the Device Technician / Date-Completed sign-off, all under one header). Rationale: interrogate → review counters/episodes → run lead tests → confirm/adjust programming → sign off. Sidebar groups mirror this (Interrogation / Testing / Programming / Documentation).
 - **Export buttons:** New Patient · Copy to Clipboard · Export .txt · **JSON** (a dropdown: Import / Export) · **PDF** (a dropdown: **Print** = browser print, **Save (PDF file)** = a real vector PDF built with jsPDF and saved like the JSON exports).
-  - **JSON export/import** round-trips the whole form via `collectFormData()` / `applyFormData()`. It serializes the dynamic lead-table rows separately as `__leadinfo` (the cells have no id/name) and **excludes file inputs / auto-fill tool controls** (`pdp-*`, `json-import-file`) — those threw on import (you can't set `input[type=file].value`), which used to abort the whole restore. Import does a clean reset first.
+  - **JSON export/import** round-trips the whole form via `collectFormData()` / `applyFormData()`. It serializes the dynamic lead-table rows separately as `__leadinfo` (the cells have no id/name; blank rows aren't persisted — `setLeadInfoRows` would relabel a location-less row "Lead N" on restore and print it) and **excludes file inputs / auto-fill tool controls** (`pdp-*`, `json-import-file`) — those threw on import (you can't set `input[type=file].value`), which used to abort the whole restore. Import does a clean reset first.
   - **Save-location aware** — `saveFile()` uses `showSaveFilePicker` (desktop/Android Chrome → pick folder/USB), else `navigator.share` (iOS Safari → share sheet → "Save to Files"; shares the file **only**, no title/text, or iOS writes a stray `.txt`), else a classic download. The same path saves both JSON and the vector PDF; the export menu is closed in a `finally` (after the picker/share resolves) so the trigger element survives until the sheet presents.
   - **iPad share-sheet caveat** — on **iPad Safari**, `navigator.share` is a *popover* whose anchor iPadOS controls; with nothing focused it falls back to the page body (top-left, scrolling off as you scroll down). Mitigation: on iPad (`isIPad()`), focus a visible top-toolbar button right before sharing so the popover anchors on-screen. This is a Safari limitation, not web-fixable in general — **Chrome on iPad** wraps the sheet in its own centered UI and works regardless; iPhone shows a bottom sheet regardless. If reliable placement is ever required on iPad Safari, the fallback is a direct download (no popover).
 - **Text/clipboard report** (`buildSummaryLines`) — a single **compact** format (the older labeled "Full" format was removed): single-space ` | ` pipes, no blank lines between sections, no `Mfr:`/`Model:` labels (manufacturer + model are joined), `SN:`/`Impl:` shorthand. BATTERY / STATUS folds onto ≤4 lines — Longevity|Battery · Function|Dependency|Rhythm · Mode|LRL|UTR|USR · pacing-% (BiV only when present). MEASUREMENTS are one line per lead: `RA Lead: 512 Ω | 2.9 mV | 0.7 V @ 0.4 ms` (Thr+PW merged). Empty AF Burden is omitted (no `—%` placeholder). FINAL SESSION SUMMARY carries Changes+Provider on one line and Remote Monitoring on one line. The *Device Technician* block is intentionally omitted (the EHR stamps it); the **PDF keeps it**.
@@ -314,10 +329,38 @@ reads/writes; `moveSlot` (renaming a slot when a row's time/patient name changes
 (relocating every patient-folder prefix when Move Day changes the schedule date) became key
 relabel; `readText` on a missing file rejects (so the CRM "new patient" catch still fires).
 Because the API surface is unchanged, migrating the 2500-line CRM tool was mostly a script-swap.
+**Cross-tab writes (`journal` + revision CAS).** Each tab holds its **own** `bundle`, and a save
+serializes the **whole** bundle — so a plain write replaces whatever another tab committed. Two
+tabs on one database (typically Schedule + Report Generator, the normal way this gets used) could
+therefore silently revert a schedule edit, revert a report, or **delete a file** the other tab
+attached (`serialize` only emits the paths the saving tab happens to hold). Every commit is now a
+**compare-and-swap** against a `rev` counter stored beside the `bundle` key:
+
+- `journal` (`path → Blob | null`) records what **this** tab changed since its last commit. All
+  mutations go through `bset`/`bdel` — never `bundle.set`/`.delete` directly, or the change becomes
+  invisible to the merge.
+- Commit reads `rev` (one small key, **~0.3 ms**). Unchanged → straight write, the normal case and
+  always true with one tab open. Moved → another tab wrote, so `adoptShared()` pulls the shared copy
+  and replays **only journalled paths** on top. Replaying only touched paths is what stops a stale
+  tab resurrecting a deleted file or deleting one it never saw.
+- The re-read and both puts ride in **one** IDB transaction, so a tab that commits while we were
+  serializing loses the CAS and retries instead of clobbering.
+- **Nothing journalled and not `authoritative` → the commit is skipped entirely.** This is what
+  stops an idle tab's `flush()` (e.g. on navigation) from republishing its stale bundle.
+- `authoritative` (via `markAuthoritative()`) means "our bundle is a whole database we just
+  opened/created/re-encrypted" — overwrite the shared copy rather than merge into it. Without it,
+  opening a `.crmdb` would rebase onto, and therefore keep, the working copy it was meant to
+  replace. The three protection paths set it too, and must `adoptShared()` **before** installing a
+  new key (`ingest()` resets `protection` from the envelope it reads).
+- Cost, measured in-browser on a 10.6 MB / 12-patient database: **43.2 ms** fast path (the serialize
+  the code already paid, plus the 0.3 ms revision read) vs **63.5 ms** when a rebase is actually
+  needed. The pre-existing whole-bundle serialize — ~95 ms on a 35 MB database, on a 1.2 s debounce
+  while typing — is the real cost here, and is what to optimize if this ever gets slow.
+
 The bundle **is** the one database, and it is:
 - **serialized to the `.crmdb`** on save;
 - **mirrored to IndexedDB immediately when opened and again on every change** (`crmdbStore` db,
-  `bundle` key; edits are debounced) — this
+  `bundle` + `rev` keys; edits are debounced) — this
   working copy is what carries state **across the two pages** on a full navigation, which is
   what makes the two-page handoff work on iPad (there's no persistent file handle there);
 - on **desktop** (Chrome/Edge) additionally bound to a real `.crmdb` **file handle** (also stored
@@ -355,6 +398,9 @@ chip still opens inline after a round-trip strips the raw blob's type.
 - **Multi-tab schedule safety** — schedule revisions are announced across same-origin tabs. A tab
   with an older revision skips its pending write instead of replacing newer Cerner/provider/row
   edits, then reloads the committed IndexedDB working bundle from the tab that saved most recently.
+  This is the *Schedule-side* guard (page-level, keyed on `schedule.json`'s own `_updatedAt`); the
+  database-level guard that protects **any** two tabs — including CRM ↔ Schedule — lives in
+  `crmdb-store.js`, below.
 - **Files menu** on each row condenses the old chip list into one status button. It exposes only
   the two useful clinical links — the generated `report.pdf` and the raw programmer report — while
   JSON/TXT support files stay hidden. **Report ✓** appears in green only when a programmer report
@@ -372,8 +418,37 @@ chip still opens inline after a round-trip strips the raw blob's type.
   **CRM** column for opening the Report Generator, while the compact Files status/menu preserves
   horizontal room on an iPad and leaves space for future columns.
 
-**CRM-tool-side:** the app-bar gained a **Save DB** button (force-rebuilds json+txt+pdf, then
-writes/downloads the whole database as a backup). On **leave** (the Schedule button),
+**CRM-tool-side:** **Export ▸ Save database** force-rebuilds json+txt+pdf, then writes/downloads
+the whole database as a backup (label follows the platform: "Save database now" on desktop, "Save
+database to USB…" on iPad). It was a standalone app-bar button; it moved into the Export menu to
+free the top-right slot for **Files**.
+
+The app-bar **Files** menu lists the active patient's saved files and opens one in a new tab, so a
+programmer PDF can be read side-by-side while the rest of the form is filled in. It mirrors the
+Schedule's Files menu: only `report.pdf` (**Generated**) and the raw programmer export
+(**Programmer**, listed first) — `report.json`/`.txt` are support files and stay hidden. It needs a
+selected patient, not just an open database, so `updateFilesBtn()` hangs off `setPatientBtn()` (the
+hook every slot change runs through).
+
+**Drag-out to Cerner (why it exists).** A `.crmdb` is one ZIP, so **no native file dialog can see
+the reports inside it** — Cerner's document upload can't browse to `report.pdf`. That's the
+inherent cost of the single-file container. Rather than export PDFs to a folder and then have to
+purge plaintext PHI, the Files rows are **draggable straight onto Cerner's upload** (`attachDragOut`).
+Each drag sets **two** payloads because the plausible targets read different things: `items.add(File)`
+populates `DataTransfer.files` (what a web drop zone reads) and `DownloadURL` is what the OS shell
+honours when dropping on the desktop/Explorer. Verified under a real trusted dragstart:
+`items.add` succeeds and `dataTransfer.types` becomes `["Files"]`. Nothing is written to disk, so
+there is nothing to clean up. **If Cerner's uploader turns out to be an `<input type=file>` with no
+drop zone**, drag can't help and the fallback is a remembered export folder (`showDirectoryPicker`
++ handle in IndexedDB — the pattern the retired `src/workspace.js` used) with an auto-purge, since
+those exports are unencrypted PHI at rest. **`openStoredFile` must stay synchronous:** `window.open`
+called from a promise callback has lost the click's user activation and gets popup-blocked (Safari
+is strictest, and this runs on iPad), so `buildFilesMenu` resolves every `File` up front — the
+bytes are already in memory, `getFile()` is only nominally async — and the click handler just does
+`createObjectURL` + `window.open`. `getFile()` re-assigns the MIME by extension, which is what makes
+a PDF render inline instead of downloading.
+
+On **leave** (the Schedule button),
 **patient-switch**, and **backgrounding** — whenever edits are pending (a `dirty` flag) —
 `finalizeReports()` rebuilds the full report set (`report.json` + `report.txt` + `report.pdf`)
 from the current form so the Schedule's chips are never stale; the cheap 1.5s live sync still
@@ -439,6 +514,11 @@ localStorage, and forgets the connection.
 
 - **Manual:** open `app/CRM_Report_Generator.html` locally (or on the Pages site) and drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
 - **PDF authoring:** use `tools/CIED PDF Extraction Harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parser under `src/parsers/`.
+- **Node tests:** `node tests/crmdb-encryption.test.js` (password round-trips) and
+  `node tests/crmdb-multitab.test.js` (two tabs sharing one working copy — the journal/revision-CAS
+  guard). No npm install: `crmdb-store.js` exports itself under `module.exports`, a fresh
+  `require` is a fresh "tab", and the multi-tab test ships a ~40-line in-memory IndexedDB shim to
+  keep the repo dependency-free. Both tests fail loudly against the pre-fix store.
 - **Headless checks:** the parser logic is plain JS and can be exercised in Node by `eval`-ing the vendor file (with `globalThis.window = globalThis`) and feeding it a reconstructed `LINES` array (PDF) or raw `.log` text — the fastest way to verify a change against a sample before clicking through the form. UI-logic changes can be checked with jsdom (load the app HTML, stub `IntersectionObserver`, drive the functions).
 
 ### To add a new vendor
