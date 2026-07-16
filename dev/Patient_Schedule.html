@@ -223,9 +223,17 @@
              border-radius:8px; margin-bottom:5px; cursor:pointer; background:var(--panel2); }
   .all-row:hover { border-color:var(--accent); }
   .all-time { font-weight:600; width:82px; flex-shrink:0; }
-  .all-pt { font-weight:700; color:var(--accent); width:50px; flex-shrink:0; }
+  /* Patient names are full "Last, First" strings (up to 80 chars) — the column needs real
+     width, and anything longer truncates with an ellipsis (full name in the hover tooltip)
+     instead of painting underneath the meta text beside it. */
+  .all-pt { font-weight:700; color:var(--accent); width:150px; flex-shrink:0;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .all-meta { color:var(--muted); font-size:.83rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .all-files { font-size:.7rem; color:var(--green); flex-shrink:0; white-space:nowrap; }
+  @media (max-width: 480px) {
+    .all-time { width:64px; }
+    .all-pt { width:110px; }
+  }
 
   /* ---------- print: clean white formatted schedule ---------- */
   @media print {
@@ -793,7 +801,7 @@
         rowsHtml +=
           '<div class="all-row" data-date="' + esc(date) + '">' +
             '<span class="all-time">' + esc(fmtTime(r.time) || "—") + '</span>' +
-            '<span class="all-pt">' + esc(r.pt || "??") + '</span>' +
+            '<span class="all-pt" title="' + esc(r.pt || "") + '">' + esc(r.pt || "??") + '</span>' +
             '<span class="all-meta">' + esc(meta) + '</span>' +
             (fc ? '<span class="all-files">' + fc + ' file' + (fc === 1 ? "" : "s") + '</span>' : '') +
           '</div>';
