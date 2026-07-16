@@ -116,7 +116,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: #ddd; flex-shrink: 0; transition: background .15s; }
 .nav-item.active .nav-dot { background: var(--navy); }
 .nav-item.filled .nav-dot { background: var(--green); }
-.nav-item.hidden-nav { display: none; }
+.nav-item.hidden-nav, .nav-group-lbl.hidden-nav { display: none; }
 
 /* MAIN */
 .main { position: fixed; top: 44px; left: 186px; right: 0; bottom: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 18px 26px 60px; }
@@ -330,11 +330,14 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <a class="nav-item" id="nav-patient" href="#s-patient" onclick="return navTo('s-patient')"><span class="nav-dot"></span>Patient &amp; Device</a>
   <div class="nav-group-lbl">Interrogation</div>
   <a class="nav-item" id="nav-battery" href="#s-battery" onclick="return navTo('s-battery')"><span class="nav-dot"></span>Battery Status</a>
-  <a class="nav-item" id="nav-episodes" href="#s-episodes" onclick="return navTo('s-episodes')"><span class="nav-dot"></span>Episode Log</a>
-  <div class="nav-group-lbl">Testing</div>
-  <a class="nav-item" id="nav-leads" href="#s-leads" onclick="return navTo('s-leads')"><span class="nav-dot"></span>Lead Measurements</a>
-  <div class="nav-group-lbl">Programming</div>
-  <a class="nav-item" id="nav-params" href="#s-params" onclick="return navTo('s-params')"><span class="nav-dot"></span>Parameters</a>
+  <a class="nav-item" id="nav-episodes" data-mode="crm" href="#s-episodes" onclick="return navTo('s-episodes')"><span class="nav-dot"></span>Episode Log</a>
+  <a class="nav-item" id="nav-loop-episodes" data-mode="loop" href="#s-loop-episodes" onclick="return navTo('s-loop-episodes')"><span class="nav-dot"></span>Episode Log</a>
+  <div class="nav-group-lbl" data-mode="crm">Testing</div>
+  <a class="nav-item" id="nav-leads" data-mode="crm" href="#s-leads" onclick="return navTo('s-leads')"><span class="nav-dot"></span>Lead Measurements</a>
+  <div class="nav-group-lbl" data-mode="crm">Programming</div>
+  <a class="nav-item" id="nav-params" data-mode="crm" href="#s-params" onclick="return navTo('s-params')"><span class="nav-dot"></span>Parameters</a>
+  <div class="nav-group-lbl" data-mode="loop">Sensing / Detection</div>
+  <a class="nav-item" id="nav-loop-detect" data-mode="loop" href="#s-loop-detect" onclick="return navTo('s-loop-detect')"><span class="nav-dot"></span>Detection Parameters</a>
   <div class="nav-group-lbl">Documentation</div>
   <a class="nav-item" id="nav-final" href="#s-final" onclick="return navTo('s-final')"><span class="nav-dot"></span>Final Session Summary</a>
 </nav>
@@ -387,6 +390,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <label class="cbl"><input type="radio" name="dtype" value="S-ICD" onchange="onDtypeChange()"> S-ICD</label>
       <label class="cbl"><input type="radio" name="dtype" value="Leadless" onchange="onDtypeChange()"> Leadless (Micra/AV)</label>
       <label class="cbl"><input type="radio" name="dtype" value="Aveir" onchange="onDtypeChange()"> Aveir (Abbott)</label>
+      <label class="cbl"><input type="radio" name="dtype" value="ILR" onchange="onDtypeChange()"> ILR / Loop</label>
     </div>
     <div id="aveir-chambers" style="display:none; margin-top:5px; padding:6px 10px; background:#e6eef6; border-left:3px solid #1e3a5f; border-radius:2px;">
       <span class="lbl" style="display:inline-block; margin-right:8px;">Aveir Chambers Implanted:</span>
@@ -407,6 +411,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-serial"></div>
     </div>
 
+    <div id="leadinfo-block">
     <div class="sub-lbl" style="margin-top:12px;">Lead Information</div>
     <div class="cbg" style="margin-bottom:6px;">
       <label class="cbl"><input type="radio" name="leadinfo-yn" value="Yes" onchange="updateLeadInfoTable()"> Yes</label>
@@ -420,6 +425,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <button class="add-btn" onclick="addLeadRow()">+ Add Lead</button>
       <div class="field" style="margin-top:6px;"><span class="lbl">Notes</span><textarea id="leadinfo-notes" placeholder="Optional notes…" style="width:100%;min-height:48px;"></textarea></div>
     </div>
+    </div><!-- /leadinfo-block -->
   </div>
 </div>
 
@@ -460,15 +466,15 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
         </tr>
         <tr>
           <td>Battery Status</td>
-          <td colspan="2"><div class="cbg"><label class="cbl"><input type="radio" name="bat-status" value="ERI"> ERI / RRT</label><label class="cbl"><input type="radio" name="bat-status" value="EOL"> EOL</label></div></td>
+          <td colspan="2"><div class="cbg"><label class="cbl" id="bat-ok-wrap" style="display:none;"><input type="radio" name="bat-status" value="OK"> OK</label><label class="cbl"><input type="radio" name="bat-status" value="ERI"> ERI / RRT</label><label class="cbl"><input type="radio" name="bat-status" value="EOL"> EOL</label></div></td>
         </tr>
       </tbody>
     </table>
     <div class="fg" style="grid-template-columns: 130px 130px 160px 160px; margin-top:8px; margin-bottom:4px;">
       <div class="field"><span class="lbl">Device Function</span><select id="ap-devfx"><option value="">—</option><option>Normal</option><option>Abnormal</option></select></div>
-      <div class="field"><span class="lbl">Pacing Dependency</span><select id="ap-dep"><option value="">—</option><option>Yes</option><option>No</option></select></div>
+      <div class="field" id="ap-dep-wrap"><span class="lbl">Pacing Dependency</span><select id="ap-dep"><option value="">—</option><option>Yes</option><option>No</option></select></div>
       <div class="field"><span class="lbl">Presenting Rhythm</span><input type="text" id="ap-presenting" placeholder="e.g. AV paced, AF"></div>
-      <div class="field"><span class="lbl">Intrinsic Rhythm</span><input type="text" id="ap-rhythm" placeholder="e.g. NSR, AF, CHB"></div>
+      <div class="field" id="ap-rhythm-wrap"><span class="lbl">Intrinsic Rhythm</span><input type="text" id="ap-rhythm" placeholder="e.g. NSR, AF, CHB"></div>
     </div>
     <div class="sub-lbl" id="pct-lbl">Pacing Statistics <span class="sub-note" id="pct-note">— select device type above</span></div>
     <div class="fg" style="grid-template-columns: repeat(4, 110px);" id="pct-grid">
@@ -480,8 +486,68 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   </div>
 </div>
 
+<!-- LOOP §L1 EPISODES — the ILR/loop-recorder counterpart of the Episode Log. No therapy
+     column (ILRs deliver no therapy); counters cover the standard ICM auto-detections. -->
+<div class="section" id="s-loop-episodes" data-mode="loop">
+  <div class="sec-hdr">Episodes / Arrhythmia Log<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Loop Episodes section">Clear section</button></div>
+  <div class="sec-body">
+    <div class="fg" style="grid-template-columns: 100px repeat(5, 95px); margin-bottom:10px; align-items:end;">
+      <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="lp-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
+      <div class="field"><span class="lbl">AF</span><input type="number" id="lp-af" min="0"></div>
+      <div class="field"><span class="lbl">Tachy</span><input type="number" id="lp-tachy" min="0"></div>
+      <div class="field"><span class="lbl">Brady</span><input type="number" id="lp-brady" min="0"></div>
+      <div class="field"><span class="lbl">Pause</span><input type="number" id="lp-pause" min="0"></div>
+      <div class="field"><span class="lbl">Pt-Activated</span><input type="number" id="lp-pta" min="0"></div>
+    </div>
+    <div class="cbg" style="margin-bottom:8px;">
+      <span class="cbg-lbl">Episode entry:</span>
+      <label class="cbl"><input type="radio" name="lep-mode" value="logbook" checked onchange="updateLoopEpMode()"> Logbook</label>
+      <label class="cbl"><input type="radio" name="lep-mode" value="freetext" onchange="updateLoopEpMode()"> Free text</label>
+    </div>
+    <div id="lep-logbook-wrap">
+    <table class="dt">
+      <thead><tr><th style="width:18px">#</th><th style="min-width:128px">Date / Time</th><th>Episode Type</th><th>Duration</th><th>Max Rate</th><th>Flags</th><th>Symptoms / Notes</th><th style="width:16px"></th></tr></thead>
+      <tbody id="lep-tbody"></tbody>
+    </table>
+    <button class="add-btn" onclick="addLoopEpRow()">+ Add Episode</button>
+    </div>
+    <div id="lep-freetext-wrap" style="display:none;">
+      <textarea id="lp-freetext" placeholder="Enter episodes / arrhythmia summary as free text…" style="width:100%;min-height:120px;"></textarea>
+    </div>
+    <div class="sub-lbl" style="margin-top:12px;">Observations</div>
+    <div class="cbg" style="margin-bottom:6px;">
+      <label class="cbl"><input type="radio" name="loop-obs-yn" value="Yes" onchange="updateLoopObservations()"> Yes</label>
+      <label class="cbl"><input type="radio" name="loop-obs-yn" value="N/A" onchange="updateLoopObservations()"> N/A</label>
+    </div>
+    <div id="loop-obs-text-wrap" style="display:none;">
+      <textarea id="loop-obs-text" placeholder="Enter observations…" style="width:100%;min-height:64px;"></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- LOOP §L2 SENSING & DETECTION — replaces Lead Measurements + Programmed Parameters. -->
+<div class="section" id="s-loop-detect" data-mode="loop">
+  <div class="sec-hdr">Sensing &amp; Detection Parameters<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Sensing and Detection Parameters section">Clear section</button></div>
+  <div class="sec-body">
+    <div class="sub-lbl">Sensing</div>
+    <div class="fg" style="grid-template-columns: 150px 150px;">
+      <div class="field"><span class="lbl">R-Wave Amplitude (mV)</span><input type="number" id="lp-rwave" step="0.01" min="0"></div>
+      <div class="field"><span class="lbl">Noise Burden (%)</span><input type="text" id="lp-noise" inputmode="decimal" placeholder="0.0 or <1"></div>
+    </div>
+    <div class="sub-lbl">Programmed Detection</div>
+    <div class="fg" style="grid-template-columns: repeat(5, 125px);">
+      <div class="field"><span class="lbl">AF Detection</span><select id="lp-af-det"><option value="">—</option><option>On</option><option>Off</option></select></div>
+      <div class="field"><span class="lbl">Tachy Rate (bpm)</span><input type="number" id="lp-tachy-rate" min="0"></div>
+      <div class="field"><span class="lbl">Brady Rate (bpm)</span><input type="number" id="lp-brady-rate" min="0"></div>
+      <div class="field"><span class="lbl">Pause (sec)</span><input type="number" id="lp-pause-dur" step="0.5" min="0"></div>
+      <div class="field"><span class="lbl">Patient Activator</span><select id="lp-activator"><option value="">—</option><option>Yes</option><option>No</option></select></div>
+    </div>
+    <div class="field" style="margin-top:8px;"><span class="lbl">Detection Notes</span><textarea id="lp-detect-notes" placeholder="Optional notes…" style="width:100%;min-height:48px;"></textarea></div>
+  </div>
+</div>
+
 <!-- §5 EPISODES (moved up — reviewed right after the interrogation summary, before testing) -->
-<div class="section" id="s-episodes">
+<div class="section" id="s-episodes" data-mode="crm">
   <div class="sec-hdr">Stored Episodes / Arrhythmia Log<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Stored Episodes and Arrhythmia Log section">Clear section</button></div>
   <div class="sec-body">
     <div class="fg" style="grid-template-columns: 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
@@ -517,7 +583,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 </div>
 
 <!-- §4 LEADS (after Episodes — threshold/sensing tests happen mid-visit) -->
-<div class="section" id="s-leads">
+<div class="section" id="s-leads" data-mode="crm">
   <div class="sec-hdr">Lead / Electrode Measurements<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Lead and Electrode Measurements section">Clear section</button></div>
   <div class="sec-body">
     <table class="dt">
@@ -530,7 +596,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 </div>
 
 <!-- §3 PARAMETERS (before Final — programming is confirmed/adjusted at the end of the visit) -->
-<div class="section" id="s-params">
+<div class="section" id="s-params" data-mode="crm">
   <div class="sec-hdr">Programmed Parameters<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Programmed Parameters section">Clear section</button></div>
   <div class="sec-body">
     <div class="sub-lbl">Pacing Mode &amp; Rates</div>
@@ -737,6 +803,40 @@ function addEpRow() {
 }
 addEpRow();   // default to a single episode row; use "+ Add Episode" for more
 
+// ── LOOP EPISODE ROWS (ILR logbook — no Therapy column; ICM episode types) ──
+var lepN = 0;
+function addLoopEpRow() {
+  lepN++;
+  var n = lepN;
+  var tr = document.createElement('tr');
+  tr.id = 'lep-' + n;
+  function cbs(types) {
+    return types.map(function(t) {
+      return '<label class="cbl"><input type="checkbox" name="lep'+n+'-type" value="'+t+'"> '+t+'</label>';
+    }).join('');
+  }
+  var typeCell =
+    '<div style="display:flex;flex-direction:column;gap:1px;">' +
+    '<div class="cbg ep-cbg">' + cbs(['AF','Tachy','Brady','Pause']) + '</div>' +
+    '<div class="cbg ep-cbg">' + cbs(['Pt-Activated','Other']) + '</div>' +
+    '</div>';
+  var flagChecks = ['Longest','Recent','Fastest'].map(function(t) {
+    return '<label class="cbl"><input type="checkbox" name="lep'+n+'-flag" value="'+t+'"> '+t+'</label>';
+  }).join('');
+  tr.innerHTML =
+    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '</td>' +
+    '<td><input type="datetime-local" name="lep'+n+'-dt" style="width:138px"></td>' +
+    '<td>' + typeCell + '</td>' +
+    '<td><input type="text" name="lep'+n+'-dur" placeholder="hh:mm:ss" style="width:72px"></td>' +
+    '<td><input type="number" name="lep'+n+'-rate" placeholder="bpm" style="width:52px"></td>' +
+    '<td><div class="cbg" style="flex-direction:column;gap:2px;">' + flagChecks + '</div></td>' +
+    '<td><textarea name="lep'+n+'-notes" rows="1" style="width:100%;min-height:24px;resize:none;font-size:9.5px;padding:2px 4px;overflow:hidden;" oninput="autoGrow(this)"></textarea></td>' +
+    '<td><button class="del-btn" onclick="delRow(\'lep-'+n+'\')">×</button></td>';
+  document.getElementById('lep-tbody').appendChild(tr);
+  scheduleSave();
+}
+addLoopEpRow();   // default to a single row, same as the CRM logbook
+
 // ── REPROG ROWS ──
 var rpN = 0;
 function addRpRow() {
@@ -775,6 +875,21 @@ function updateEpMode() {
   var free = !!(m && m.value === 'freetext');
   var lb = document.getElementById('ep-logbook-wrap');
   var ft = document.getElementById('ep-freetext-wrap');
+  if (lb) lb.style.display = free ? 'none' : '';
+  if (ft) ft.style.display = free ? '' : 'none';
+}
+
+// ── LOOP OBSERVATIONS / EPISODE-ENTRY MODE (mirrors the CRM toggles, distinct fields) ──
+function updateLoopObservations() {
+  var yes = document.querySelector('input[name="loop-obs-yn"][value="Yes"]');
+  var wrap = document.getElementById('loop-obs-text-wrap');
+  if (wrap) wrap.style.display = (yes && yes.checked) ? '' : 'none';
+}
+function updateLoopEpMode() {
+  var m = document.querySelector('input[name="lep-mode"]:checked');
+  var free = !!(m && m.value === 'freetext');
+  var lb = document.getElementById('lep-logbook-wrap');
+  var ft = document.getElementById('lep-freetext-wrap');
   if (lb) lb.style.display = free ? 'none' : '';
   if (ft) ft.style.display = free ? '' : 'none';
 }
@@ -852,18 +967,53 @@ function updateAveirBattery() {
   var isAveir = vals.indexOf('Aveir') > -1;
   var aChams = isAveir ? Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; }) : [];
   var raSel = aChams.indexOf('RA') > -1, rvSel = aChams.indexOf('RV') > -1;
+  var isLoop = vals.indexOf('ILR') > -1;   // loop mode also drops the Longevity row (no mfr duration)
   var lonRow = document.getElementById('bat-lon-row');
   var raRow  = document.getElementById('bat-lon-ra-row');
   var rvRow  = document.getElementById('bat-lon-rv-row');
-  if (lonRow) lonRow.style.display = isAveir ? 'none' : '';
+  if (lonRow) lonRow.style.display = (isAveir || isLoop) ? 'none' : '';
   if (raRow)  raRow.style.display  = (isAveir && raSel) ? '' : 'none';
   if (rvRow)  rvRow.style.display  = (isAveir && rvSel) ? '' : 'none';
+}
+
+// ── LOOP (ILR) MODE ──
+// A loop recorder's report template is completely different from a CRM device's, so
+// selecting the ILR device type swaps the form: CRM-only sections/nav (data-mode="crm")
+// hide, LOOP sections (data-mode="loop") show, and CRM-only sub-blocks inside the shared
+// Patient/Battery sections (lead info, pacing dependency, pacing %) hide too.
+function isLoopMode() {
+  var e = document.querySelector('input[name="dtype"]:checked');
+  return !!e && e.value === 'ILR';
+}
+function setFormMode(loop) {
+  document.querySelectorAll('.section[data-mode]').forEach(function(el){
+    el.classList.toggle('hidden-section', (el.getAttribute('data-mode') === 'loop') !== loop);
+  });
+  document.querySelectorAll('.sidebar [data-mode]').forEach(function(el){
+    el.classList.toggle('hidden-nav', (el.getAttribute('data-mode') === 'loop') !== loop);
+  });
+  ['leadinfo-block','ap-dep-wrap','ap-rhythm-wrap','pct-lbl','pct-grid'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.style.display = loop ? 'none' : '';
+  });
+  // Battery: ILR manufacturers don't publish a longevity duration, so loop mode drops the
+  // Longevity row and offers "OK" on the Battery Status radios instead. "OK" is loop-only —
+  // leaving loop mode hides it and unchecks it so it can't leak into a CRM report.
+  var okWrap = document.getElementById('bat-ok-wrap');
+  if (okWrap) {
+    okWrap.style.display = loop ? '' : 'none';
+    if (!loop) {
+      var okRadio = okWrap.querySelector('input[name="bat-status"][value="OK"]');
+      if (okRadio) okRadio.checked = false;
+    }
+  }
 }
 
 // ── CONDITIONALS ──
 function updateConditionals() {
   var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
   var hasAveir = vals.indexOf('Aveir') > -1;
+  setFormMode(vals.indexOf('ILR') > -1);
   var aDiv = document.getElementById('aveir-chambers');
   if (aDiv) aDiv.style.display = hasAveir ? '' : 'none';
   var lrlLbl = document.getElementById('p-lrl-lbl');
@@ -1086,7 +1236,7 @@ function navTo(id) {
   return false;
 }
 
-var sectionIds = ['s-patient','s-battery','s-params','s-leads','s-episodes','s-final'];
+var sectionIds = ['s-patient','s-battery','s-params','s-leads','s-episodes','s-loop-episodes','s-loop-detect','s-final'];
 var io = new IntersectionObserver(function(entries) {
   entries.forEach(function(e) {
     if (e.isIntersecting) {
@@ -1111,7 +1261,7 @@ function scheduleSave() {
 // Serialize the whole form to a plain key/value object (same shape used by autosave + restore,
 // so an exported JSON round-trips cleanly back into the form).
 function collectFormData() {
-  var d = { __ep: epN, __rp: rpN };
+  var d = { __ep: epN, __rp: rpN, __lep: lepN };
   document.querySelectorAll('input, select, textarea').forEach(function(el) {
     if (el.type === 'file') return;                 // file inputs can't be restored (browser security)
     if (!el.id && !el.name) return;                 // dynamic lead-table cells ride in __leadinfo instead
@@ -1172,11 +1322,14 @@ function applyFormData(d) {
   // rebuild dynamic rows first
   var ep = Math.max(d.__ep || 1, 0);
   var rp = Math.max(d.__rp || 3, 0);
+  var lep = Math.max(d.__lep || 1, 0);
   document.getElementById('ep-tbody').innerHTML = '';
   document.getElementById('rp-tbody').innerHTML = '';
-  epN = 0; rpN = 0;
+  document.getElementById('lep-tbody').innerHTML = '';
+  epN = 0; rpN = 0; lepN = 0;
   for (var i = 0; i < ep; i++) addEpRow();
   for (var i = 0; i < rp; i++) addRpRow();
+  for (var i = 0; i < lep; i++) addLoopEpRow();
 
   // restore dtype radio first so leads can be rebuilt correctly
   if (d['r:dtype']) {
@@ -1222,6 +1375,8 @@ function applyFormData(d) {
   applyValues(d); // second pass: picks up newly created lead inputs
   if (typeof updateObservations === 'function') updateObservations();
   if (typeof updateEpMode === 'function') updateEpMode();   // show table vs free-text per saved choice
+  if (typeof updateLoopObservations === 'function') updateLoopObservations();
+  if (typeof updateLoopEpMode === 'function') updateLoopEpMode();
   // restore the verbatim lead-info table rows (cells have no id/name, so they ride in __leadinfo)
   if (Array.isArray(d.__leadinfo) && d.__leadinfo.length && typeof setLeadInfoRows === 'function') {
     setLeadInfoRows(d.__leadinfo);
@@ -1248,6 +1403,7 @@ function resetFormState() {
   calcIntervalRate('');
   // rebuild dynamic tables to their fresh defaults
   var ep = document.getElementById('ep-tbody'); if (ep) ep.innerHTML = ''; epN = 0; addEpRow();
+  var lp = document.getElementById('lep-tbody'); if (lp) lp.innerHTML = ''; lepN = 0; addLoopEpRow();
   var rp = document.getElementById('rp-tbody'); if (rp) rp.innerHTML = ''; rpN = 0; addRpRow(); addRpRow(); addRpRow();
   var li = document.getElementById('leadinfo-tbody'); if (li) li.innerHTML = '';
   // re-run the dependent visibility/UI updaters
@@ -1255,6 +1411,8 @@ function resetFormState() {
   if (typeof updatePacingPct      === 'function') updatePacingPct();
   if (typeof updateObservations   === 'function') updateObservations();
   if (typeof updateEpMode         === 'function') updateEpMode();
+  if (typeof updateLoopObservations === 'function') updateLoopObservations();
+  if (typeof updateLoopEpMode     === 'function') updateLoopEpMode();
   if (typeof updateReprogTable    === 'function') updateReprogTable();
   if (typeof updateLeadInfoTable  === 'function') updateLeadInfoTable();
   if (typeof updateDynamicAV      === 'function') updateDynamicAV();
@@ -1290,6 +1448,11 @@ function clearSection(button) {
     epN = 0; addEpRow();
     if (typeof updateEpMode === 'function') updateEpMode();
     if (typeof updateObservations === 'function') updateObservations();
+  } else if (section.id === 's-loop-episodes') {
+    var lp = document.getElementById('lep-tbody'); if (lp) lp.innerHTML = '';
+    lepN = 0; addLoopEpRow();
+    if (typeof updateLoopEpMode === 'function') updateLoopEpMode();
+    if (typeof updateLoopObservations === 'function') updateLoopObservations();
   } else if (section.id === 's-params') {
     if (typeof updateDynamicAV === 'function') updateDynamicAV();
   } else if (section.id === 's-final') {
@@ -1405,17 +1568,21 @@ function buildReportPdfBlob() {
     y = doc.lastAutoTable.finalY + 12;
   }
 
-  h1('Cardiac CRM Interrogation & Reprogramming Record');
+  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){return e.value;}).join(', ');
+  var isLoopDev = dtype.indexOf('ILR') > -1;
+
+  h1(isLoopDev ? 'Cardiac Loop Recorder Interrogation Record' : 'Cardiac CRM Interrogation & Reprogramming Record');
   doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(136,136,136);
   doc.text('Generated: ' + new Date().toLocaleString(), M, y); doc.setTextColor(0,0,0); y += 14;
 
-  var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){return e.value;}).join(', ');
   h2('Patient & Device');
   // 5 columns so the 10 patient/device fields fit in 2 rows instead of 3–4.
   grid([['Patient Name',val('pt-name')],['DOB',val('pt-dob')],['MRN',val('pt-mrn')],['Date',val('pt-date')],['Provider',val('pt-provider')],
         ['Device Type',dtype],['Manufacturer',radio('mfr')],['Model',val('dev-model')],['Serial #',val('dev-serial')],['Implant Date',val('dev-implant')]], 5);
 
-  var liBody = leadInfoRows().map(function(r){ return [r.loc, r.mfr, r.model, r.serial, r.date]; });
+  // Lead information is a CRM-only block — an ILR has no leads (and the hidden table could
+  // still hold stale rows from a previous CRM entry).
+  var liBody = isLoopDev ? [] : leadInfoRows().map(function(r){ return [r.loc, r.mfr, r.model, r.serial, r.date]; });
   if (liBody.length){ h2('Lead Information'); table(['Location','Manufacturer','Lead Model','Lead Serial #','Implant Date'], liBody); para('Notes', val('leadinfo-notes')); }
 
   // Battery / Device Status renders as three aligned 3-column grids so each logical group gets
@@ -1425,7 +1592,11 @@ function buildReportPdfBlob() {
   // Longevity and battery status share the first slot: a longevity value normally, or ERI/EOL
   // in its place (they're mutually exclusive — an ERI/EOL device has no remaining longevity).
   var isAveir = dtype.indexOf('Aveir') > -1, batStatus = radio('bat-status'), batBasics = [];
-  if (isAveir){
+  if (isLoopDev){
+    // ILR: no longevity duration exists — battery status (OK / ERI / EOL) is the whole story,
+    // and any longevity value left over from a prior CRM entry is ignored.
+    if (batStatus) batBasics.push(['Battery Status', batStatus]);
+  } else if (isAveir){
     if (val('bat-lon-ra-cur')) batBasics.push(['RA Module Longevity', val('bat-lon-ra-cur')+' '+unit('bat-lon-ra-unit','years')]);
     if (val('bat-lon-rv-cur')) batBasics.push(['RV Module Longevity', val('bat-lon-rv-cur')+' '+unit('bat-lon-rv-unit','years')]);
     if (batStatus && !batBasics.length) batBasics.push(['Battery Status', batStatus]);
@@ -1434,50 +1605,83 @@ function buildReportPdfBlob() {
   } else if (batStatus) {
     batBasics.push(['Battery Status', batStatus]);
   }
-  batBasics.push(['Device Function',val('ap-devfx')],['Pacing Dependency',val('ap-dep')]);
-  var batRhythms = [['Presenting Rhythm',val('ap-presenting')],['Intrinsic Rhythm',val('ap-rhythm')]];
+  batBasics.push(['Device Function',val('ap-devfx')]);
+  if (!isLoopDev) batBasics.push(['Pacing Dependency',val('ap-dep')]);
+  var batRhythms = [['Presenting Rhythm',val('ap-presenting')]];
+  if (!isLoopDev) batRhythms.push(['Intrinsic Rhythm',val('ap-rhythm')]);
   // CRT edge case: when all four pacing values are filled, report only A and BiV (BiV already
   // reflects effective ventricular pacing) so they don't overflow the 3-column row.
   var batPacing = (val('pct-a') && val('pct-v') && val('pct-lv') && val('pct-biv'))
     ? [['A Paced %',val('pct-a')],['BiV Paced %',val('pct-biv')]]
     : [['A Paced %',val('pct-a')],['V Paced %',val('pct-v')],['LV Paced %',val('pct-lv')],['BiV Paced %',val('pct-biv')]];
   h2('Battery / Device Status');
-  grid(batBasics, 3); grid(batRhythms, 3); grid(batPacing, 3);
+  grid(batBasics, 3); grid(batRhythms, 3);
+  if (!isLoopDev) grid(batPacing, 3);
 
-  h2('Programmed Parameters');
-  // 4 columns so the 8 programmed-parameter fields fit in 2 rows instead of 3.
-  grid([['Mode',val('p-mode')],[isAveir ? 'A/V LRL (bpm)' : 'LRL (bpm)',val('p-lrl')],['UTR (bpm)',val('p-utr')],['USR (bpm)',val('p-usr')],
-        ['Sensed AV (ms)', val('p-sav-hi')?(val('p-sav')+' - '+val('p-sav-hi')):val('p-sav')],
-        ['Paced AV (ms)', val('p-pav-hi')?(val('p-pav')+' - '+val('p-pav-hi')):val('p-pav')],
-        ['Mode Switch',val('p-ms')],['MS Rate (bpm)',val('p-msrate')]], 4);
+  if (isLoopDev) {
+    // LOOP template: Sensing & Detection replaces Programmed Parameters + Lead Measurements.
+    h2('Sensing & Detection');
+    grid([['R-Wave Amplitude (mV)',val('lp-rwave')],['Noise Burden (%)',val('lp-noise')],
+          ['AF Detection',val('lp-af-det')],['Tachy Rate (bpm)',val('lp-tachy-rate')],
+          ['Brady Rate (bpm)',val('lp-brady-rate')],['Pause (sec)',val('lp-pause-dur')],
+          ['Patient Activator',val('lp-activator')]], 4);
+    para('Notes', val('lp-detect-notes'));
 
-  var lmBody = [];
-  document.querySelectorAll('#leads-tbody tr').forEach(function(tr){
-    var c=tr.querySelectorAll('td'); if(!c.length) return;
-    var label=c[0]?(c[0].querySelector('strong')?c[0].querySelector('strong').textContent.trim():(c[0].textContent||'').split('\n')[0].trim()):'';
-    var imp=((c[1]&&c[1].querySelector('input'))||{value:''}).value, sens=((c[2]&&c[2].querySelector('input'))||{value:''}).value, thr=((c[3]&&c[3].querySelector('input'))||{value:''}).value, pw=((c[4]&&c[4].querySelector('input'))||{value:''}).value;
-    if (imp||sens||thr||pw) lmBody.push([label,imp,sens,thr,pw]);
-  });
-  if (lmBody.length){ h2('Lead / Electrode Measurements'); table(['Lead','Impedance (ohms)','Sensing (mV)','Threshold (V)','PW (ms)'], lmBody); }
+    var lpSum=[['AF Burden (%)',val('lp-af-burden')],['AF',val('lp-af')],['Tachy',val('lp-tachy')],
+               ['Brady',val('lp-brady')],['Pause',val('lp-pause')],['Pt-Activated',val('lp-pta')]];
+    var lpFree=(radio('lep-mode')==='freetext')?val('lp-freetext'):'', lpBody=[];
+    if (radio('lep-mode')!=='freetext'){
+      document.querySelectorAll('#lep-tbody tr').forEach(function(tr){
+        var c=tr.querySelectorAll('td'); if(!c.length) return;
+        var dt=fmtDT(((c[1]&&c[1].querySelector('input'))||{value:''}).value);
+        var types=c[2]?Array.from(c[2].querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', '):'';
+        var dur=((c[3]&&c[3].querySelector('input'))||{value:''}).value, rate=((c[4]&&c[4].querySelector('input'))||{value:''}).value;
+        var flags=c[5]?Array.from(c[5].querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', '):'';
+        var notes=((c[6]&&c[6].querySelector('textarea'))||{value:''}).value;
+        if (dt||types||dur) lpBody.push([dt,types,dur,rate,flags,notes]);
+      });
+    }
+    if (lpSum.some(function(p){return p[1];})||lpBody.length||lpFree){
+      h2('Stored Episodes');
+      grid(lpSum, 3);
+      if (lpFree) para('', lpFree); else table(['Date/Time','Type','Duration','Rate','Flags','Symptoms / Notes'], lpBody);
+    }
+  } else {
+    h2('Programmed Parameters');
+    // 4 columns so the 8 programmed-parameter fields fit in 2 rows instead of 3.
+    grid([['Mode',val('p-mode')],[isAveir ? 'A/V LRL (bpm)' : 'LRL (bpm)',val('p-lrl')],['UTR (bpm)',val('p-utr')],['USR (bpm)',val('p-usr')],
+          ['Sensed AV (ms)', val('p-sav-hi')?(val('p-sav')+' - '+val('p-sav-hi')):val('p-sav')],
+          ['Paced AV (ms)', val('p-pav-hi')?(val('p-pav')+' - '+val('p-pav-hi')):val('p-pav')],
+          ['Mode Switch',val('p-ms')],['MS Rate (bpm)',val('p-msrate')]], 4);
 
-  var epAF=val('ep-af-burden'),epAhr=val('ep-ahr'),epHvr=val('ep-hvr'),epPmt=val('ep-pmt');
-  var epFree=(radio('ep-mode')==='freetext')?val('ep-freetext'):'', epBody=[];
-  if (radio('ep-mode')!=='freetext'){
-    document.querySelectorAll('#ep-tbody tr').forEach(function(tr){
+    var lmBody = [];
+    document.querySelectorAll('#leads-tbody tr').forEach(function(tr){
       var c=tr.querySelectorAll('td'); if(!c.length) return;
-      var dt=fmtDT(((c[1]&&c[1].querySelector('input'))||{value:''}).value);
-      var types=c[2]?Array.from(c[2].querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', '):'';
-      var dur=((c[3]&&c[3].querySelector('input'))||{value:''}).value, rate=((c[4]&&c[4].querySelector('input'))||{value:''}).value;
-      var ther=c[5]?Array.from(c[5].querySelectorAll('input:checked')).map(function(i){return i.value;}).join('+'):'';
-      var app=c[6]?Array.from(c[6].querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', '):'';
-      var notes=((c[7]&&c[7].querySelector('textarea'))||{value:''}).value;
-      if (dt||types||dur) epBody.push([dt,types,dur,rate,ther,app,notes]);
+      var label=c[0]?(c[0].querySelector('strong')?c[0].querySelector('strong').textContent.trim():(c[0].textContent||'').split('\n')[0].trim()):'';
+      var imp=((c[1]&&c[1].querySelector('input'))||{value:''}).value, sens=((c[2]&&c[2].querySelector('input'))||{value:''}).value, thr=((c[3]&&c[3].querySelector('input'))||{value:''}).value, pw=((c[4]&&c[4].querySelector('input'))||{value:''}).value;
+      if (imp||sens||thr||pw) lmBody.push([label,imp,sens,thr,pw]);
     });
-  }
-  if (epAF||epAhr||epHvr||epPmt||epBody.length||epFree){
-    h2('Stored Episodes');
-    grid([['AF Burden (%)',epAF],['AHR',epAhr],['HVR',epHvr],['PMT',epPmt]]);
-    if (epFree) para('', epFree); else table(['Date/Time','Type','Duration','Rate','Therapy','Flags','Notes'], epBody);
+    if (lmBody.length){ h2('Lead / Electrode Measurements'); table(['Lead','Impedance (ohms)','Sensing (mV)','Threshold (V)','PW (ms)'], lmBody); }
+
+    var epAF=val('ep-af-burden'),epAhr=val('ep-ahr'),epHvr=val('ep-hvr'),epPmt=val('ep-pmt');
+    var epFree=(radio('ep-mode')==='freetext')?val('ep-freetext'):'', epBody=[];
+    if (radio('ep-mode')!=='freetext'){
+      document.querySelectorAll('#ep-tbody tr').forEach(function(tr){
+        var c=tr.querySelectorAll('td'); if(!c.length) return;
+        var dt=fmtDT(((c[1]&&c[1].querySelector('input'))||{value:''}).value);
+        var types=c[2]?Array.from(c[2].querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', '):'';
+        var dur=((c[3]&&c[3].querySelector('input'))||{value:''}).value, rate=((c[4]&&c[4].querySelector('input'))||{value:''}).value;
+        var ther=c[5]?Array.from(c[5].querySelectorAll('input:checked')).map(function(i){return i.value;}).join('+'):'';
+        var app=c[6]?Array.from(c[6].querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', '):'';
+        var notes=((c[7]&&c[7].querySelector('textarea'))||{value:''}).value;
+        if (dt||types||dur) epBody.push([dt,types,dur,rate,ther,app,notes]);
+      });
+    }
+    if (epAF||epAhr||epHvr||epPmt||epBody.length||epFree){
+      h2('Stored Episodes');
+      grid([['AF Burden (%)',epAF],['AHR',epAhr],['HVR',epHvr],['PMT',epPmt]]);
+      if (epFree) para('', epFree); else table(['Date/Time','Type','Duration','Rate','Therapy','Flags','Notes'], epBody);
+    }
   }
 
   var rpChg=radio('rp-chg'), rpBody=[];
@@ -1486,7 +1690,7 @@ function buildReportPdfBlob() {
     var p=((c[0]&&c[0].querySelector('input'))||{value:''}).value;
     if (p) rpBody.push([p,((c[1]&&c[1].querySelector('input'))||{value:''}).value,((c[2]&&c[2].querySelector('input'))||{value:''}).value,((c[3]&&c[3].querySelector('input'))||{value:''}).value]);
   });
-  var obsYN=radio('obs-yn'), obsText=val('obs-text');
+  var obsYN=radio(isLoopDev?'loop-obs-yn':'obs-yn'), obsText=val(isLoopDev?'loop-obs-text':'obs-text');
   if (rpChg||rpBody.length||obsYN){
     h2('Reprogramming / Observations');
     if (rpChg==='Yes' && rpBody.length) table(['Parameter','Previous','New Value','Reason'], rpBody);
@@ -1538,12 +1742,16 @@ function exportPDF() {
   var lonVal  = (document.querySelector('[name="bat-lon-cur"]')||{value:''}).value;
   // Aveir uses per-module longevity (RA/RV) instead of the single Longevity value.
   var isAveirDev = dtype.indexOf('Aveir') > -1;
+  var isLoopDev  = dtype.indexOf('ILR') > -1;
   function lonField(prefix, label) {
     var cur = (document.querySelector('[name="bat-lon-'+prefix+'-cur"]')||{value:''}).value;
     var unit = (document.querySelector('[name="bat-lon-'+prefix+'-unit"]')||{value:'years'}).value;
     return cur ? pf(label, cur+' '+unit) : '';
   }
-  var lonFieldsHTML = isAveirDev
+  // ILR: no longevity field — battery status (OK / ERI / EOL) is rendered on its own below,
+  // and a stale longevity value from a prior CRM entry must not print.
+  var lonFieldsHTML = isLoopDev ? ''
+    : isAveirDev
     ? (function(){
         var ra = lonField('ra', 'RA Module Longevity'), rv = lonField('rv', 'RV Module Longevity');
         return (ra || rv) ? (ra + rv) : pf('Longevity', '');
@@ -1581,6 +1789,22 @@ function exportPDF() {
     epRows += '<tr><td>'+num+'</td><td>'+(dt||'')+'</td><td>'+(types||'')+'</td><td>'+(dur||'')+'</td><td>'+(rate||'')+'</td><td>'+(ther||'')+'</td><td>'+(app||'')+'</td><td style="white-space:pre-wrap">'+(notes||'')+'</td></tr>';
   });
 
+  // Build LOOP episode rows HTML (ILR logbook — no therapy column)
+  var lpRows = '';
+  document.querySelectorAll('#lep-tbody tr').forEach(function(tr) {
+    var cells = tr.querySelectorAll('td');
+    if (!cells.length) return;
+    var num   = cells[0] ? cells[0].innerText.trim() : '';
+    var dt    = cells[1] ? fmtDT((cells[1].querySelector('input')||{value:''}).value) : '';
+    var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
+    var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
+    var rate  = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
+    var flags = cells[5] ? Array.from(cells[5].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
+    var notes = cells[6] ? (cells[6].querySelector('textarea')||{value:''}).value : '';
+    if (!dt && !types && !dur) return;
+    lpRows += '<tr><td>'+num+'</td><td>'+(dt||'')+'</td><td>'+(types||'')+'</td><td>'+(dur||'')+'</td><td>'+(rate||'')+'</td><td>'+(flags||'')+'</td><td style="white-space:pre-wrap">'+(notes||'')+'</td></tr>';
+  });
+
   // Build reprog rows HTML
   var rpRows = '';
   var rpChg = r('rp-chg');
@@ -1616,7 +1840,7 @@ function exportPDF() {
     + '.gen{font-size:8.5px;color:#888;margin-bottom:5px;}'
     + '@media print{@page{size:letter;margin:.4in .5in;}body{padding:0;}}'
     + '</style></head><body>'
-    + '<h1>Cardiac CRM Interrogation &amp; Reprogramming Record</h1>'
+    + '<h1>' + (isLoopDev ? 'Cardiac Loop Recorder Interrogation Record' : 'Cardiac CRM Interrogation &amp; Reprogramming Record') + '</h1>'
     + '<div class="gen">Generated: ' + new Date().toLocaleString() + '</div>'
 
     + psec('Patient &amp; Device',
@@ -1637,7 +1861,7 @@ function exportPDF() {
       )
 
     + (function(){
-        if (!leadInfoOn()) return '';
+        if (isLoopDev || !leadInfoOn()) return '';   // ILR has no leads (hidden table may hold stale rows)
         var rows = leadInfoRows();
         var liNotes = v('leadinfo-notes');
         if (!rows.length && !liNotes) return '';
@@ -1655,34 +1879,62 @@ function exportPDF() {
         + lonFieldsHTML
         + pf('Battery Status', r('bat-status'))
         + pf('Device Function', v('ap-devfx'))
-        + pf('Pacing Dependency', v('ap-dep'))
+        + (isLoopDev ? '' : pf('Pacing Dependency', v('ap-dep')))
         + pf('Presenting Rhythm', v('ap-presenting'))
-        + pf('Intrinsic Rhythm', v('ap-rhythm'))
-        + pf('A Paced %', document.getElementById('pct-a') ? document.getElementById('pct-a').value : '')
-        + pf('V Paced %', document.getElementById('pct-v') ? document.getElementById('pct-v').value : '')
-        + pf('LV Paced %', document.getElementById('pct-lv') ? document.getElementById('pct-lv').value : '')
-        + pf('BiV Paced %', document.getElementById('pct-biv') ? document.getElementById('pct-biv').value : '')
+        + (isLoopDev ? '' : pf('Intrinsic Rhythm', v('ap-rhythm')))
+        + (isLoopDev ? '' :
+            pf('A Paced %', document.getElementById('pct-a') ? document.getElementById('pct-a').value : '')
+          + pf('V Paced %', document.getElementById('pct-v') ? document.getElementById('pct-v').value : '')
+          + pf('LV Paced %', document.getElementById('pct-lv') ? document.getElementById('pct-lv').value : '')
+          + pf('BiV Paced %', document.getElementById('pct-biv') ? document.getElementById('pct-biv').value : ''))
         + '</div>'
       )
 
-    + psec('Programmed Parameters',
-        '<div class="row">'
-        + pf('Mode', v('p-mode'))
-        + pf(isAveirDev ? 'A/V LRL (bpm)' : 'LRL (bpm)', v('p-lrl'))
-        + pf('UTR (bpm)', v('p-utr'))
-        + pf('USR (bpm)', v('p-usr'))
-        + pf('Sensed AV (ms)', v('p-sav-hi') ? (v('p-sav') + ' - ' + v('p-sav-hi')) : v('p-sav'))
-        + pf('Paced AV (ms)',  v('p-pav-hi') ? (v('p-pav') + ' - ' + v('p-pav-hi')) : v('p-pav'))
-        + pf('Mode Switch', v('p-ms'))
-        + pf('MS Rate (bpm)', v('p-msrate'))
-        + '</div>'
-      )
+    + (isLoopDev
+      ? psec('Sensing &amp; Detection',
+          '<div class="row">'
+          + pf('R-Wave Amplitude (mV)', v('lp-rwave'))
+          + pf('Noise Burden (%)', v('lp-noise'))
+          + pf('AF Detection', v('lp-af-det'))
+          + pf('Tachy Rate (bpm)', v('lp-tachy-rate'))
+          + pf('Brady Rate (bpm)', v('lp-brady-rate'))
+          + pf('Pause (sec)', v('lp-pause-dur'))
+          + pf('Patient Activator', v('lp-activator'))
+          + '</div>'
+          + (v('lp-detect-notes') ? '<p style="font-size:10px;margin:4px 0;white-space:pre-wrap"><strong>Notes:</strong> '+v('lp-detect-notes')+'</p>' : '')
+        )
+      : psec('Programmed Parameters',
+          '<div class="row">'
+          + pf('Mode', v('p-mode'))
+          + pf(isAveirDev ? 'A/V LRL (bpm)' : 'LRL (bpm)', v('p-lrl'))
+          + pf('UTR (bpm)', v('p-utr'))
+          + pf('USR (bpm)', v('p-usr'))
+          + pf('Sensed AV (ms)', v('p-sav-hi') ? (v('p-sav') + ' - ' + v('p-sav-hi')) : v('p-sav'))
+          + pf('Paced AV (ms)',  v('p-pav-hi') ? (v('p-pav') + ' - ' + v('p-pav-hi')) : v('p-pav'))
+          + pf('Mode Switch', v('p-ms'))
+          + pf('MS Rate (bpm)', v('p-msrate'))
+          + '</div>'
+        ))
 
-    + (leadRows ? '<h2>Lead / Electrode Measurements</h2>'
+    + (!isLoopDev && leadRows ? '<h2>Lead / Electrode Measurements</h2>'
         + '<table><thead><tr><th>Lead</th><th>Impedance (\u03a9)</th><th>Sensing (mV)</th><th>Threshold (V)</th><th>PW (ms)</th></tr></thead><tbody>'
         + leadRows + '</tbody></table>' : '')
 
     + (function(){
+        if (isLoopDev) {
+          var lpAF=v('lp-af-burden'), lpCts=[['AF',v('lp-af')],['Tachy',v('lp-tachy')],['Brady',v('lp-brady')],['Pause',v('lp-pause')],['Pt-Activated',v('lp-pta')]];
+          var hasLpSummary = !!(lpAF || lpCts.some(function(p){ return p[1]; }));
+          var lpModeEl = document.querySelector('input[name="lep-mode"]:checked');
+          var lpFreeTxt = (lpModeEl && lpModeEl.value === 'freetext') ? v('lp-freetext') : '';
+          if (!lpRows && !hasLpSummary && !lpFreeTxt) return '';
+          return '<h2>Stored Episodes</h2>'
+            + (hasLpSummary ? '<div class="row" style="margin-bottom:3px;">'
+                + (lpAF ? '<div class="f"><span class="lbl">AF Burden (%)</span><span class="val">'+lpAF+'</span></div>' : '')
+                + lpCts.map(function(p){ return pf(p[0], p[1]); }).join('')
+                + '</div>' : '')
+            + (lpFreeTxt ? '<p style="font-size:10px;margin:4px 0;white-space:pre-wrap">'+lpFreeTxt+'</p>'
+                         : (lpRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Flags</th><th>Symptoms / Notes</th></tr></thead><tbody>'+lpRows+'</tbody></table>' : ''));
+        }
         var epAF=v('ep-af-burden'), epAhr=v('ep-ahr'), epHvr=v('ep-hvr'), epPmt=v('ep-pmt');
         var hasSummary = !!(epAF||epAhr||epHvr||epPmt);
         var epModeEl = document.querySelector('input[name="ep-mode"]:checked');
@@ -1699,11 +1951,16 @@ function exportPDF() {
                        : (epRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Therapy</th><th>Flags</th><th>Notes</th></tr></thead><tbody>'+epRows+'</tbody></table>' : ''));
       })()
 
-    + psec('Reprogramming / Observations',
-        (rpChg === 'Yes' && rpRows ? '<table><thead><tr><th>Parameter</th><th>Previous</th><th>New Value</th><th>Reason</th></tr></thead><tbody>'+rpRows+'</tbody></table>' : (rpChg === 'No' ? '<p style="font-size:10px;color:#555;margin:4px 0">No changes made this visit.</p>' : ''))
-        + (r('obs-yn') ? '<div class="row" style="margin-top:6px;"><div class="f"><span class="lbl">Observations</span><span class="val">'+r('obs-yn')+'</span></div></div>' : '')
-        + (r('obs-yn')==='Yes' && v('obs-text') ? '<div class="row"><div class="f" style="min-width:400px"><span class="lbl">Notes</span><span class="val" style="white-space:pre-wrap">'+v('obs-text')+'</span></div></div>' : '')
-      )
+    + (function(){
+        // Observations live in the mode's own episode section (obs-yn for CRM, loop-obs-yn for ILR).
+        var oYN = isLoopDev ? r('loop-obs-yn') : r('obs-yn');
+        var oTxt = isLoopDev ? v('loop-obs-text') : v('obs-text');
+        return psec('Reprogramming / Observations',
+          (rpChg === 'Yes' && rpRows ? '<table><thead><tr><th>Parameter</th><th>Previous</th><th>New Value</th><th>Reason</th></tr></thead><tbody>'+rpRows+'</tbody></table>' : (rpChg === 'No' ? '<p style="font-size:10px;color:#555;margin:4px 0">No changes made this visit.</p>' : ''))
+          + (oYN ? '<div class="row" style="margin-top:6px;"><div class="f"><span class="lbl">Observations</span><span class="val">'+oYN+'</span></div></div>' : '')
+          + (oYN==='Yes' && oTxt ? '<div class="row"><div class="f" style="min-width:400px"><span class="lbl">Notes</span><span class="val" style="white-space:pre-wrap">'+oTxt+'</span></div></div>' : '')
+        );
+      })()
 
     + psec('Remote Monitoring',
         '<div class="row">'
@@ -1782,7 +2039,8 @@ async function saveFile(filename, data, mime) {
 
 function fileStamp(ext) {
   var ptName = (document.getElementById('pt-name')||{value:''}).value.replace(/[^a-zA-Z]/g,'_') || 'Record';
-  return 'CRM_' + ptName + '_' + new Date().toISOString().slice(0,10) + '.' + ext;
+  var prefix = (typeof isLoopMode === 'function' && isLoopMode()) ? 'ILR_' : 'CRM_';
+  return prefix + ptName + '_' + new Date().toISOString().slice(0,10) + '.' + ext;
 }
 
 function exportSummary() {
@@ -1868,6 +2126,7 @@ function buildSummaryLines() {
 
   // DEVICE — one line: type | mfr+model | SN | Impl
   var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ');
+  var isLoop = dtype.indexOf('ILR') > -1;
   var mfrModel = [radio('mfr'), val('dev-model')].filter(Boolean).join(' ');
   var devParts = [];
   if (dtype)             devParts.push(dtype);
@@ -1876,8 +2135,9 @@ function buildSummaryLines() {
   if (val('dev-implant'))devParts.push('Impl: ' + val('dev-implant'));
   if (devParts.length) { lines.push('DEVICE'); push(devParts); }
 
-  // LEADS (verbatim inventory) — location | mfr+model | SN | date
-  if (leadInfoOn()) {
+  // LEADS (verbatim inventory) — location | mfr+model | SN | date. CRM only — an ILR has no
+  // leads, and the hidden table could still hold stale rows from a previous CRM entry.
+  if (!isLoop && leadInfoOn()) {
     var liLines = leadInfoRows().map(function(r) {
       var mm = [r.mfr, r.model].filter(Boolean).join(' ');
       return '  ' + [r.loc, mm, r.serial ? 'SN: ' + r.serial : '', r.date].filter(Boolean).join(SEP);
@@ -1896,7 +2156,10 @@ function buildSummaryLines() {
   var l1 = [];
   var batStatus = radio('bat-status');
   var sumDtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
-  if (sumDtype.indexOf('Aveir') > -1) {
+  if (isLoop) {
+    // ILR: battery status only — no longevity duration (a stale CRM value is ignored)
+    if (batStatus) l1.push('Battery: ' + batStatus);
+  } else if (sumDtype.indexOf('Aveir') > -1) {
     var raLonCur = nval('bat-lon-ra-cur'), rvLonCur = nval('bat-lon-rv-cur');
     if (raLonCur) l1.push('RA Module: ' + raLonCur + ' ' + (nval('bat-lon-ra-unit') || 'years'));
     if (rvLonCur) l1.push('RV Module: ' + rvLonCur + ' ' + (nval('bat-lon-rv-unit') || 'years'));
@@ -1909,19 +2172,23 @@ function buildSummaryLines() {
   // Function / Dependency on their own line, below Longevity/Battery
   var l1b = [];
   if (val('ap-devfx'))     l1b.push('Function: ' + val('ap-devfx'));
-  if (val('ap-dep'))       l1b.push('Dependency: ' + val('ap-dep'));
+  if (!isLoop && val('ap-dep')) l1b.push('Dependency: ' + val('ap-dep'));
   // Rhythm on its own dedicated line between Function and Mode — Underlying (intrinsic) and
   // Presenting rhythm are labeled distinctly since the clinical difference matters.
   var lRhythm = [];
   if (val('ap-presenting')) lRhythm.push('Presenting Rhythm: ' + val('ap-presenting'));
-  if (val('ap-rhythm'))     lRhythm.push('Underlying Rhythm: ' + val('ap-rhythm'));
+  if (!isLoop && val('ap-rhythm')) lRhythm.push('Underlying Rhythm: ' + val('ap-rhythm'));
   var l2 = [];
-  if (val('p-mode')) l2.push('Mode: ' + val('p-mode'));
-  if (val('p-lrl'))  l2.push((sumDtype.indexOf('Aveir') > -1 ? 'A/V LRL' : 'LRL') + ': ' + val('p-lrl'));
-  if (val('p-utr'))  l2.push('UTR: ' + val('p-utr'));
-  if (val('p-usr'))  l2.push('USR: ' + val('p-usr'));
+  if (!isLoop) {
+    if (val('p-mode')) l2.push('Mode: ' + val('p-mode'));
+    if (val('p-lrl'))  l2.push((sumDtype.indexOf('Aveir') > -1 ? 'A/V LRL' : 'LRL') + ': ' + val('p-lrl'));
+    if (val('p-utr'))  l2.push('UTR: ' + val('p-utr'));
+    if (val('p-usr'))  l2.push('USR: ' + val('p-usr'));
+  }
   var l3 = [];
-  if (val('pct-a') && val('pct-v') && val('pct-lv') && val('pct-biv')) {
+  if (isLoop) {
+    // no pacing % on a loop recorder
+  } else if (val('pct-a') && val('pct-v') && val('pct-lv') && val('pct-biv')) {
     // CRT edge case: all four pacing values filled — report only A and BiV (BiV already
     // reflects effective ventricular pacing) so the four don't overflow the layout.
     l3.push('A Paced: ' + pct(val('pct-a')));
@@ -1935,6 +2202,25 @@ function buildSummaryLines() {
   if (l1.length || l1b.length || lRhythm.length || l2.length || l3.length) {
     lines.push('BATTERY / STATUS');
     push(l1); push(l1b); push(lRhythm); push(l2); push(l3);
+  }
+
+  // SENSING / DETECTION (loop mode) — replaces the Mode/rates + Measurements content
+  if (isLoop) {
+    var sd = [];
+    if (val('lp-rwave')) sd.push('R-Wave: ' + val('lp-rwave') + ' mV');
+    if (val('lp-noise')) sd.push('Noise: ' + pct(val('lp-noise')));
+    var det = [];
+    if (val('lp-af-det'))     det.push('AF Det: ' + val('lp-af-det'));
+    if (val('lp-tachy-rate')) det.push('Tachy: ' + val('lp-tachy-rate') + ' bpm');
+    if (val('lp-brady-rate')) det.push('Brady: ' + val('lp-brady-rate') + ' bpm');
+    if (val('lp-pause-dur'))  det.push('Pause: ' + val('lp-pause-dur') + ' s');
+    if (val('lp-activator'))  det.push('Activator: ' + val('lp-activator'));
+    var detNotes = val('lp-detect-notes');
+    if (sd.length || det.length || detNotes) {
+      lines.push('SENSING / DETECTION');
+      push(sd); push(det);
+      if (detNotes) wrapLines(detNotes.replace(/\r?\n+/g, ' ').trim(), '  Notes: ', '  ', 78).forEach(function(l){ lines.push(l); });
+    }
   }
 
   // MEASUREMENTS — "<lead>: imp Ω / sens mV / thr V @ pw ms" (labels implied by position)
@@ -1961,29 +2247,42 @@ function buildSummaryLines() {
     leadLines.forEach(function(l){ lines.push(l); });
   }
 
-  // EPISODES — counters on one line (empty AF Burden omitted, unlike Full), then rows/free text
+  // EPISODES — counters on one line (empty AF Burden omitted, unlike Full), then rows/free text.
+  // Loop mode reads its own counters (AF/Tachy/Brady/Pause/Pt-Activated), logbook (no therapy
+  // column) and observations fields; CRM reads the originals.
   var epSum = [];
-  if (val('ep-af-burden')) epSum.push('AF: ' + pct(val('ep-af-burden')));
-  if (val('ep-ahr'))       epSum.push('AHR: ' + val('ep-ahr'));
-  if (val('ep-hvr'))       epSum.push('HVR: ' + val('ep-hvr'));
-  if (val('ep-pmt'))       epSum.push('PMT: ' + val('ep-pmt'));
+  if (isLoop) {
+    if (val('lp-af-burden')) epSum.push('AF Burden: ' + pct(val('lp-af-burden')));
+    if (val('lp-af'))    epSum.push('AF: '    + val('lp-af'));
+    if (val('lp-tachy')) epSum.push('Tachy: ' + val('lp-tachy'));
+    if (val('lp-brady')) epSum.push('Brady: ' + val('lp-brady'));
+    if (val('lp-pause')) epSum.push('Pause: ' + val('lp-pause'));
+    if (val('lp-pta'))   epSum.push('Pt-Act: ' + val('lp-pta'));
+  } else {
+    if (val('ep-af-burden')) epSum.push('AF: ' + pct(val('ep-af-burden')));
+    if (val('ep-ahr'))       epSum.push('AHR: ' + val('ep-ahr'));
+    if (val('ep-hvr'))       epSum.push('HVR: ' + val('ep-hvr'));
+    if (val('ep-pmt'))       epSum.push('PMT: ' + val('ep-pmt'));
+  }
   var epLines = [];
-  var epModeEl = document.querySelector('input[name="ep-mode"]:checked');
+  var epModeEl = document.querySelector('input[name="' + (isLoop ? 'lep-mode' : 'ep-mode') + '"]:checked');
   if (epModeEl && epModeEl.value === 'freetext') {
-    var epFree = val('ep-freetext');
+    var epFree = val(isLoop ? 'lp-freetext' : 'ep-freetext');
     if (epFree) { epFree.split(/\r?\n/).forEach(function(t){ epLines.push('  ' + t); }); }
   } else {
-    document.querySelectorAll('#ep-tbody tr').forEach(function(tr) {
+    document.querySelectorAll(isLoop ? '#lep-tbody tr' : '#ep-tbody tr').forEach(function(tr) {
       var cells = tr.querySelectorAll('td');
       if (!cells.length) return;
+      // Loop rows have no Therapy column: # | dt | type | dur | rate | flags | notes
+      var fi = isLoop ? 5 : 6, ni = isLoop ? 6 : 7;
       var dtRaw = cells[1] ? (cells[1].querySelector('input')||{value:''}).value : '';
       var dt    = dtRaw ? (function(){ try { return new Date(dtRaw).toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){ return dtRaw; } })() : '';
       var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
       var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
       var rate  = cells[4] ? (cells[4].querySelector('input')||{value:''}).value : '';
-      var ther  = cells[5] ? Array.from(cells[5].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join('+') : '';
-      var flags = cells[6] ? Array.from(cells[6].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
-      var notes = cells[7] ? (cells[7].querySelector('textarea')||{value:''}).value : '';
+      var ther  = (!isLoop && cells[5]) ? Array.from(cells[5].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join('+') : '';
+      var flags = cells[fi] ? Array.from(cells[fi].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
+      var notes = cells[ni] ? (cells[ni].querySelector('textarea')||{value:''}).value : '';
       if (!dt && !types && !dur) return;
       var ep = ['  ' + (dt||'—')];
       if (types) ep.push(types);
@@ -1997,7 +2296,7 @@ function buildSummaryLines() {
       if (notes) wrapLines(notes.replace(/\r?\n+/g, ' ').trim(), '    Notes: ', '    ', 78).forEach(function(l){ epLines.push(l); });
     });
   }
-  var obsYN = radio('obs-yn'), obsText = val('obs-text');
+  var obsYN = radio(isLoop ? 'loop-obs-yn' : 'obs-yn'), obsText = val(isLoop ? 'loop-obs-text' : 'obs-text');
   if (epSum.length || epLines.length || (obsYN === 'Yes' && obsText)) {
     lines.push('EPISODES / OBSERVATIONS');
     if (epSum.length) lines.push('  ' + epSum.join(SEP));
@@ -2094,6 +2393,8 @@ function buildSummaryRtf(lines) {
 // ── INIT ──
 updatePacingPct();
 updateEpMode();
+updateLoopEpMode();
+setFormMode(isLoopMode());
 document.addEventListener('input', function(e) {
   if (e.target && e.target.closest && e.target.closest('.rate-calc')) return;
   scheduleSave();
