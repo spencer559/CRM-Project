@@ -406,10 +406,28 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     </div>
 
     <div class="sub-lbl" style="margin-top:12px;">Device / Leads</div>
-    <div class="fg fg-3" style="max-width:460px; margin-bottom:6px;">
+    <div class="fg fg-3" id="dev-single-line" style="max-width:460px; margin-bottom:6px;">
       <div class="field"><span class="lbl">Model</span><input type="text" id="dev-model"></div>
       <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-serial"></div>
       <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-implant"></div>
+    </div>
+    <div id="aveir-modules" style="display:none;">
+      <div id="dev-ra-mod" style="display:none; margin-bottom:6px;">
+        <div class="lbl" style="margin-bottom:3px;">RA Module</div>
+        <div class="fg fg-3" style="max-width:460px;">
+          <div class="field"><span class="lbl">Model</span><input type="text" id="dev-ra-model"></div>
+          <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-ra-serial"></div>
+          <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-ra-implant"></div>
+        </div>
+      </div>
+      <div id="dev-rv-mod" style="display:none; margin-bottom:6px;">
+        <div class="lbl" style="margin-bottom:3px;">RV Module</div>
+        <div class="fg fg-3" style="max-width:460px;">
+          <div class="field"><span class="lbl">Model</span><input type="text" id="dev-rv-model"></div>
+          <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-rv-serial"></div>
+          <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-rv-implant"></div>
+        </div>
+      </div>
     </div>
     <div id="leadinfo-block">
     <div class="cbg" style="margin-bottom:6px;">
@@ -599,11 +617,15 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="sec-hdr">Programmed Parameters<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Programmed Parameters section">Clear section</button></div>
   <div class="sec-body">
     <div class="sub-lbl">Pacing Mode &amp; Rates</div>
-    <div class="fg" style="grid-template-columns: 120px 90px 90px 90px;">
+    <div class="cbg" id="aveir-paired-wrap" style="display:none; margin-bottom:6px;">
+      <label class="cbl"><input type="checkbox" id="aveir-paired" onchange="updateAveirLRL()"> Both modules paired (shared lower rate)</label>
+    </div>
+    <div class="fg" style="grid-template-columns: 120px 90px 90px 90px 90px;">
       <div class="field"><span class="lbl">Mode</span>
         <input type="text" id="p-mode" placeholder="e.g. DDD, VVIR…">
       </div>
-      <div class="field"><span class="lbl" id="p-lrl-lbl">LRL (bpm)</span><input type="text" id="p-lrl" placeholder="e.g. 60 or 60/45"></div>
+      <div class="field"><span class="lbl" id="p-lrl-lbl">LRL (bpm)</span><input type="text" id="p-lrl" placeholder="e.g. 60"></div>
+      <div class="field" id="p-lrl-rv-wrap" style="display:none;"><span class="lbl" id="p-lrl-rv-lbl">RV LRL (bpm)</span><input type="text" id="p-lrl-rv" placeholder="e.g. 45"></div>
       <div class="field"><span class="lbl">UTR (bpm)</span><input type="number" id="p-utr" min="80" max="220"></div>
       <div class="field"><span class="lbl">USR (bpm)</span><input type="number" id="p-usr" min="80" max="220"></div>
     </div>
@@ -975,6 +997,45 @@ function updateAveirBattery() {
   if (rvRow)  rvRow.style.display  = (isAveir && rvSel) ? '' : 'none';
 }
 
+// Aveir modules replace the single generator Model/Serial/Implant line (and the lead table) with
+// one per-chamber module row, driven by the RA/RV chamber checkboxes. Non-Aveir keeps the single
+// line; #leadinfo-block visibility is left to setFormMode (CRM vs loop) except when Aveir hides it.
+function aveirChambers() {
+  return Array.from(document.querySelectorAll('input[name="aveir-chamber"]:checked')).map(function(e){ return e.value; });
+}
+function updateAveirModules() {
+  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  var isAveir = vals.indexOf('Aveir') > -1;
+  var chams = isAveir ? aveirChambers() : [];
+  var single = document.getElementById('dev-single-line');
+  var mods   = document.getElementById('aveir-modules');
+  var raMod  = document.getElementById('dev-ra-mod');
+  var rvMod  = document.getElementById('dev-rv-mod');
+  var liBlock= document.getElementById('leadinfo-block');
+  if (single) single.style.display = isAveir ? 'none' : '';
+  if (mods)   mods.style.display   = isAveir ? '' : 'none';
+  if (raMod)  raMod.style.display  = (isAveir && chams.indexOf('RA') > -1) ? '' : 'none';
+  if (rvMod)  rvMod.style.display  = (isAveir && chams.indexOf('RV') > -1) ? '' : 'none';
+  if (isAveir && liBlock) liBlock.style.display = 'none';   // Aveir has no leads
+}
+// A dual-chamber Aveir has one lower rate per module unless the modules are "paired" (then a single
+// shared LRL). Show RA/RV LRL fields + the paired toggle only for a dual, unpaired Aveir.
+function updateAveirLRL() {
+  var vals = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; });
+  var isAveir = vals.indexOf('Aveir') > -1;
+  var chams = isAveir ? aveirChambers() : [];
+  var dual = isAveir && chams.indexOf('RA') > -1 && chams.indexOf('RV') > -1;
+  var paired = (document.getElementById('aveir-paired') || {}).checked;
+  var splitLRL = dual && !paired;
+  var lbl = document.getElementById('p-lrl-lbl');
+  var rvWrap = document.getElementById('p-lrl-rv-wrap');
+  var pairWrap = document.getElementById('aveir-paired-wrap');
+  if (lbl) lbl.textContent = splitLRL ? 'RA LRL (bpm)' : 'LRL (bpm)';
+  if (rvWrap) rvWrap.style.display = splitLRL ? '' : 'none';
+  if (pairWrap) pairWrap.style.display = dual ? '' : 'none';
+  if (!splitLRL) { var rv = document.getElementById('p-lrl-rv'); if (rv) rv.value = ''; }  // no leak
+}
+
 // ── LOOP (ILR) MODE ──
 // A loop recorder's report template is completely different from a CRM device's, so
 // selecting the ILR device type swaps the form: CRM-only sections/nav (data-mode="crm")
@@ -1015,8 +1076,6 @@ function updateConditionals() {
   setFormMode(vals.indexOf('ILR') > -1);
   var aDiv = document.getElementById('aveir-chambers');
   if (aDiv) aDiv.style.display = hasAveir ? '' : 'none';
-  var lrlLbl = document.getElementById('p-lrl-lbl');
-  if (lrlLbl) lrlLbl.textContent = hasAveir ? 'A/V LRL (bpm)' : 'LRL (bpm)';
   if (!hasAveir) {
     document.querySelectorAll('input[name="aveir-chamber"]').forEach(function(el){ el.checked = false; });
   }
@@ -1024,6 +1083,8 @@ function updateConditionals() {
   updatePacingPct();
   updateLeadInfoTable();
   updateAveirBattery();
+  updateAveirModules();
+  updateAveirLRL();
   updateDynamicAV();
   var hasICD = vals.some(function(v){ return ['ICD-SC','ICD-DC','CRT-D','S-ICD'].indexOf(v)>-1; });
   var ccRow = document.getElementById('bat-cc-row');
@@ -1437,9 +1498,7 @@ function clearSection(button) {
 
   if (section.id === 's-patient') {
     var li = document.getElementById('leadinfo-tbody'); if (li) li.innerHTML = '';
-    var ac = document.getElementById('aveir-chambers'); if (ac) ac.style.display = 'none';
-    var ll = document.getElementById('p-lrl-lbl'); if (ll) ll.textContent = 'LRL (bpm)';
-    if (typeof updateLeadInfoTable === 'function') updateLeadInfoTable();
+    if (typeof updateConditionals === 'function') updateConditionals();
   } else if (section.id === 's-battery') {
     calcIntervalRate('');
   } else if (section.id === 's-episodes') {
@@ -1454,6 +1513,7 @@ function clearSection(button) {
     if (typeof updateLoopObservations === 'function') updateLoopObservations();
   } else if (section.id === 's-params') {
     if (typeof updateDynamicAV === 'function') updateDynamicAV();
+    if (typeof updateAveirLRL === 'function') updateAveirLRL();
   } else if (section.id === 's-final') {
     var rp = document.getElementById('rp-tbody'); if (rp) rp.innerHTML = '';
     rpN = 0; addRpRow(); addRpRow(); addRpRow();
@@ -1519,6 +1579,10 @@ function buildReportPdfBlob() {
   function radio(n){ var e=document.querySelector('input[name="'+n+'"]:checked'); return e?e.value:''; }
   function unit(name,d){ var e=document.querySelector('[name="'+name+'"]'); return e?e.value:d; }
   function fmtDT(s){ if(!s) return ''; try { return new Date(s).toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){ return s; } }
+  // date-only fields are stored YYYY-MM-DD; show them US-style M/D/Y. Parse the string parts
+  // (not new Date, which treats a date-only string as UTC and can shift a day). Non-ISO / free
+  // text (e.g. a scraped lead date like "Jan 2020") passes through untouched.
+  function usDate(s){ s=(s||'').trim(); var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m?m[2]+'/'+m[3]+'/'+m[1]:s; }
   function space(h){ if (y + h > H - M) { doc.addPage(); y = M; } }
 
   function h1(t){
@@ -1576,17 +1640,27 @@ function buildReportPdfBlob() {
 
   h2('Patient');
   // 5 columns so the 5 patient fields fit on one row.
-  grid([['Patient Name',val('pt-name')],['DOB',val('pt-dob')],['MRN',val('pt-mrn')],['Date',val('pt-date')],['Provider',val('pt-provider')]], 5);
+  grid([['Patient Name',val('pt-name')],['DOB',usDate(val('pt-dob'))],['MRN',val('pt-mrn')],['Date',usDate(val('pt-date'))],['Provider',val('pt-provider')]], 5);
 
   // Device / Leads: the generator is the first row (device type in the first column),
   // followed by the individual leads. An ILR has no leads (and the hidden table could still
   // hold stale rows from a previous CRM entry), so its lead rows are dropped — but the
-  // generator row still prints so the loop recorder's model/serial/implant show.
+  // generator row still prints so the loop recorder's model/serial/implant show. Aveir is
+  // leadless per-chamber: one module row per implanted chamber instead of a generator + leads.
+  var isAveir = dtype.indexOf('Aveir') > -1;
   var dlBody = [];
-  if (dtype || radio('mfr') || val('dev-model') || val('dev-serial') || val('dev-implant'))
-    dlBody.push([dtype, radio('mfr'), val('dev-model'), val('dev-serial'), val('dev-implant')]);
-  if (!isLoopDev) leadInfoRows().forEach(function(r){ dlBody.push([r.loc, r.mfr, r.model, r.serial, r.date]); });
-  if (dlBody.length){ h2('Device / Leads'); table(['Device / Lead','Manufacturer','Model','Serial #','Implant Date'], dlBody); para('Notes', val('leadinfo-notes')); }
+  if (isAveir) {
+    var aMfr = radio('mfr');
+    aveirChambers().forEach(function(ch){
+      var p = ch === 'RA' ? 'ra' : 'rv';
+      dlBody.push(['Aveir '+ch, aMfr, val('dev-'+p+'-model'), val('dev-'+p+'-serial'), usDate(val('dev-'+p+'-implant'))]);
+    });
+  } else {
+    if (dtype || radio('mfr') || val('dev-model') || val('dev-serial') || val('dev-implant'))
+      dlBody.push([dtype, radio('mfr'), val('dev-model'), val('dev-serial'), usDate(val('dev-implant'))]);
+    if (!isLoopDev) leadInfoRows().forEach(function(r){ dlBody.push([r.loc, r.mfr, r.model, r.serial, usDate(r.date)]); });
+  }
+  if (dlBody.length){ h2('Device / Leads'); table(['Device / Lead','Manufacturer','Model','Serial #','Implant Date'], dlBody); para('Notes', isAveir ? '' : val('leadinfo-notes')); }
 
   // Battery / Device Status renders as three aligned 3-column grids so each logical group gets
   // its own row: basics on row 1, the two rhythms (Presenting before Intrinsic) on row 2, and
@@ -1594,7 +1668,7 @@ function buildReportPdfBlob() {
   // rhythm grid draws nothing and pacing % moves up onto row 2.
   // Longevity and battery status share the first slot: a longevity value normally, or ERI/EOL
   // in its place (they're mutually exclusive — an ERI/EOL device has no remaining longevity).
-  var isAveir = dtype.indexOf('Aveir') > -1, batStatus = radio('bat-status'), batBasics = [];
+  var batStatus = radio('bat-status'), batBasics = [];
   if (isLoopDev){
     // ILR: no longevity duration exists — battery status (OK / ERI / EOL) is the whole story,
     // and any longevity value left over from a prior CRM entry is ignored.
@@ -1651,11 +1725,15 @@ function buildReportPdfBlob() {
     }
   } else {
     h2('Programmed Parameters');
-    // 4 columns so the 8 programmed-parameter fields fit in 2 rows instead of 3.
-    grid([['Mode',val('p-mode')],[isAveir ? 'A/V LRL (bpm)' : 'LRL (bpm)',val('p-lrl')],['UTR (bpm)',val('p-utr')],['USR (bpm)',val('p-usr')],
+    // Aveir with two unpaired modules has a lower rate per module (RA/RV LRL); otherwise one LRL.
+    var aChams = aveirChambers();
+    var lrlSplit = isAveir && aChams.indexOf('RA')>-1 && aChams.indexOf('RV')>-1 && !(document.getElementById('aveir-paired')||{}).checked;
+    var lrlPairs = lrlSplit ? [['RA LRL (bpm)',val('p-lrl')],['RV LRL (bpm)',val('p-lrl-rv')]] : [['LRL (bpm)',val('p-lrl')]];
+    // 4 columns so the programmed-parameter fields fit in 2 rows instead of 3.
+    grid([['Mode',val('p-mode')]].concat(lrlPairs).concat([['UTR (bpm)',val('p-utr')],['USR (bpm)',val('p-usr')],
           ['Sensed AV (ms)', val('p-sav-hi')?(val('p-sav')+' - '+val('p-sav-hi')):val('p-sav')],
           ['Paced AV (ms)', val('p-pav-hi')?(val('p-pav')+' - '+val('p-pav-hi')):val('p-pav')],
-          ['Mode Switch',val('p-ms')],['MS Rate (bpm)',val('p-msrate')]], 4);
+          ['Mode Switch',val('p-ms')],['MS Rate (bpm)',val('p-msrate')]]), 4);
 
     var lmBody = [];
     document.querySelectorAll('#leads-tbody tr').forEach(function(tr){
@@ -1702,10 +1780,10 @@ function buildReportPdfBlob() {
     if (obsYN==='Yes') para('Notes', obsText);
   }
 
-  var rmPairs=[['Enrolled',val('rm-enrolled')],['Compliant',val('rm-comply')],['Last Transmission',val('rm-last')],['Active Alerts',val('rm-active')]].filter(function(p){return p[1];});
+  var rmPairs=[['Enrolled',val('rm-enrolled')],['Compliant',val('rm-comply')],['Last Transmission',usDate(val('rm-last'))],['Active Alerts',val('rm-active')]].filter(function(p){return p[1];});
   if (rmPairs.length){ h2('Remote Monitoring'); grid(rmPairs); }
 
-  var dtPairs=[['Name',val('sig-name')],['Date Completed',val('sig-date')]].filter(function(p){return p[1];});
+  var dtPairs=[['Name',val('sig-name')],['Date Completed',usDate(val('sig-date'))]].filter(function(p){return p[1];});
   if (dtPairs.length){ h2('Device Technician'); grid(dtPairs); }
 
   return doc.output('blob');
@@ -1728,6 +1806,10 @@ function exportPDF() {
       return d.toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
     } catch(e) { return val; }
   }
+  // date-only fields are stored YYYY-MM-DD; show them US-style M/D/Y. Parse the string parts
+  // (not new Date, which treats a date-only string as UTC and can shift a day). Non-ISO / free
+  // text (e.g. a scraped lead date) passes through untouched.
+  function usDate(s){ s=(s||'').trim(); var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m?m[2]+'/'+m[3]+'/'+m[1]:s; }
   // pf(label, val) — only renders a field div if val is non-empty
   function pf(label, val) {
     if (!val || !val.trim()) return '';
@@ -1849,9 +1931,9 @@ function exportPDF() {
     + psec('Patient',
         '<div class="row">'
         + pf('Patient Name', v('pt-name'))
-        + pf('DOB', v('pt-dob'))
+        + pf('DOB', usDate(v('pt-dob')))
         + pf('MRN', v('pt-mrn'))
-        + pf('Date', v('pt-date'))
+        + pf('Date', usDate(v('pt-date')))
         + pf('Provider', v('pt-provider'))
         + '</div>'
       )
@@ -1859,13 +1941,22 @@ function exportPDF() {
     + (function(){
         // Device / Leads: the generator is the first row (device type in the first column),
         // followed by the individual leads. ILR has no leads (hidden table may hold stale rows),
-        // so its lead rows are dropped — but the generator row still prints.
+        // so its lead rows are dropped — but the generator row still prints. Aveir is leadless
+        // per-chamber: one module row per implanted chamber instead of a generator + leads.
         var rows = [];
-        if (dtype || r('mfr') || v('dev-model') || v('dev-serial') || v('dev-implant'))
-          rows.push([dtype, r('mfr'), v('dev-model'), v('dev-serial'), v('dev-implant')]);
-        if (!isLoopDev && leadInfoOn())
-          leadInfoRows().forEach(function(lr){ rows.push([lr.loc, lr.mfr, lr.model, lr.serial, lr.date]); });
-        var liNotes = (isLoopDev || !leadInfoOn()) ? '' : v('leadinfo-notes');
+        if (isAveirDev) {
+          var aMfr = r('mfr');
+          aveirChambers().forEach(function(ch){
+            var p = ch === 'RA' ? 'ra' : 'rv';
+            rows.push(['Aveir '+ch, aMfr, v('dev-'+p+'-model'), v('dev-'+p+'-serial'), usDate(v('dev-'+p+'-implant'))]);
+          });
+        } else {
+          if (dtype || r('mfr') || v('dev-model') || v('dev-serial') || v('dev-implant'))
+            rows.push([dtype, r('mfr'), v('dev-model'), v('dev-serial'), usDate(v('dev-implant'))]);
+          if (!isLoopDev && leadInfoOn())
+            leadInfoRows().forEach(function(lr){ rows.push([lr.loc, lr.mfr, lr.model, lr.serial, usDate(lr.date)]); });
+        }
+        var liNotes = (isAveirDev || isLoopDev || !leadInfoOn()) ? '' : v('leadinfo-notes');
         if (!rows.length && !liNotes) return '';
         var body = rows.map(function(c){
           return '<tr><td>'+c[0]+'</td><td>'+c[1]+'</td><td>'+c[2]+'</td><td>'+c[3]+'</td><td>'+c[4]+'</td></tr>';
@@ -1908,7 +1999,12 @@ function exportPDF() {
       : psec('Programmed Parameters',
           '<div class="row">'
           + pf('Mode', v('p-mode'))
-          + pf(isAveirDev ? 'A/V LRL (bpm)' : 'LRL (bpm)', v('p-lrl'))
+          + (function(){
+              var aChams = aveirChambers();
+              var split = isAveirDev && aChams.indexOf('RA')>-1 && aChams.indexOf('RV')>-1 && !(document.getElementById('aveir-paired')||{}).checked;
+              return split ? (pf('RA LRL (bpm)', v('p-lrl')) + pf('RV LRL (bpm)', v('p-lrl-rv')))
+                           : pf('LRL (bpm)', v('p-lrl'));
+            })()
           + pf('UTR (bpm)', v('p-utr'))
           + pf('USR (bpm)', v('p-usr'))
           + pf('Sensed AV (ms)', v('p-sav-hi') ? (v('p-sav') + ' - ' + v('p-sav-hi')) : v('p-sav'))
@@ -1968,7 +2064,7 @@ function exportPDF() {
         '<div class="row">'
         + pf('Enrolled', v('rm-enrolled'))
         + pf('Compliant', v('rm-comply'))
-        + pf('Last Transmission', v('rm-last'))
+        + pf('Last Transmission', usDate(v('rm-last')))
         + pf('Active Alerts', v('rm-active'))
         + '</div>'
       )
@@ -1976,7 +2072,7 @@ function exportPDF() {
     + psec('Device Technician',
         '<div class="row">'
         + pf('Name', v('sig-name'))
-        + pf('Date Completed', v('sig-date'))
+        + pf('Date Completed', usDate(v('sig-date')))
         + '</div>'
       )
 
@@ -2108,6 +2204,9 @@ function buildSummaryLines() {
   function radio(name) { var e = document.querySelector('input[name="' + name + '"]:checked'); return e ? e.value : ''; }
   function nval(name) { var e = document.querySelector('[name="' + name + '"]'); return e ? (e.value || '').trim() : ''; }
   function pct(v) { return v.replace(/\s*%$/, '') + '%'; }   // "12" or "12%" or "<1" → one trailing %
+  // date-only fields are stored YYYY-MM-DD; show them US-style M/D/Y (string parse to avoid a
+  // UTC day-shift). Non-ISO / free text passes through untouched.
+  function usDate(s){ s=(s||'').trim(); var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m?m[2]+'/'+m[3]+'/'+m[1]:s; }
   var SEP = ' | ';
   var lines = [];
   function push(parts) { parts = parts.filter(Boolean); if (parts.length) lines.push('  ' + parts.join(SEP)); }
@@ -2126,23 +2225,36 @@ function buildSummaryLines() {
     return out.map(function(t, i) { return (i === 0 ? firstPrefix : contPrefix) + t; });
   }
 
-  // DEVICE — one line: type | mfr+model | SN | Impl
+  // DEVICE — one line: type | mfr+model | SN | Impl. Aveir is leadless per-chamber: one line
+  // per implanted module instead.
   var dtype = Array.from(document.querySelectorAll('input[name="dtype"]:checked')).map(function(e){ return e.value; }).join(', ');
   var isLoop = dtype.indexOf('ILR') > -1;
-  var mfrModel = [radio('mfr'), val('dev-model')].filter(Boolean).join(' ');
-  var devParts = [];
-  if (dtype)             devParts.push(dtype);
-  if (mfrModel)          devParts.push(mfrModel);
-  if (val('dev-serial')) devParts.push('SN: ' + val('dev-serial'));
-  if (val('dev-implant'))devParts.push('Impl: ' + val('dev-implant'));
-  if (devParts.length) { lines.push('DEVICE'); push(devParts); }
+  var isAveir = dtype.indexOf('Aveir') > -1;
+  if (isAveir) {
+    var aMfr = radio('mfr');
+    var aLines = aveirChambers().map(function(ch){
+      var p = ch === 'RA' ? 'ra' : 'rv';
+      var mm = [aMfr, val('dev-'+p+'-model')].filter(Boolean).join(' ');
+      return '  ' + ['Aveir '+ch, mm, val('dev-'+p+'-serial') ? 'SN: ' + val('dev-'+p+'-serial') : '',
+                     val('dev-'+p+'-implant') ? 'Impl: ' + usDate(val('dev-'+p+'-implant')) : ''].filter(Boolean).join(SEP);
+    });
+    if (aLines.length) { lines.push('DEVICE'); aLines.forEach(function(l){ lines.push(l); }); }
+  } else {
+    var mfrModel = [radio('mfr'), val('dev-model')].filter(Boolean).join(' ');
+    var devParts = [];
+    if (dtype)             devParts.push(dtype);
+    if (mfrModel)          devParts.push(mfrModel);
+    if (val('dev-serial')) devParts.push('SN: ' + val('dev-serial'));
+    if (val('dev-implant'))devParts.push('Impl: ' + usDate(val('dev-implant')));
+    if (devParts.length) { lines.push('DEVICE'); push(devParts); }
+  }
 
   // LEADS (verbatim inventory) — location | mfr+model | SN | date. CRM only — an ILR has no
   // leads, and the hidden table could still hold stale rows from a previous CRM entry.
-  if (!isLoop && leadInfoOn()) {
+  if (!isLoop && !isAveir && leadInfoOn()) {
     var liLines = leadInfoRows().map(function(r) {
       var mm = [r.mfr, r.model].filter(Boolean).join(' ');
-      return '  ' + [r.loc, mm, r.serial ? 'SN: ' + r.serial : '', r.date].filter(Boolean).join(SEP);
+      return '  ' + [r.loc, mm, r.serial ? 'SN: ' + r.serial : '', usDate(r.date)].filter(Boolean).join(SEP);
     });
     var liNotes = val('leadinfo-notes');
     if (liLines.length || liNotes) {
@@ -2183,7 +2295,15 @@ function buildSummaryLines() {
   var l2 = [];
   if (!isLoop) {
     if (val('p-mode')) l2.push('Mode: ' + val('p-mode'));
-    if (val('p-lrl'))  l2.push((sumDtype.indexOf('Aveir') > -1 ? 'A/V LRL' : 'LRL') + ': ' + val('p-lrl'));
+    // Aveir with two unpaired modules has a lower rate per module (RA/RV LRL); otherwise one LRL.
+    var aChams = aveirChambers();
+    var lrlSplit = isAveir && aChams.indexOf('RA')>-1 && aChams.indexOf('RV')>-1 && !(document.getElementById('aveir-paired')||{}).checked;
+    if (lrlSplit) {
+      if (val('p-lrl'))    l2.push('RA LRL: ' + val('p-lrl'));
+      if (val('p-lrl-rv')) l2.push('RV LRL: ' + val('p-lrl-rv'));
+    } else if (val('p-lrl')) {
+      l2.push('LRL: ' + val('p-lrl'));
+    }
     if (val('p-utr'))  l2.push('UTR: ' + val('p-utr'));
     if (val('p-usr'))  l2.push('USR: ' + val('p-usr'));
   }
@@ -2333,7 +2453,7 @@ function buildSummaryLines() {
   var rm = [];
   if (val('rm-enrolled')) rm.push('Enrolled ' + val('rm-enrolled'));
   if (val('rm-comply'))   rm.push('Compliant ' + val('rm-comply'));
-  if (val('rm-last'))     rm.push('Last Tx: ' + val('rm-last'));
+  if (val('rm-last'))     rm.push('Last Tx: ' + usDate(val('rm-last')));
   if (val('rm-active'))   rm.push('Alerts: ' + val('rm-active'));
   if (rm.length) f.push('  Remote: ' + rm.join(SEP));
   if (f.length) {
