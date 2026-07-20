@@ -368,15 +368,22 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 <div class="section" id="s-patient">
   <div class="sec-hdr">Patient &amp; Device Information<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Patient and Device Information section">Clear section</button></div>
   <div class="sec-body">
-    <div class="fg fg-5">
+    <div class="fg fg-4">
       <div class="field"><span class="lbl">Patient Name</span><input type="text" id="pt-name" placeholder="Last, First MI"></div>
       <div class="field"><span class="lbl">Date of Birth</span><input type="date" id="pt-dob"></div>
       <div class="field"><span class="lbl">MRN</span><input type="text" id="pt-mrn"></div>
       <div class="field"><span class="lbl">Interrogation Date</span><input type="date" id="pt-date"></div>
-      <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-implant"></div>
     </div>
     <div class="fg fg-2" style="max-width:420px">
       <div class="field"><span class="lbl">Provider / Clinic</span><input type="text" id="pt-provider"></div>
+    </div>
+
+    <div class="sub-lbl">Manufacturer</div>
+    <div class="cbg">
+      <label class="cbl"><input type="radio" name="mfr" value="Medtronic"> Medtronic</label>
+      <label class="cbl"><input type="radio" name="mfr" value="Abbott"> Abbott / SJM</label>
+      <label class="cbl"><input type="radio" name="mfr" value="BSci"> Boston Scientific</label>
+      <label class="cbl"><input type="radio" name="mfr" value="Biotronik"> Biotronik</label>
     </div>
 
     <div class="sub-lbl">Device Type <span class="sub-note">(select one — leads &amp; pacing % update automatically)</span></div>
@@ -398,21 +405,13 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
       <label class="cbl"><input type="checkbox" name="aveir-chamber" value="RV" onchange="updateConditionals()"> RV</label>
     </div>
 
-    <div class="sub-lbl">Manufacturer</div>
-    <div class="cbg">
-      <label class="cbl"><input type="radio" name="mfr" value="Medtronic"> Medtronic</label>
-      <label class="cbl"><input type="radio" name="mfr" value="Abbott"> Abbott / SJM</label>
-      <label class="cbl"><input type="radio" name="mfr" value="BSci"> Boston Scientific</label>
-      <label class="cbl"><input type="radio" name="mfr" value="Biotronik"> Biotronik</label>
-    </div>
-
-    <div class="fg fg-2" style="max-width:300px; margin-top:8px;">
+    <div class="sub-lbl" style="margin-top:12px;">Device / Leads</div>
+    <div class="fg fg-3" style="max-width:460px; margin-bottom:6px;">
       <div class="field"><span class="lbl">Model</span><input type="text" id="dev-model"></div>
       <div class="field"><span class="lbl">Serial #</span><input type="text" id="dev-serial"></div>
+      <div class="field"><span class="lbl">Implant Date</span><input type="date" id="dev-implant"></div>
     </div>
-
     <div id="leadinfo-block">
-    <div class="sub-lbl" style="margin-top:12px;">Lead Information</div>
     <div class="cbg" style="margin-bottom:6px;">
       <label class="cbl"><input type="radio" name="leadinfo-yn" value="Yes" onchange="updateLeadInfoTable()"> Yes</label>
       <label class="cbl"><input type="radio" name="leadinfo-yn" value="No" onchange="updateLeadInfoTable()"> No</label>
@@ -1575,15 +1574,19 @@ function buildReportPdfBlob() {
   doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(136,136,136);
   doc.text('Generated: ' + new Date().toLocaleString(), M, y); doc.setTextColor(0,0,0); y += 14;
 
-  h2('Patient & Device');
-  // 5 columns so the 10 patient/device fields fit in 2 rows instead of 3–4.
-  grid([['Patient Name',val('pt-name')],['DOB',val('pt-dob')],['MRN',val('pt-mrn')],['Date',val('pt-date')],['Provider',val('pt-provider')],
-        ['Device Type',dtype],['Manufacturer',radio('mfr')],['Model',val('dev-model')],['Serial #',val('dev-serial')],['Implant Date',val('dev-implant')]], 5);
+  h2('Patient');
+  // 5 columns so the 5 patient fields fit on one row.
+  grid([['Patient Name',val('pt-name')],['DOB',val('pt-dob')],['MRN',val('pt-mrn')],['Date',val('pt-date')],['Provider',val('pt-provider')]], 5);
 
-  // Lead information is a CRM-only block — an ILR has no leads (and the hidden table could
-  // still hold stale rows from a previous CRM entry).
-  var liBody = isLoopDev ? [] : leadInfoRows().map(function(r){ return [r.loc, r.mfr, r.model, r.serial, r.date]; });
-  if (liBody.length){ h2('Lead Information'); table(['Location','Manufacturer','Lead Model','Lead Serial #','Implant Date'], liBody); para('Notes', val('leadinfo-notes')); }
+  // Device / Leads: the generator is the first row (device type in the first column),
+  // followed by the individual leads. An ILR has no leads (and the hidden table could still
+  // hold stale rows from a previous CRM entry), so its lead rows are dropped — but the
+  // generator row still prints so the loop recorder's model/serial/implant show.
+  var dlBody = [];
+  if (dtype || radio('mfr') || val('dev-model') || val('dev-serial') || val('dev-implant'))
+    dlBody.push([dtype, radio('mfr'), val('dev-model'), val('dev-serial'), val('dev-implant')]);
+  if (!isLoopDev) leadInfoRows().forEach(function(r){ dlBody.push([r.loc, r.mfr, r.model, r.serial, r.date]); });
+  if (dlBody.length){ h2('Device / Leads'); table(['Device / Lead','Manufacturer','Model','Serial #','Implant Date'], dlBody); para('Notes', val('leadinfo-notes')); }
 
   // Battery / Device Status renders as three aligned 3-column grids so each logical group gets
   // its own row: basics on row 1, the two rhythms (Presenting before Intrinsic) on row 2, and
@@ -1843,7 +1846,7 @@ function exportPDF() {
     + '<h1>' + (isLoopDev ? 'Cardiac Loop Recorder Interrogation Record' : 'Cardiac CRM Interrogation &amp; Reprogramming Record') + '</h1>'
     + '<div class="gen">Generated: ' + new Date().toLocaleString() + '</div>'
 
-    + psec('Patient &amp; Device',
+    + psec('Patient',
         '<div class="row">'
         + pf('Patient Name', v('pt-name'))
         + pf('DOB', v('pt-dob'))
@@ -1851,26 +1854,25 @@ function exportPDF() {
         + pf('Date', v('pt-date'))
         + pf('Provider', v('pt-provider'))
         + '</div>'
-        + '<div class="row">'
-        + pf('Device Type', dtype)
-        + pf('Manufacturer', r('mfr'))
-        + pf('Model', v('dev-model'))
-        + pf('Serial #', v('dev-serial'))
-        + pf('Implant Date', v('dev-implant'))
-        + '</div>'
       )
 
     + (function(){
-        if (isLoopDev || !leadInfoOn()) return '';   // ILR has no leads (hidden table may hold stale rows)
-        var rows = leadInfoRows();
-        var liNotes = v('leadinfo-notes');
+        // Device / Leads: the generator is the first row (device type in the first column),
+        // followed by the individual leads. ILR has no leads (hidden table may hold stale rows),
+        // so its lead rows are dropped — but the generator row still prints.
+        var rows = [];
+        if (dtype || r('mfr') || v('dev-model') || v('dev-serial') || v('dev-implant'))
+          rows.push([dtype, r('mfr'), v('dev-model'), v('dev-serial'), v('dev-implant')]);
+        if (!isLoopDev && leadInfoOn())
+          leadInfoRows().forEach(function(lr){ rows.push([lr.loc, lr.mfr, lr.model, lr.serial, lr.date]); });
+        var liNotes = (isLoopDev || !leadInfoOn()) ? '' : v('leadinfo-notes');
         if (!rows.length && !liNotes) return '';
-        var liRows = rows.map(function(r){
-          return '<tr><td>'+r.loc+'</td><td>'+r.mfr+'</td><td>'+r.model+'</td><td>'+r.serial+'</td><td>'+r.date+'</td></tr>';
+        var body = rows.map(function(c){
+          return '<tr><td>'+c[0]+'</td><td>'+c[1]+'</td><td>'+c[2]+'</td><td>'+c[3]+'</td><td>'+c[4]+'</td></tr>';
         }).join('');
-        return '<h2>Lead Information</h2>'
-          + '<table><thead><tr><th>Location</th><th>Manufacturer</th><th>Lead Model</th><th>Lead Serial #</th><th>Implant Date</th></tr></thead><tbody>'
-          + liRows + '</tbody></table>'
+        return '<h2>Device / Leads</h2>'
+          + '<table><thead><tr><th>Device / Lead</th><th>Manufacturer</th><th>Model</th><th>Serial #</th><th>Implant Date</th></tr></thead><tbody>'
+          + body + '</tbody></table>'
           + (liNotes ? '<p style="font-size:10px;margin:4px 0"><strong>Notes:</strong> '+liNotes+'</p>' : '');
       })()
 
