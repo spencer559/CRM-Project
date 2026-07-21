@@ -61,16 +61,15 @@
   .small{font-size:12px;}
   .warnrow{background:#fff8e6;}
 
-  /* ---- collapsible clinic-to-clinic section + "needs a distance" prompt ---- */
-  .collapse-head{width:100%;background:transparent;color:var(--ink);border:0;padding:0;margin:0;
-        display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;font:inherit;text-align:left;}
-  .collapse-title{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:650;}
-  .collapse-head .chev{color:var(--muted);font-size:12px;transition:transform .15s ease;}
-  .collapse-head[aria-expanded="true"] .chev{transform:rotate(90deg);}
-  .pair-alert{font-size:12px;font-weight:700;color:#8a6d00;background:var(--warn);
-        border:1px solid var(--warnline);border-radius:20px;padding:3px 10px;white-space:nowrap;}
+  /* ---- tabbed Locations / clinic-to-clinic container + "needs a distance" prompt ---- */
+  .tabbar{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;}
+  .tab{background:transparent;border:0;border-bottom:2px solid transparent;border-radius:7px 7px 0 0;
+        padding:7px 12px;margin-bottom:-1px;color:var(--muted);font-size:16px;font-weight:650;cursor:pointer;
+        display:inline-flex;align-items:center;gap:8px;}
+  .tab:hover{color:var(--ink);}
+  .tab.active{color:var(--ink);border-bottom-color:var(--brand);}
+  .tab.needs{background:var(--warn);color:#7a5c00;}
   .warn-hint{background:var(--warn);border-color:var(--warnline);color:#7a5c00;}
-  #pairCard.needs-attention{border-color:var(--warnline);box-shadow:0 0 0 3px rgba(255,224,138,.45);}
   input.needs-fill{border-color:#e0a800;background:#fff8e6;animation:pairPulse 1.3s ease-out 3;}
   @keyframes pairPulse{0%{box-shadow:0 0 0 0 rgba(224,168,0,.5);}100%{box-shadow:0 0 0 7px rgba(224,168,0,0);}}
   .est{color:#b8860b;font-weight:700;cursor:help;margin-left:3px;}
@@ -138,36 +137,37 @@
     <p class="small muted" id="methodNote" style="margin-top:10px;"></p>
   </section>
 
-  <!-- LOCATIONS -->
-  <section class="card">
-    <h2>Locations</h2>
-    <p class="sub">Up to 5 clinics. Each employee can set their own distances. <b>Miles from base clinic</b> = the leg between your base clinic and this clinic. <b>Miles from home</b> = your one-way home commute to this clinic (used by the home-adjustment method).</p>
-    <table class="grid">
-      <thead><tr>
-        <th>Clinic name</th>
-        <th class="num">Miles from base clinic</th>
-        <th class="num" id="homeColHead">Miles from home</th>
-        <th></th>
-      </tr></thead>
-      <tbody id="locBody"></tbody>
-    </table>
-    <div class="toolbar">
-      <button class="btn ghost" id="addLoc">+ Add location</button>
-      <span class="right small muted">Config: </span>
-      <button class="btn ghost small" id="exportCfg">Export config</button>
-      <button class="btn ghost small" id="importCfgBtn">Import config</button>
-      <input type="file" id="importCfg" accept="application/json" style="display:none">
+  <!-- LOCATIONS + CLINIC-TO-CLINIC DISTANCES (tabbed; pairs tab flags days it can't measure) -->
+  <section class="card" id="locCard">
+    <div class="tabbar" role="tablist">
+      <button type="button" class="tab active" id="tabBtnLoc" data-tab="loc" role="tab" aria-selected="true" aria-controls="tab-loc">Locations</button>
+      <button type="button" class="tab" id="tabBtnPairs" data-tab="pairs" role="tab" aria-selected="false" aria-controls="tab-pairs">Clinic-to-clinic distances</button>
     </div>
-  </section>
 
-  <!-- CLINIC-TO-CLINIC DISTANCES (collapsed by default; auto-prompts when a logged day needs one) -->
-  <section class="card" id="pairCard">
-    <button type="button" class="collapse-head" id="pairToggle" aria-expanded="false" aria-controls="pairBodyWrap">
-      <span class="collapse-title"><span class="chev" aria-hidden="true">&#9656;</span>Clinic-to-clinic distances<span class="pill">optional</span></span>
-      <span class="pair-alert" id="pairAlert" hidden>&#9888; Distance needed</span>
-    </button>
-    <div class="collapse-body" id="pairBodyWrap" hidden>
-      <p class="sub" style="margin-top:14px;">For a day that goes directly between two <b>non-base</b> clinics, enter the real one-way distance between them. Leave blank to estimate the trip as a detour back through your base clinic (which usually overstates it when the two clinics are near each other).</p>
+    <!-- Locations tab -->
+    <div class="tabpanel" id="tab-loc" role="tabpanel" aria-labelledby="tabBtnLoc">
+      <p class="sub">Up to 5 clinics. Each employee can set their own distances. <b>Miles from base clinic</b> = the leg between your base clinic and this clinic. <b>Miles from home</b> = your one-way home commute to this clinic (used by the home-adjustment method).</p>
+      <table class="grid">
+        <thead><tr>
+          <th>Clinic name</th>
+          <th class="num">Miles from base clinic</th>
+          <th class="num" id="homeColHead">Miles from home</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="locBody"></tbody>
+      </table>
+      <div class="toolbar">
+        <button class="btn ghost" id="addLoc">+ Add location</button>
+        <span class="right small muted">Config: </span>
+        <button class="btn ghost small" id="exportCfg">Export config</button>
+        <button class="btn ghost small" id="importCfgBtn">Import config</button>
+        <input type="file" id="importCfg" accept="application/json" style="display:none">
+      </div>
+    </div>
+
+    <!-- Clinic-to-clinic distances tab -->
+    <div class="tabpanel" id="tab-pairs" role="tabpanel" aria-labelledby="tabBtnPairs" hidden>
+      <p class="sub">For a day that goes directly between two <b>non-base</b> clinics, enter the real one-way distance between them. Leave blank to estimate the trip as a detour back through your base clinic (which usually overstates it when the two clinics are near each other).</p>
       <div class="hint warn-hint" id="pairPrompt" hidden></div>
       <table class="grid">
         <thead><tr>
@@ -178,7 +178,7 @@
         <tbody id="pairBody"></tbody>
       </table>
       <div class="toolbar"><button class="btn ghost" id="pairAddPair">+ Add pair</button></div>
-      <p class="small muted" id="pairEmptyNote" style="margin-top:10px;display:none;">Add at least two non-base clinics above to set direct distances between them.</p>
+      <p class="small muted" id="pairEmptyNote" style="margin-top:10px;display:none;">Add at least two non-base clinics on the Locations tab to set direct distances between them.</p>
     </div>
   </section>
 
@@ -462,30 +462,32 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     $("pairAddPair").disabled = (pairValues().length + dks.length) >= total;
   }
 
-  function setPairOpen(open){
-    $("pairBodyWrap").hidden = !open;
-    $("pairToggle").setAttribute("aria-expanded", open ? "true" : "false");
+  function activateTab(name){
+    var isLoc = name==="loc";
+    $("tab-loc").hidden = !isLoc;
+    $("tab-pairs").hidden = isLoc;
+    $("tabBtnLoc").classList.toggle("active", isLoc);
+    $("tabBtnPairs").classList.toggle("active", !isLoc);
+    $("tabBtnLoc").setAttribute("aria-selected", isLoc?"true":"false");
+    $("tabBtnPairs").setAttribute("aria-selected", isLoc?"false":"true");
   }
-  // keys we've already auto-expanded the panel for, so we don't fight the user re-collapsing it
+  // keys we've already flagged, so we only auto-switch to the pairs tab once per new need
   var pairPrompted = {};
-  // Highlight the section + the exact distance field(s) any logged day needs, and auto-open on a fresh need.
+  // Flag the pairs tab + highlight the exact distance field(s) any logged day needs; jump to it on a fresh need.
   function refreshPairPrompt(){
     var needed = neededPairKeys(), neededSet = {};
     needed.forEach(function(k){ neededSet[k]=1; });
     Array.prototype.forEach.call($("pairBody").querySelectorAll("input[data-key]"), function(inp){
       inp.classList.toggle("needs-fill", !!neededSet[inp.dataset.key]);
     });
+    $("tabBtnPairs").classList.toggle("needs", needed.length>0);
     if(needed.length){
-      $("pairCard").classList.add("needs-attention");
-      $("pairAlert").hidden = false;
       var names = needed.map(function(k){ return escapeHtml(k.replace("|"," ↔ ")); });
       $("pairPrompt").innerHTML = "One or more logged days go directly between two non-base clinics, which can't be measured accurately without the real distance between them. Enter the one-way distance for <b>"+names.join(", ")+"</b> in the highlighted row"+(names.length>1?"s":"")+" below.";
       $("pairPrompt").hidden = false;
-      // auto-expand only the first time a brand-new pair becomes needed
-      if(needed.some(function(k){ return !pairPrompted[k]; })) setPairOpen(true);
+      // jump to the pairs tab only the first time a brand-new pair becomes needed
+      if(needed.some(function(k){ return !pairPrompted[k]; })) activateTab("pairs");
     } else {
-      $("pairCard").classList.remove("needs-attention");
-      $("pairAlert").hidden = true;
       $("pairPrompt").hidden = true;
     }
     pairPrompted = neededSet;
@@ -540,9 +542,8 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
   $("rate").addEventListener("input", function(){ state.settings.rate = num(this.value); save(); renderEntries(); });
   $("baseClinic").addEventListener("change", function(){ state.settings.baseClinic = this.value; save(); renderPairs(); renderEntries(); });
 
-  $("pairToggle").addEventListener("click", function(){
-    setPairOpen(this.getAttribute("aria-expanded")!=="true");
-  });
+  $("tabBtnLoc").addEventListener("click", function(){ activateTab("loc"); });
+  $("tabBtnPairs").addEventListener("click", function(){ activateTab("pairs"); });
   // "+ Add pair": append a new blank draft row for the first still-undefined pair
   $("pairAddPair").addEventListener("click", function(){
     var others = nonBaseNames(); if(others.length<2) return;
