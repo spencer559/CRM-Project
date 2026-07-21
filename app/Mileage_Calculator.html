@@ -60,6 +60,24 @@
   .right{margin-left:auto;}
   .small{font-size:12px;}
   .warnrow{background:#fff8e6;}
+
+  /* ---- collapsible clinic-to-clinic section + "needs a distance" prompt ---- */
+  .collapse-head{width:100%;background:transparent;color:var(--ink);border:0;padding:0;margin:0;
+        display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;font:inherit;text-align:left;}
+  .collapse-title{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:650;}
+  .collapse-head .chev{color:var(--muted);font-size:12px;transition:transform .15s ease;}
+  .collapse-head[aria-expanded="true"] .chev{transform:rotate(90deg);}
+  .pair-alert{font-size:12px;font-weight:700;color:#8a6d00;background:var(--warn);
+        border:1px solid var(--warnline);border-radius:20px;padding:3px 10px;white-space:nowrap;}
+  .warn-hint{background:var(--warn);border-color:var(--warnline);color:#7a5c00;}
+  #pairCard.needs-attention{border-color:var(--warnline);box-shadow:0 0 0 3px rgba(255,224,138,.45);}
+  input.needs-fill{border-color:#e0a800;background:#fff8e6;animation:pairPulse 1.3s ease-out 3;}
+  @keyframes pairPulse{0%{box-shadow:0 0 0 0 rgba(224,168,0,.5);}100%{box-shadow:0 0 0 7px rgba(224,168,0,0);}}
+  .est{color:#b8860b;font-weight:700;cursor:help;margin-left:3px;}
+  .pairsel{display:flex;align-items:center;gap:8px;}
+  .pairsel select{width:auto;flex:1;min-width:88px;}
+  .pairjoin{color:var(--muted);flex:0 0 auto;}
+  tr.pairadd td{background:#fbfcfe;}
   td.reorder{white-space:nowrap;width:58px;text-align:center;}
   .drag{cursor:grab;color:var(--muted);user-select:none;font-size:15px;line-height:1;display:inline-block;vertical-align:middle;margin-right:2px;}
   .drag:active{cursor:grabbing;}
@@ -81,6 +99,7 @@
              font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:600;}
     .grid td.num{justify-content:flex-start;}
     .grid td input,.grid td select{flex:1;width:auto;}
+    .grid td .pairsel{flex:1;}
     .grid td.hide-sm{display:flex;}
     .grid td.reorder{justify-content:flex-start;width:100%;}
     .grid td.reorder .drag{display:none;}
@@ -138,6 +157,28 @@
       <button class="btn ghost small" id="exportCfg">Export config</button>
       <button class="btn ghost small" id="importCfgBtn">Import config</button>
       <input type="file" id="importCfg" accept="application/json" style="display:none">
+    </div>
+  </section>
+
+  <!-- CLINIC-TO-CLINIC DISTANCES (collapsed by default; auto-prompts when a logged day needs one) -->
+  <section class="card" id="pairCard">
+    <button type="button" class="collapse-head" id="pairToggle" aria-expanded="false" aria-controls="pairBodyWrap">
+      <span class="collapse-title"><span class="chev" aria-hidden="true">&#9656;</span>Clinic-to-clinic distances<span class="pill">optional</span></span>
+      <span class="pair-alert" id="pairAlert" hidden>&#9888; Distance needed</span>
+    </button>
+    <div class="collapse-body" id="pairBodyWrap" hidden>
+      <p class="sub" style="margin-top:14px;">For a day that goes directly between two <b>non-base</b> clinics, enter the real one-way distance between them. Leave blank to estimate the trip as a detour back through your base clinic (which usually overstates it when the two clinics are near each other).</p>
+      <div class="hint warn-hint" id="pairPrompt" hidden></div>
+      <table class="grid">
+        <thead><tr>
+          <th>Between</th>
+          <th class="num">One-way miles (direct)</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="pairBody"></tbody>
+      </table>
+      <div class="toolbar"><button class="btn ghost" id="pairAddPair">+ Add pair</button></div>
+      <p class="small muted" id="pairEmptyNote" style="margin-top:10px;display:none;">Add at least two non-base clinics above to set direct distances between them.</p>
     </div>
   </section>
 
@@ -202,6 +243,9 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
       { name:"Pasadena", distMPK:5.6,  distHome:11.6 },
       { name:"CVM",      distMPK:6.1,  distHome:6.4  }
     ],
+    // optional direct clinic-to-clinic one-way distances, keyed by pairKey("A","B").
+    // Only consulted when neither clinic is the base clinic; blank = fall back to via-base.
+    pairs: {},
     entries: []
   };
 
@@ -219,6 +263,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     s = s || {};
     s.settings = Object.assign({}, DEFAULTS.settings, s.settings||{});
     if(!Array.isArray(s.locations) || !s.locations.length) s.locations = JSON.parse(JSON.stringify(DEFAULTS.locations));
+    if(!s.pairs || typeof s.pairs !== "object" || Array.isArray(s.pairs)) s.pairs = {};
     if(!Array.isArray(s.entries)) s.entries = [];
     return s;
   }
@@ -231,6 +276,44 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
   function money(v){ return "$" + round(v,2).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function locByName(n){ for(var i=0;i<state.locations.length;i++){ if(state.locations[i].name===n) return state.locations[i]; } return null; }
   function baseLoc(){ return locByName(state.settings.baseClinic) || state.locations[0]; }
+  // canonical, order-independent key for a clinic-to-clinic pair
+  function pairKey(a,b){ return (a<b ? a+"|"+b : b+"|"+a); }
+  function pairMiles(a,b){ var v = state.pairs[pairKey(a,b)]; return (v===0 || (typeof v==="number" && isFinite(v))) ? v : (isFinite(parseFloat(v)) ? parseFloat(v) : null); }
+  // remap stored pair keys when a clinic is renamed so the direct distance follows it
+  function renamePairKeys(oldName,newName){
+    if(oldName===newName) return;
+    Object.keys(state.pairs).forEach(function(k){
+      var parts = k.split("|"); if(parts.indexOf(oldName)===-1) return;
+      var a = parts[0]===oldName ? newName : parts[0];
+      var b = parts[1]===oldName ? newName : parts[1];
+      var v = state.pairs[k]; delete state.pairs[k];
+      if(a!==b) state.pairs[pairKey(a,b)] = v;
+    });
+  }
+  // remove any pair distances that reference a deleted clinic
+  function dropPairKeys(name){
+    Object.keys(state.pairs).forEach(function(k){ if(k.split("|").indexOf(name)!==-1) delete state.pairs[k]; });
+  }
+  // A day can't be measured accurately when it goes directly between two DIFFERENT
+  // non-base clinics and no direct distance has been entered (we fall back to the
+  // via-base estimate). Returns that pair's key, or null if the day is fine.
+  function entryPairKeyNeeded(e){
+    var am=e.am, pm=e.pm, base=state.settings.baseClinic;
+    if(!am||!pm||am===pm) return null;
+    if(am===base||pm===base) return null;
+    if(!locByName(am)||!locByName(pm)) return null;
+    if(pairMiles(am,pm)!==null) return null;
+    return pairKey(am,pm);
+  }
+  // distinct pair keys that at least one logged day needs but which has no direct distance
+  function neededPairKeys(){
+    var seen={}, out=[];
+    state.entries.forEach(function(e){
+      var k = entryPairKeyNeeded(e);
+      if(k && !seen[k]){ seen[k]=1; out.push(k); }
+    });
+    return out;
+  }
 
   // distance between two clinics (one way). If one is base, use the other's distMPK.
   function legBetween(aName,bName){
@@ -240,7 +323,10 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     if(!a||!b) return 0;
     if(aName===base) return num(b.distMPK);
     if(bName===base) return num(a.distMPK);
-    // neither is base: approximate route via base clinic
+    // neither is base: use a direct clinic-to-clinic distance if one was entered,
+    // otherwise approximate the route via the base clinic.
+    var direct = pairMiles(aName,bName);
+    if(direct !== null) return direct;
     return num(a.distMPK) + num(b.distMPK);
   }
 
@@ -285,6 +371,126 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     $("addLoc").style.opacity = state.locations.length >= 5 ? .5 : 1;
   }
 
+  // ---------- render: clinic-to-clinic distances ----------
+  // list of non-base clinic names (the only clinics a direct pair distance is ever used between)
+  function nonBaseNames(){
+    var b = state.settings.baseClinic;
+    return state.locations.filter(function(l){ return l.name!==b; }).map(function(l){ return l.name; });
+  }
+  function distMPKof(n){ var l = locByName(n); return l ? num(l.distMPK) : 0; }
+  function clinicPairOptions(names, sel){
+    return names.map(function(n){
+      return '<option value="'+escapeAttr(n)+'"'+(n===sel?' selected':'')+'>'+escapeHtml(n)+'</option>';
+    }).join("");
+  }
+  // keys in state.pairs that reference two distinct, current non-base clinics (i.e. have a value)
+  function pairValues(){
+    var others = nonBaseNames();
+    return Object.keys(state.pairs).filter(function(k){
+      var p=k.split("|"); return p.length===2 && p[0]!==p[1] && others.indexOf(p[0])>-1 && others.indexOf(p[1])>-1;
+    });
+  }
+  // first clinic pair not already in `used` (array of keys); null if every pair is taken
+  function firstFreePair(others, used){
+    for(var i=0;i<others.length;i++) for(var j=i+1;j<others.length;j++){
+      if(used.indexOf(pairKey(others[i],others[j]))===-1) return [others[i], others[j]];
+    }
+    return null;
+  }
+
+  // "Draft" rows are pairs being entered that don't have a value yet (UI-only; not saved/synced).
+  // A draft that gets a value is promoted to an ordinary saved row on the next render.
+  var drafts = [], draftSeq = 0;
+  function addDraft(a,b){ drafts.push({ id: ++draftSeq, a:a, b:b }); }
+  function draftKey(d){ return pairKey(d.a,d.b); }
+  function draftById(id){ for(var i=0;i<drafts.length;i++) if(drafts[i].id===id) return drafts[i]; return null; }
+
+  function pairRow(others, a, b, isDraft, ref){
+    var tr = document.createElement("tr");
+    if(isDraft) tr.className = "pairadd";
+    var key = pairKey(a,b), val = state.pairs[key];
+    var hasVal = (val===0 || (typeof val==="number" && isFinite(val)));
+    var aAttr = isDraft ? ('data-dside="a" data-draft="'+ref+'"') : ('data-side="a" data-pk="'+escapeAttr(ref)+'"');
+    var bAttr = isDraft ? ('data-dside="b" data-draft="'+ref+'"') : ('data-side="b" data-pk="'+escapeAttr(ref)+'"');
+    var distAttr = isDraft ? ('data-ddist="'+ref+'"') : ('data-dk="'+escapeAttr(ref)+'"');
+    var delAttr  = isDraft ? ('data-ddel="'+ref+'"')  : ('data-pdel="'+escapeAttr(ref)+'"');
+    tr.innerHTML =
+      '<td data-label="Between"><div class="pairsel">'+
+        '<select '+aAttr+'>'+clinicPairOptions(others,a)+'</select>'+
+        '<span class="pairjoin">↔</span>'+
+        '<select '+bAttr+'>'+clinicPairOptions(others,b)+'</select>'+
+      '</div></td>'+
+      '<td class="num" data-label="One-way miles (direct)"><input class="num" type="number" step="0.1" min="0" '+
+        distAttr+' data-key="'+escapeAttr(key)+'" value="'+(hasVal?val:"")+'" placeholder="via base: '+round(distMPKof(a)+distMPKof(b),1)+'"></td>'+
+      '<td class="actions" data-label=""><button class="btn danger" '+delAttr+' title="Remove">✕</button></td>';
+    return tr;
+  }
+
+  function ensureDrafts(others){
+    // drop drafts that are no longer a valid distinct non-base pair, or that now carry a value (promoted)
+    drafts = drafts.filter(function(d){
+      if(d.a===d.b || others.indexOf(d.a)===-1 || others.indexOf(d.b)===-1) return false;
+      return state.pairs[draftKey(d)]===undefined;
+    });
+    var dks = drafts.map(draftKey);
+    // ensure a draft row exists for every logged day's unmeasured pair
+    neededPairKeys().forEach(function(k){
+      if(state.pairs[k]===undefined && dks.indexOf(k)===-1){ var p=k.split("|"); addDraft(p[0],p[1]); dks.push(k); }
+    });
+    // otherwise keep one default draft so there's always a line to fill
+    if(!pairValues().length && !drafts.length){
+      var f = firstFreePair(others, dks); if(f) addDraft(f[0], f[1]);
+    }
+  }
+
+  function renderPairs(){
+    var tb = $("pairBody"); tb.innerHTML="";
+    var others = nonBaseNames();
+    if(others.length < 2){ $("pairEmptyNote").style.display=""; $("pairAddPair").style.display="none"; drafts=[]; return; }
+    $("pairEmptyNote").style.display="none";
+    $("pairAddPair").style.display="";
+    ensureDrafts(others);
+    var dks = drafts.map(draftKey);
+    // saved rows: every valued pair not currently held by a draft
+    pairValues().forEach(function(k){
+      if(dks.indexOf(k)===-1){ var p=k.split("|"); tb.appendChild(pairRow(others, p[0], p[1], false, k)); }
+    });
+    // draft rows
+    drafts.forEach(function(d){ tb.appendChild(pairRow(others, d.a, d.b, true, d.id)); });
+    // "+ Add pair" is disabled once every possible pair is already listed
+    var total = others.length*(others.length-1)/2;
+    $("pairAddPair").disabled = (pairValues().length + dks.length) >= total;
+  }
+
+  function setPairOpen(open){
+    $("pairBodyWrap").hidden = !open;
+    $("pairToggle").setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  // keys we've already auto-expanded the panel for, so we don't fight the user re-collapsing it
+  var pairPrompted = {};
+  // Highlight the section + the exact distance field(s) any logged day needs, and auto-open on a fresh need.
+  function refreshPairPrompt(){
+    var needed = neededPairKeys(), neededSet = {};
+    needed.forEach(function(k){ neededSet[k]=1; });
+    Array.prototype.forEach.call($("pairBody").querySelectorAll("input[data-key]"), function(inp){
+      inp.classList.toggle("needs-fill", !!neededSet[inp.dataset.key]);
+    });
+    if(needed.length){
+      $("pairCard").classList.add("needs-attention");
+      $("pairAlert").hidden = false;
+      var names = needed.map(function(k){ return escapeHtml(k.replace("|"," ↔ ")); });
+      $("pairPrompt").innerHTML = "One or more logged days go directly between two non-base clinics, which can't be measured accurately without the real distance between them. Enter the one-way distance for <b>"+names.join(", ")+"</b> in the highlighted row"+(names.length>1?"s":"")+" below.";
+      $("pairPrompt").hidden = false;
+      // auto-expand only the first time a brand-new pair becomes needed
+      if(needed.some(function(k){ return !pairPrompted[k]; })) setPairOpen(true);
+    } else {
+      $("pairCard").classList.remove("needs-attention");
+      $("pairAlert").hidden = true;
+      $("pairPrompt").hidden = true;
+    }
+    pairPrompted = neededSet;
+  }
+
   // ---------- render: entries ----------
   function clinicOptions(sel){
     return state.locations.map(function(l){
@@ -295,8 +501,9 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     var tb = $("entryBody"); tb.innerHTML="";
     state.entries.forEach(function(e, i){
       var mi = milesFor(e), st = subtotalFor(e);
+      var needKey = entryPairKeyNeeded(e);
       var tr = document.createElement("tr");
-      if(mi===0) tr.className="warnrow";
+      if(mi===0 || needKey) tr.className="warnrow";
       tr.dataset.row = i;
       tr.innerHTML =
         '<td class="reorder" data-label="Move">'+
@@ -308,12 +515,13 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
         '<td data-label="Morning"><select data-i="'+i+'" data-f="am">'+clinicOptions(e.am)+'</select></td>'+
         '<td data-label="Afternoon"><select data-i="'+i+'" data-f="pm">'+clinicOptions(e.pm)+'</select></td>'+
         '<td class="hide-sm" data-label="Purpose"><input data-i="'+i+'" data-f="purpose" value="'+escapeAttr(e.purpose||"Clinic Coverage")+'"></td>'+
-        '<td class="num" data-label="Miles">'+mi.toFixed(1)+'</td>'+
+        '<td class="num" data-label="Miles">'+mi.toFixed(1)+(needKey?' <span class="est" title="Estimated as a detour via your base clinic. Add the direct '+escapeAttr(needKey.replace("|"," ↔ "))+' distance for an accurate figure.">*</span>':'')+'</td>'+
         '<td class="num" data-label="Subtotal">'+money(st)+'</td>'+
         '<td class="actions" data-label=""><button class="btn danger" data-edel="'+i+'" title="Remove">✕</button></td>';
       tb.appendChild(tr);
     });
     renderTotals();
+    refreshPairPrompt();
   }
   function renderTotals(){
     var miles=0, money_=0;
@@ -326,11 +534,69 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
   function escapeHtml(s){ return String(s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
   function escapeAttr(s){ return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 
-  function renderAll(){ renderSettings(); renderLocations(); renderEntries(); }
+  function renderAll(){ renderSettings(); renderLocations(); renderPairs(); renderEntries(); }
 
   // ---------- events ----------
   $("rate").addEventListener("input", function(){ state.settings.rate = num(this.value); save(); renderEntries(); });
-  $("baseClinic").addEventListener("change", function(){ state.settings.baseClinic = this.value; save(); renderEntries(); });
+  $("baseClinic").addEventListener("change", function(){ state.settings.baseClinic = this.value; save(); renderPairs(); renderEntries(); });
+
+  $("pairToggle").addEventListener("click", function(){
+    setPairOpen(this.getAttribute("aria-expanded")!=="true");
+  });
+  // "+ Add pair": append a new blank draft row for the first still-undefined pair
+  $("pairAddPair").addEventListener("click", function(){
+    var others = nonBaseNames(); if(others.length<2) return;
+    var f = firstFreePair(others, pairValues().concat(drafts.map(draftKey)));
+    if(f){ addDraft(f[0], f[1]); renderPairs(); renderEntries(); }
+  });
+
+  // live-edit a distance on any row (saved or draft) — no re-render, to keep focus while typing
+  $("pairBody").addEventListener("input", function(ev){
+    var el = ev.target, key = null;
+    if(el.dataset.dk!==undefined) key = el.dataset.dk;
+    else if(el.dataset.ddist!==undefined){ var d = draftById(+el.dataset.ddist); if(d) key = draftKey(d); }
+    if(key===null) return;
+    var raw = (el.value==null? "" : String(el.value)).trim();
+    if(raw==="" || !isFinite(parseFloat(raw))) delete state.pairs[key];
+    else state.pairs[key] = num(el.value);
+    el.dataset.key = key;
+    save(); renderEntries();
+  });
+  // dropdown change: re-key a saved pair, or move a draft (carrying any value it already has)
+  $("pairBody").addEventListener("change", function(ev){
+    var el = ev.target, tr = el.closest("tr"); if(!tr) return;
+    if(el.dataset.side!==undefined){
+      var oldKey = el.dataset.pk;
+      var a = tr.querySelector('select[data-side="a"]').value, b = tr.querySelector('select[data-side="b"]').value;
+      if(a===b){ renderPairs(); renderEntries(); return; }                       // can't pair a clinic with itself
+      var newKey = pairKey(a,b);
+      if(newKey===oldKey) return;
+      if(state.pairs[newKey]!==undefined){ renderPairs(); renderEntries(); return; } // that pair already exists
+      state.pairs[newKey] = state.pairs[oldKey]; delete state.pairs[oldKey];
+      save(); renderPairs(); renderEntries(); return;
+    }
+    if(el.dataset.dside!==undefined){
+      var dr = draftById(+el.dataset.draft); if(!dr) return;
+      var na = tr.querySelector('select[data-dside="a"]').value, nb = tr.querySelector('select[data-dside="b"]').value;
+      if(na===nb){ renderPairs(); renderEntries(); return; }
+      var nk = pairKey(na,nb), ok = draftKey(dr);
+      if(nk!==ok && state.pairs[nk]!==undefined){ renderPairs(); renderEntries(); return; } // that pair already exists
+      var v = state.pairs[ok];
+      if(v!==undefined){ delete state.pairs[ok]; state.pairs[nk] = v; }             // move the value it already had
+      dr.a = na; dr.b = nb;
+      save(); renderPairs(); renderEntries();
+    }
+  });
+  // remove a saved pair, or cancel a draft row
+  $("pairBody").addEventListener("click", function(ev){
+    var sd = ev.target.closest("button[data-pdel]");
+    if(sd){ delete state.pairs[sd.dataset.pdel]; save(); renderPairs(); renderEntries(); return; }
+    var dd = ev.target.closest("button[data-ddel]");
+    if(dd){
+      var dr = draftById(+dd.dataset.ddel);
+      if(dr){ delete state.pairs[draftKey(dr)]; drafts = drafts.filter(function(x){ return x.id!==dr.id; }); save(); renderPairs(); renderEntries(); }
+    }
+  });
 
   $("locBody").addEventListener("input", function(ev){
     var el = ev.target; if(el.dataset.i===undefined) return;
@@ -341,12 +607,13 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
       // keep base + entries pointing at renamed clinic
       if(state.settings.baseClinic===old) state.settings.baseClinic=nv;
       state.entries.forEach(function(e){ if(e.am===old)e.am=nv; if(e.pm===old)e.pm=nv; });
+      renamePairKeys(old, nv);
     } else {
       state.locations[i][f] = num(el.value);
     }
     save();
     // light refresh (don't rebuild location inputs while typing name)
-    renderSettings(); renderTotals();
+    renderSettings(); renderPairs(); renderTotals();
     if(f!=="name") renderEntries();
   });
   $("locBody").addEventListener("click", function(ev){
@@ -355,6 +622,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     var i=+b.dataset.del; var removed = state.locations[i].name;
     state.locations.splice(i,1);
     if(state.settings.baseClinic===removed) state.settings.baseClinic = state.locations[0].name;
+    dropPairKeys(removed);
     save(); renderAll();
   });
   $("addLoc").addEventListener("click", function(){
@@ -372,7 +640,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
   $("entryBody").addEventListener("change", function(ev){
     var el = ev.target; if(el.dataset.i===undefined) return;
     var i=+el.dataset.i, f=el.dataset.f; state.entries[i][f]=el.value; save();
-    if(f==="am" || f==="pm") renderEntries();
+    if(f==="am" || f==="pm"){ renderPairs(); renderEntries(); } // may create/clear an unmeasured pair
   });
   $("entryBody").addEventListener("click", function(ev){
     var mv = ev.target.closest("button[data-mv]");
@@ -461,7 +729,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 
   // ---------- config import/export ----------
   $("exportCfg").addEventListener("click", function(){
-    var cfg = { settings: state.settings, locations: state.locations };
+    var cfg = { settings: state.settings, locations: state.locations, pairs: state.pairs };
     download(JSON.stringify(cfg,null,2), "mileage-config.json", "application/json");
   });
   $("importCfgBtn").addEventListener("click", function(){ $("importCfg").click(); });
@@ -473,6 +741,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
         var c = JSON.parse(r.result);
         if(c.locations) state.locations = c.locations;
         if(c.settings) state.settings = Object.assign({}, DEFAULTS.settings, c.settings);
+        if(c.pairs && typeof c.pairs==="object" && !Array.isArray(c.pairs)) state.pairs = c.pairs;
         save(); renderAll(); alert("Config imported.");
       }catch(e){ alert("Could not read that config file."); }
     };
@@ -485,6 +754,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
       type:"mileage-profile", version:1, exported:new Date().toISOString(),
       settings: { rate: num(state.settings.rate), baseClinic: state.settings.baseClinic },
       locations: state.locations,
+      pairs: state.pairs,
       entries: state.entries
     };
     download(JSON.stringify(data,null,2), "mileage-profile.json", "application/json");
@@ -506,6 +776,8 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
           if(c.settings.rate !== undefined) state.settings.rate = num(c.settings.rate);
           if(c.settings.baseClinic !== undefined) state.settings.baseClinic = c.settings.baseClinic;
         }
+        if(c.pairs && typeof c.pairs==="object" && !Array.isArray(c.pairs)) state.pairs = c.pairs;
+        else if(hasProfile) state.pairs = {};
         if(Array.isArray(ents)) state.entries = ents.slice();
         // keep base clinic valid
         if(!locByName(state.settings.baseClinic)) state.settings.baseClinic = state.locations[0].name;
