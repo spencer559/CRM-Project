@@ -146,7 +146,7 @@
 
     <!-- Locations tab -->
     <div class="tabpanel" id="tab-loc" role="tabpanel" aria-labelledby="tabBtnLoc">
-      <p class="sub">Up to 5 clinics. Each employee can set their own distances. <b>Miles from base clinic</b> = the leg between your base clinic and this clinic. <b>Miles from home</b> = your one-way home commute to this clinic (used by the home-adjustment method).</p>
+      <p class="sub">Up to 10 clinics. Each employee can set their own distances. <b>Miles from base clinic</b> = the leg between your base clinic and this clinic. <b>Miles from home</b> = your one-way home commute to this clinic (used by the home-adjustment method).</p>
       <table class="grid">
         <thead><tr>
           <th>Clinic name</th>
@@ -367,8 +367,8 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
         '<td class="actions" data-label=""><button class="btn danger" data-del="'+i+'" title="Remove">✕</button></td>';
       tb.appendChild(tr);
     });
-    $("addLoc").disabled = state.locations.length >= 5;
-    $("addLoc").style.opacity = state.locations.length >= 5 ? .5 : 1;
+    $("addLoc").disabled = state.locations.length >= 10;
+    $("addLoc").style.opacity = state.locations.length >= 10 ? .5 : 1;
   }
 
   // ---------- render: clinic-to-clinic distances ----------
@@ -627,7 +627,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     save(); renderAll();
   });
   $("addLoc").addEventListener("click", function(){
-    if(state.locations.length>=5) return;
+    if(state.locations.length>=10) return;
     state.locations.push({name:"New clinic "+(state.locations.length+1), distMPK:0, distHome:0});
     save(); renderAll();
   });
