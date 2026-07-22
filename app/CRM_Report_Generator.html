@@ -2853,6 +2853,36 @@ loadSaved();
     });
   };
 
+  // Reconnect conflict: the shared database file changed on another device AND this browser holds
+  // unsaved edits. Same three-way choice as the Schedule page — never guess which copy wins.
+  if (WS) WS.onConflict = function (details) {
+    return new Promise(function (resolve) {
+      var name = (details && details.fileName) || 'the database';
+      var when = '';
+      try { if (details && details.fileModified) when = ' (file updated ' + new Date(details.fileModified).toLocaleString() + ')'; } catch (e) {}
+      var back = document.createElement('div');
+      back.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:99999;';
+      var box = document.createElement('div');
+      box.style.cssText = 'background:var(--card,#fff);color:var(--fg,#111);max-width:460px;width:92%;padding:20px 22px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.4);font:14px/1.5 system-ui,sans-serif;';
+      box.innerHTML = '<h3 style="margin:0 0 8px;font-size:16px;">Database changed elsewhere</h3>' +
+        '<p style="margin:0 0 14px;">' + escT(name) + ' was updated on another device' + escT(when) +
+        ', but this browser has unsaved changes. Which copy should win? Nothing is deleted — “Save mine aside” keeps a backup either way.</p>';
+      function btn(label, val, primary) {
+        var b = document.createElement('button');
+        b.textContent = label;
+        b.style.cssText = 'display:block;width:100%;margin:6px 0;padding:10px 12px;border-radius:8px;border:1px solid var(--line,#ccc);cursor:pointer;font:inherit;text-align:left;' +
+          (primary ? 'background:var(--accent,#2563eb);color:#fff;border-color:transparent;' : 'background:transparent;color:inherit;');
+        b.onclick = function () { document.body.removeChild(back); resolve(val); };
+        return b;
+      }
+      box.appendChild(btn('Use the newer copy from the file (recommended)', 'file', true));
+      box.appendChild(btn('Save mine aside, then load the file’s copy', 'backup', false));
+      box.appendChild(btn('Keep this browser’s copy (overwrite the file on next save)', 'local', false));
+      back.appendChild(box);
+      document.body.appendChild(back);
+    });
+  };
+
   function escT(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function item(label, fn, dim) {
     var b = document.createElement('button');
@@ -2932,22 +2962,18 @@ loadSaved();
   }
   function activateHandoffRoot(root, askPermission) {
     if (!root) { showDatabaseGuard(handoffFailureMessage()); return Promise.resolve(false); }
+    var enable = function () { slotRoot = root; updateFilesBtn(); hideDatabaseGuard(); routeFromHash(true); return true; };
+    // Confirm this browser's cached copy isn't older than the file before enabling report entry (and
+    // so its own desktop autosave is unblocked). Best-effort: if the file can't be read yet, report
+    // entry still works off the shared working copy and the engine keeps file writes blocked.
     // A successfully decrypted IndexedDB working copy is already a usable database. External-file
     // permission controls desktop autosave only and must not block patient loading or report entry.
     if (WS.isOpen && WS.isOpen()) {
-      slotRoot = root;
-      updateFilesBtn();
-      hideDatabaseGuard();
-      routeFromHash(true);
-      return Promise.resolve(true);
+      return WS.verifyFreshness().catch(function () {}).then(enable);
     }
     return WS.permission(root, !!askPermission).then(function (p) {
       if (p !== 'granted') { showDatabaseGuard('Database access is required before this scheduled patient can be loaded.'); return false; }
-      slotRoot = root;
-      updateFilesBtn();
-      hideDatabaseGuard();
-      routeFromHash(true);
-      return true;
+      return WS.verifyFreshness().catch(function () {}).then(enable);
     }).catch(function (e) {
       showDatabaseGuard('The patient database could not be opened: ' + ((e && e.message) || 'Unknown error'));
       return false;
@@ -3255,8 +3281,9 @@ loadSaved();
         if (p !== 'granted') {
           pdMenu.appendChild(item('Unlock USB workspace', function () {
             WS.permission(root, true).then(function (p2) {
-              if (p2 === 'granted') { slotRoot = root; updateFilesBtn(); toast('Database unlocked', 'ok'); }
-              else toast('Permission denied.', 'err');
+              if (p2 !== 'granted') { toast('Permission denied.', 'err'); return; }
+              // Confirm the cached copy isn't stale vs the file before enabling saves to it.
+              return WS.verifyFreshness().catch(function () {}).then(function () { slotRoot = root; updateFilesBtn(); toast('Database unlocked', 'ok'); });
             });
           }));
           pdMenu.appendChild(divEl());

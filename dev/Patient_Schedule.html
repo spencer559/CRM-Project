@@ -959,6 +959,37 @@
     return window.prompt((details && details.message) || "Database password:");
   };
 
+  // A true reconnect conflict: the database file (e.g. on OneDrive) was changed from another
+  // station AND this browser is holding unsaved edits. Never guess — ask which copy wins.
+  if (WS) WS.onConflict = function (details) {
+    return new Promise(function (resolve) {
+      var name = (details && details.fileName) || "the database";
+      var when = "";
+      try { if (details && details.fileModified) when = " (file updated " + new Date(details.fileModified).toLocaleString() + ")"; } catch (e) {}
+      var back = document.createElement("div");
+      back.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999;";
+      var box = document.createElement("div");
+      box.style.cssText = "background:var(--card,#fff);color:var(--fg,#111);max-width:460px;width:92%;padding:20px 22px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.4);font:14px/1.5 system-ui,sans-serif;";
+      box.innerHTML =
+        '<h3 style="margin:0 0 8px;font-size:16px;">Database changed elsewhere</h3>' +
+        '<p style="margin:0 0 14px;">' + name + ' was updated on another device' + when +
+        ', but this station has unsaved changes. Which copy should win? Nothing is deleted — “Save mine aside” keeps a backup either way.</p>';
+      function btn(label, val, primary) {
+        var b = document.createElement("button");
+        b.textContent = label;
+        b.style.cssText = "display:block;width:100%;margin:6px 0;padding:10px 12px;border-radius:8px;border:1px solid var(--line,#ccc);cursor:pointer;font:inherit;text-align:left;" +
+          (primary ? "background:var(--accent,#2563eb);color:#fff;border-color:transparent;" : "background:transparent;color:inherit;");
+        b.onclick = function () { document.body.removeChild(back); resolve(val); };
+        return b;
+      }
+      box.appendChild(btn("Use the newer copy from the file (recommended)", "file", true));
+      box.appendChild(btn("Save mine aside, then load the file's copy", "backup", false));
+      box.appendChild(btn("Keep this station's copy (overwrite the file on next save)", "local", false));
+      back.appendChild(box);
+      document.body.appendChild(back);
+    });
+  };
+
   function setStatus(msg, cls) {
     var el = $("fileStatus");
     el.textContent = msg; el.className = "hdr-status" + (cls ? " " + cls : "");
@@ -1477,12 +1508,26 @@
     setStatus("Reopening database…", "");
     return WS.stored().then(function (root) {
       if (!root) { setStatus("Database is closed — open schedule.crmdb to reconnect", "warn"); return false; }
-      // The IndexedDB working copy is the active session database and does not depend on renewed
-      // permission to the external file. Permission affects desktop autosave, not reconnect/load.
-      if (WS.isOpen && WS.isOpen()) return adoptWorkspace(root, false, true).then(function () { return true; });
-      return WS.permission(root, false).then(function (p) {
-        if (p !== "granted") { setStatus("Database file access needs renewal — use Open database", "warn"); return false; }
-        return adoptWorkspace(root, false, true).then(function () { return true; });
+      // Before trusting — or ever saving — this browser's cached copy, confirm it is not OLDER than
+      // the file on disk. A stale station cache silently overwriting newer OneDrive data is exactly
+      // the bug this guards (the copy that got wiped moving stations). verifyFreshness may adopt the
+      // newer file, or surface a conflict; it rejects only when the file can't be read yet.
+      return WS.verifyFreshness().then(function (res) {
+        return adoptWorkspace(root, false, true).then(function () {
+          var d = res && res.decision;
+          if (d === "file") setStatus("Loaded the newer database from the file — this browser's copy was out of date", "ok");
+          else if (d === "backup") setStatus("Saved this station's copy aside and loaded the file", "ok");
+          else if (d === "local") setStatus("Keeping this station's copy — it will overwrite the file on the next save", "warn");
+          return true;
+        });
+      }).catch(function () {
+        // Couldn't read the file to verify (usually the file-access permission needs a click). Show
+        // the cached schedule so the day isn't lost, but the engine keeps autosave BLOCKED until a
+        // real reconnect verifies it — so a possibly-stale copy can never overwrite the file.
+        return adoptWorkspace(root, false, true).then(function () {
+          setStatus("Showing this browser's saved copy — click “Open database” to reconnect before editing (not yet verified against the file)", "warn");
+          return true;
+        });
       });
     }).catch(function (e) {
       setStatus("Could not reopen database: " + ((e && e.message) || "unknown error"), "warn");
