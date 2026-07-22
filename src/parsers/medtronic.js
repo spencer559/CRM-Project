@@ -24,7 +24,7 @@
   var DROPDOWN_MODES = ['AAI', 'AAIR', 'VVI', 'VVIR', 'DDD', 'DDDR', 'DDI', 'DDIR', 'VDI', 'VDIR', 'AOO', 'VOO', 'DOO', 'OOO'];
 
   var ORDER_LEADLESS = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'pct-v', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'p-sav', 'p-ms', 'lead-leadless-imp', 'lead-leadless-sens', 'lead-leadless-thr', 'lead-leadless-pw', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
-  var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'p-sav', 'p-pav', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-lv-imp', 'lead-lv-sens', 'lead-lv-thr', 'lead-lv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-af-burden', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
+  var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'p-sav', 'p-pav', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-lv-imp', 'lead-lv-sens', 'lead-lv-thr', 'lead-lv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-af-burden', 'ep-ahr', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
 
   /* ---------- device routing ---------- */
   function detectDevice(model) {
@@ -235,12 +235,38 @@
         }
         return null;
       }
+      // Four-state pacing fallback. MVP (Managed Ventricular Pacing) and AdaptivCRT reports
+      // break pacing into the AS/AP × VS/VP table instead of printing single AP / VP totals:
+      //   atrial-paced      = AP-VS + AP-VP
+      //   ventricular-paced = AS-VP + AP-VP
+      // Reads the since-last-session column (the Quick Look block is single-column, so the value
+      // right of each state label is the current value). Returns nulls when the table is absent.
+      function fourState() {
+        var pH = function (re) { return findRight(re, { match: /%/ }); };
+        var hApvp = pH(/^AP-VP$/), hApvs = pH(/^AP-VS$/), hAsvp = pH(/^AS-VP$/);
+        var pv = function (x) { return x ? (parseFloat(num(x.v)) || 0) : 0; };
+        var pg = (hApvp || hApvs || hAsvp || {}).page;
+        return {
+          a: (hApvs || hApvp) ? (pv(hApvs) + pv(hApvp)).toFixed(1) : null,
+          v: (hAsvp || hApvp) ? (pv(hAsvp) + pv(hApvp)).toFixed(1) : null,
+          page: pg
+        };
+      }
       var hVP = therapySummaryVal(/^Total VP\*?$/) || therapySummaryVal(/^VP$/);
       if (hVP) {
         var cVP = cmpNum(hVP.v);
         set('pct-v', 'V Paced %', cVP.v, 'p' + hVP.page, cVP.cmp ? 'review' : 'auto', 'Device Total VP (ventricular paced).' + (cVP.cmp ? ' Reported "' + cVP.raw + '".' : ''));
         var hAP = therapySummaryVal(/^(?:Total )?AP$/);
-        if (hAP) { var cAP = cmpNum(hAP.v); set('pct-a', 'A Paced %', cAP.v, 'p' + hAP.page, cAP.cmp ? 'review' : 'auto', 'Device Total AP (atrial paced).' + (cAP.cmp ? ' Reported "' + cAP.raw + '".' : '')); }
+        if (hAP) {
+          var cAP = cmpNum(hAP.v);
+          set('pct-a', 'A Paced %', cAP.v, 'p' + hAP.page, cAP.cmp ? 'review' : 'auto', 'Device Total AP (atrial paced).' + (cAP.cmp ? ' Reported "' + cAP.raw + '".' : ''));
+        } else {
+          // MVP reports print "Total VP" but no single "AP" total — atrial pacing lives only in the
+          // four-state table. Sum the atrial-paced states so A Paced % isn't left blank.
+          var fsAP = fourState();
+          if (fsAP.a != null) set('pct-a', 'A Paced %', fsAP.a, 'p' + fsAP.page, 'auto', 'Summed atrial-paced states: AP-VS + AP-VP (MVP report has no single AP total).');
+          else set('pct-a', 'A Paced %', '', '', 'review', 'No AP total or four-state table found — enter manually.');
+        }
         if (isCRT) {
           // "Total VP Effective" prints as an "Effective" row directly under "Total VP*".
           var hEff = therapySummaryVal(/^Effective$/);
@@ -248,12 +274,10 @@
         }
       } else {
         // No Therapy Summary block — last-resort AdaptivCRT four-state sum (since-last column).
-        var pH = function (re) { return findRight(re, { match: /%/ }); };
-        var hApvp = pH(/^AP-VP$/), hApvs = pH(/^AP-VS$/), hAsvp = pH(/^AS-VP$/);
-        if (hApvp) {
-          var pv = function (x) { return x ? (parseFloat(num(x.v)) || 0) : 0; };
-          set('pct-a', 'A Paced %', (pv(hApvs) + pv(hApvp)).toFixed(1), 'p' + hApvp.page, 'auto', 'Summed pacing states: AP-VS + AP-VP.');
-          set('pct-v', 'V Paced %', (pv(hAsvp) + pv(hApvp)).toFixed(1), 'p' + hApvp.page, 'auto', 'Summed pacing states: AS-VP + AP-VP.');
+        var fs = fourState();
+        if (fs.a != null || fs.v != null) {
+          set('pct-a', 'A Paced %', fs.a || '', 'p' + fs.page, 'auto', 'Summed pacing states: AP-VS + AP-VP.');
+          set('pct-v', 'V Paced %', fs.v || '', 'p' + fs.page, 'auto', 'Summed pacing states: AS-VP + AP-VP.');
         } else {
           set('pct-a', 'A Paced %', '', '', 'review', '');
           set('pct-v', 'V Paced %', '', '', 'review', '');
@@ -351,6 +375,26 @@
       var afItem = af ? (af.items.find(function (i) { return /%/.test(i.str); }) || { str: '' }).str : '';
       var afc = cmpNum(afItem);   // keep "<0.1" style values verbatim
       set('ep-af-burden', 'AF Burden (%)', afc.v, af ? 'p' + af.page : '', afc.cmp ? 'review' : 'auto', afc.cmp ? ('Reported "' + afItem.trim() + '".') : '');
+
+      // AHR = atrial high-rate (AT/AF) episode count. Medtronic prints it in the "Clinical Status"
+      // summary as an exact "AT/AF" row carrying the episode count since the last session. Scope to
+      // the Clinical Status page and skip the look-alikes: the "AT/AF" Detection row ("Monitor >
+      // 154 bpm", above Clinical Status so before the anchor), the "AT/AF(Monitor)" sub-header, the
+      // bare "AT/AF" chart label (no value cell), and "Time in AT/AF" (a burden, item[0] differs).
+      var ahr = (function () {
+        var csIdx = LINES.findIndex(function (l) { return /^Clinical Status/.test(text(l)); });
+        if (csIdx < 0) return null;
+        var pg = LINES[csIdx].page;
+        for (var i = csIdx + 1; i < LINES.length && LINES[i].page === pg; i++) {
+          var its = LINES[i].items;
+          if (!its[0] || !/^AT\/AF$/.test(its[0].str)) continue;
+          var v = its.slice(1).find(function (n) { return n.x > its[0].x + 2 && /^\d+$/.test(n.str); });
+          if (v) return { v: v.str, page: pg };
+        }
+        return null;
+      })();
+      set('ep-ahr', 'AHR (AT/AF/AFl)', ahr ? ahr.v : '', ahr ? 'p' + ahr.page : '', 'review', 'AT/AF episode count from Clinical Status (since last session). Confirm in the episode log.');
+
       h = findRight(/VT-NS/); set('ep-hvr', 'HVR (VT/VF/NS-VT)', h && num(h.v), h ? 'p' + h.page : '', 'review', 'Non-sustained VT count this session. Confirm episode counts in the device log.');
 
       mapLeadInventory();
