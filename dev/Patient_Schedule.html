@@ -757,7 +757,7 @@
     } else { render(); }
   });
   window.addRow = function () {
-    rows().push({ time: "", pt: "", mfr: "", dtype: "", provider: "Tech", check: "In-clinic", lastOff: "", rm: "", cerner: false, notes: "" });
+    rows().push({ time: "", pt: "", mfr: "", dtype: "", provider: providerFilter || "Tech", check: "In-clinic", lastOff: "", rm: "", cerner: false, notes: "" });
     save(); render();
     var t = $("schedBody").querySelectorAll("td.time input");
     if (t.length) t[t.length - 1].focus();
