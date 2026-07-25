@@ -402,6 +402,10 @@
   var KEY = "patientSchedV1";
   var DATEKEY = "patientSchedDateV1";
   var REVKEY = "patientSchedRevisionV1"; // timestamp only (no PHI); safe even in USB-only mode
+  // sessionStorage, not localStorage: the filter must survive the CRM Report Generator round trip
+  // (a full navigation in this same tab) without leaving a provider's name on the machine after the
+  // tab closes. Closing the tab still starts the next visit on All Providers.
+  var PROVKEY = "patientSchedProviderV1";
   var TAB_ID = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
   var MFRS = ["", "Medtronic", "Boston Sci", "Abbott", "Biotronik", "MicroPort", "Other"];
   var DEVS = ["", "PPM", "ICD", "CRT-P", "CRT-D", "ILR", "S-ICD", "Leadless"];
@@ -448,10 +452,16 @@
     try { var d = localStorage.getItem(DATEKEY); if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d; } catch (e) {}
     return localISO();
   }
+  // Likewise UI-only, and kept for the length of the visit so stepping out to the Report Generator
+  // and back returns to the same filtered day. renderProviderControl drops it if the provider is
+  // no longer on the roster.
+  function loadProviderFilter() {
+    try { return sessionStorage.getItem(PROVKEY) || ""; } catch (e) { return ""; }
+  }
 
   var state = load();
   var curDate = loadCurDate();
-  var providerFilter = ""; // UI-only; every visit starts on All Providers
+  var providerFilter = loadProviderFilter();
   var scheduleChannel = null;
   var remotePendingRevision = 0;
   try { if (typeof BroadcastChannel !== "undefined") scheduleChannel = new BroadcastChannel("patientScheduleSyncV1"); } catch (e) {}
@@ -534,6 +544,9 @@
   }
   function renderProviderControl() {
     if (providerFilter && state.providers.indexOf(providerFilter) === -1) providerFilter = "";
+    // Every path that changes the filter ends here through render(), so this is the one place the
+    // choice needs to be remembered — after the roster check, so a deleted provider isn't kept.
+    try { providerFilter ? sessionStorage.setItem(PROVKEY, providerFilter) : sessionStorage.removeItem(PROVKEY); } catch (e) {}
     var btn = $("providerBtn");
     btn.textContent = (providerFilter || "All Providers") + " \u25be";
     btn.setAttribute("aria-expanded", $("providerMenu").hidden ? "false" : "true");
@@ -1546,6 +1559,7 @@
     var done = (open && WS) ? WS.saveNow() : Promise.resolve();
     done.then(function () {
       try { localStorage.removeItem(KEY); } catch (e) {}
+      try { sessionStorage.removeItem(PROVKEY); } catch (e) {}   // don't hand the next user a filtered view
       return (WS ? WS.forget() : Promise.resolve());
     }).then(function () { setTimeout(function () { location.reload(); }, 400); });
   };
