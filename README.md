@@ -357,6 +357,34 @@ attached (`serialize` only emits the paths the saving tab happens to hold). Ever
   needed. The pre-existing whole-bundle serialize — ~95 ms on a 35 MB database, on a 1.2 s debounce
   while typing — is the real cost here, and is what to optimize if this ever gets slow.
 
+**Cross-station freshness (`fileMeta`).** The revision CAS above only orders two **tabs on one
+machine**. It says nothing about the other half of the problem: the same `.crmdb` sits on OneDrive
+and gets edited from a second workstation, while each station's IndexedDB working copy lingers
+between visits. A station reopening with an **older** cache used to flush it straight over the newer
+file — which is how a day's schedule was lost moving Monterey Park → Arcadia. So the cache is pinned
+to the file it came from (`baseFileMod`, `cacheMatchesFile`, persisted beside the bundle), and a
+bound-file session starts **unverified**: until `verifyFreshness()` has compared the file to the
+cache, `writeThroughToFile` refuses to write at all. File unchanged → keep the cache; file newer +
+clean cache → the file silently wins; file newer + unsaved edits → the page's `onConflict` asks
+which copy wins (file / keep mine / save mine aside then take the file).
+
+- **A newer mtime does not mean someone else wrote it.** Chasing a "Database changed elsewhere"
+  prompt that fired on the ordinary Schedule → Report Generator handoff: the newer file was **this**
+  station's own autosave. A save is `commit` → file write → metadata write, and navigation tears the
+  page down mid-chain, so the file moves forward while the recorded base does not. (OneDrive
+  re-stamping the file after syncing it up does the same with identical bytes.) The store now
+  **signs the bytes it puts on the file** — `pendingSig` written *before* the file write so even an
+  interrupted save is recognizable, `baseSig` after it. On reconnect, a newer file whose content
+  matches either signature is our own work: re-pin and carry on, local edits still pending. Only
+  genuinely foreign bytes reach the conflict prompt.
+- **One save at a time** (`enqueue`). Two overlapping save chains — the Schedule deletes a patient's
+  files *and* writes `schedule.json` — interleaved their metadata writes, so IndexedDB could end up
+  describing a state that never existed. `persist`/`flush`/`saveNow`/`verifyFreshness` now run one
+  after another, and a navigation that waits on `flush()` waits for everything queued ahead of it.
+- **`cacheMatchesFile` is earned, not assumed.** A write-through marks the cache clean only if the
+  bundle's mutation counter hasn't moved since the snapshot was serialized; an edit made *during*
+  the write stays unsaved work rather than being written off as already on disk.
+
 The bundle **is** the one database, and it is:
 - **serialized to the `.crmdb`** on save;
 - **mirrored to IndexedDB immediately when opened and again on every change** (`crmdbStore` db,
@@ -514,11 +542,15 @@ localStorage, and forgets the connection.
 
 - **Manual:** open `app/CRM_Report_Generator.html` locally (or on the Pages site) and drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
 - **PDF authoring:** use `tools/CIED PDF Extraction Harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parser under `src/parsers/`.
-- **Node tests:** `node tests/crmdb-encryption.test.js` (password round-trips) and
+- **Node tests:** `node tests/crmdb-encryption.test.js` (password round-trips),
   `node tests/crmdb-multitab.test.js` (two tabs sharing one working copy — the journal/revision-CAS
-  guard). No npm install: `crmdb-store.js` exports itself under `module.exports`, a fresh
-  `require` is a fresh "tab", and the multi-tab test ships a ~40-line in-memory IndexedDB shim to
-  keep the repo dependency-free. Both tests fail loudly against the pre-fix store.
+  guard), `node tests/crmdb-freshness.test.js` (a stale station cache must never overwrite a newer
+  OneDrive file) and `node tests/crmdb-selfwrite.test.js` (the other direction: this station's own
+  saves — including one interrupted by navigation — must never be *mistaken* for another station's,
+  while a real foreign edit still raises the conflict prompt). No npm install: `crmdb-store.js`
+  exports itself under `module.exports`, a fresh `require` is a fresh "tab" (or a fresh page load),
+  and the tests ship a ~40-line in-memory IndexedDB shim to keep the repo dependency-free. Each
+  fails loudly against the store it was written for.
 - **Headless checks:** the parser logic is plain JS and can be exercised in Node by `eval`-ing the vendor file (with `globalThis.window = globalThis`) and feeding it a reconstructed `LINES` array (PDF) or raw `.log` text — the fastest way to verify a change against a sample before clicking through the form. UI-logic changes can be checked with jsdom (load the app HTML, stub `IntersectionObserver`, drive the functions).
 
 ### To add a new vendor

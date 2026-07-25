@@ -57,10 +57,21 @@
   //                         can never overwrite a newer OneDrive copy before we've looked.
   // On reconnect: file newer than base + clean cache → the file wins; file newer + unsaved edits →
   // a real conflict handed to the page's onConflict.
+  //
+  // An mtime alone cannot tell WHOSE change it was, and a newer mtime is very often OUR OWN: the
+  // page navigates between the file write and the metadata write (the Schedule → Report Generator
+  // handoff does this constantly), or OneDrive re-stamps the file after syncing it up. Both used to
+  // surface as "Database changed elsewhere" on the very next page. So we also record a content
+  // signature of the bytes this station put on the file — before the write (pendingSig, so an
+  // interrupted save is still recognizable) and after it (baseSig). A newer file whose bytes we
+  // signed is our own work: re-pin and carry on silently. Anything else is a real foreign edit.
   var META_KEY = "fileMeta";
   var baseFileMod = null;         // file.lastModified our cache is based on, or null when unknown
   var cacheMatchesFile = false;   // cache byte-for-byte equals the bound file (no unsaved edits)
   var freshnessVerified = false;  // desktop only: bound file compared to the cache this session
+  var baseSig = null;             // SHA-256 of the bytes we last read from / wrote to the file
+  var pendingSig = null;          // SHA-256 of bytes a save was about to write when it could be cut short
+  var mutSeq = 0;                 // bumped on every bundle mutation, to date a serialized snapshot
 
   // ---- cross-tab safety ------------------------------------------------------
   // Two same-origin tabs (typically Schedule + Report Generator) each hold their OWN in-memory
@@ -81,8 +92,8 @@
   var REV_KEY = "rev", BUNDLE_KEY = "bundle";
   // Record a mutation as well as applying it, so a later rebase can replay it. Any edit means the
   // cache no longer matches the bound file until the next successful write-through.
-  function bset(path, blob) { bundle.set(path, blob); journal.set(path, blob); cacheMatchesFile = false; }
-  function bdel(path) { var had = bundle.delete(path); journal.set(path, null); cacheMatchesFile = false; return had; }
+  function bset(path, blob) { bundle.set(path, blob); journal.set(path, blob); cacheMatchesFile = false; mutSeq++; }
+  function bdel(path) { var had = bundle.delete(path); journal.set(path, null); cacheMatchesFile = false; mutSeq++; return had; }
   function applyJournal() {
     journal.forEach(function (blob, path) {
       if (blob === null) bundle.delete(path); else bundle.set(path, blob);
@@ -116,6 +127,20 @@
     var u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     for (var i = 0; i < ENC_MAGIC.length; i++) if (u[i] !== ENC_MAGIC[i]) return false;
     return true;
+  }
+  // Content signature of one .crmdb's bytes — how we tell our own writes from another station's.
+  // Best-effort: a browser without SubtleCrypto simply falls back to the mtime-only comparison.
+  function sigOf(data) {
+    var c;
+    try { c = cryptoApi(); } catch (e) { return Promise.resolve(null); }
+    return Promise.resolve(data instanceof Blob ? data.arrayBuffer() : data)
+      .then(function (ab) { return c.subtle.digest("SHA-256", ab); })
+      .then(function (digest) {
+        var u = new Uint8Array(digest), s = "";
+        for (var i = 0; i < u.length; i++) s += (u[i] < 16 ? "0" : "") + u[i].toString(16);
+        return s;
+      })
+      .catch(function () { return null; });
   }
   function deriveMaterial(password, salt, iterations) {
     var c = cryptoApi();
@@ -347,11 +372,17 @@
   }
   // Persist the freshness metadata beside the bundle so a later session (a reopen at this station)
   // can tell whether its cache is stale relative to the file.
-  function persistMeta() { return idbSet(META_KEY, { baseFileMod: baseFileMod, cacheMatchesFile: cacheMatchesFile }); }
+  function persistMeta() {
+    return idbSet(META_KEY, { baseFileMod: baseFileMod, cacheMatchesFile: cacheMatchesFile, baseSig: baseSig, pendingSig: pendingSig });
+  }
   function loadMeta() {
     return idbGet(META_KEY).then(function (m) {
-      if (m && typeof m === "object") { baseFileMod = (m.baseFileMod == null ? null : m.baseFileMod); cacheMatchesFile = !!m.cacheMatchesFile; }
-      else { baseFileMod = null; cacheMatchesFile = false; }
+      if (m && typeof m === "object") {
+        baseFileMod = (m.baseFileMod == null ? null : m.baseFileMod);
+        cacheMatchesFile = !!m.cacheMatchesFile;
+        baseSig = m.baseSig || null;
+        pendingSig = m.pendingSig || null;
+      } else { baseFileMod = null; cacheMatchesFile = false; baseSig = null; pendingSig = null; }
     });
   }
 
@@ -395,8 +426,22 @@
     });
   }
 
+  // Saving is commit → file write → metadata write, and two of those chains running at once
+  // interleave their metadata writes: the Schedule's patient-file delete and its schedule.json save
+  // both flush, and the slower chain's "unsaved edits" flag could land AFTER the faster chain's
+  // "saved, file is at mtime N" — leaving IndexedDB describing a state that never existed. Every
+  // save therefore runs to completion before the next one starts.
+  var opChain = Promise.resolve();
+  function enqueue(fn) {
+    var run = opChain.then(fn, fn);
+    opChain = run.then(function () {}, function () {});
+    return run;
+  }
+
   // The one write path. Rebases onto the shared copy when another tab has committed, then
-  // compare-and-swaps. Returns the committed blob (or null when there was nothing to write).
+  // compare-and-swaps. Returns { blob, seq } for the committed copy, or null when there was
+  // nothing to write. `seq` dates the snapshot, so a later write-through can tell whether the
+  // bundle moved on while it was busy.
   var COMMIT_RETRIES = 3;
   function commit() {
     // Nothing of ours to publish: don't touch the shared copy at all. This is what stops an
@@ -410,6 +455,7 @@
         // authoritative = we just opened/created a whole database; ours is the truth by intent.
         var stale = !authoritative && journal.size && shared !== myRev;
         return (stale ? adoptShared() : Promise.resolve()).then(function () {
+          var seq = mutSeq;                        // what this snapshot contains
           return serialize().then(function (blob) {
             return idbCas(shared, blob).then(function (res) {
               if (!res.ok) {                       // another tab committed mid-serialize
@@ -421,7 +467,7 @@
               authoritative = false;
               // Persist the freshness flags alongside the committed bundle so a later reopen knows
               // whether this cache carries edits the bound file doesn't have yet.
-              return persistMeta().then(function () { return blob; });
+              return persistMeta().then(function () { return { blob: blob, seq: seq }; });
             });
           });
         });
@@ -431,19 +477,45 @@
   }
 
   // Write the committed bytes out to the bound .crmdb (desktop autosave only).
-  function writeThroughToFile(blob, loud) {
-    if (!blob || !fileHandle || !canAutosave) return Promise.resolve();
+  // opts: { loud } narrates through onStatus, { rethrow } lets the caller report the failure.
+  // Resolves true when the bytes actually reached the file.
+  function writeThroughToFile(blob, seq, opts) {
+    opts = opts || {};
+    if (!blob || !fileHandle || !canAutosave) return Promise.resolve(false);
     // Never write to the file until this session has confirmed our cache isn't an older copy than
     // what's on disk. This is the guard that stops a stale station cache clobbering newer OneDrive
     // data before the reconnect freshness check has had a chance to run.
-    if (!freshnessVerified) { if (loud) status("Reconnect the database before saving — it hasn't been verified against the file yet", "warn"); return Promise.resolve(); }
-    return fileHandle.createWritable()
+    if (!freshnessVerified) {
+      if (opts.loud || opts.rethrow) status("Reconnect the database before saving — it hasn't been verified against the file yet", "warn");
+      return Promise.resolve(false);
+    }
+    return sigOf(blob).then(function (sig) {
+      // Sign the bytes BEFORE they go out. If this page is torn down between the file write and the
+      // metadata write below — which is exactly what navigating to the other page does — the next
+      // session still recognizes the file as our own doing instead of another station's edit.
+      pendingSig = sig;
+      return persistMeta();
+    })
+      .then(function () { return fileHandle.createWritable(); })
       .then(function (w) { return w.write(blob).then(function () { return w.close(); }); })
       .then(function () { return fileHandle.getFile(); })
       // We are now the file's contents, so pin the base to the file's fresh mtime.
-      .then(function (f) { baseFileMod = f.lastModified; cacheMatchesFile = true; return persistMeta(); })
-      .then(function () { if (loud) status("Saved ✓", "ok"); })
-      .catch(function (e) { if (loud) status("Save failed: " + e.message, "warn"); });
+      .then(function (f) {
+        baseFileMod = f.lastModified;
+        baseSig = pendingSig; pendingSig = null;
+        // Only clean if nothing edited the bundle while we were serializing and writing; otherwise
+        // those edits are real unsaved work and the next save must carry them out.
+        cacheMatchesFile = (seq == null || seq === mutSeq);
+        return persistMeta();
+      })
+      .then(function () { if (opts.loud) status("Saved ✓", "ok"); return true; })
+      .catch(function (e) {
+        // pendingSig deliberately survives a failure: the write may still have landed, and it only
+        // ever serves to recognize our own bytes.
+        if (opts.rethrow) throw e;
+        if (opts.loud) status("Save failed: " + e.message, "warn");
+        return false;
+      });
   }
 
   // Every write goes here: commit to the shared IndexedDB copy and, on desktop, autosave to the
@@ -452,10 +524,12 @@
     if (!opened) return;
     clearTimeout(persistTimer);
     persistTimer = setTimeout(function () {
-      commit().then(function (blob) {
-        if (!blob) return;
-        if (fileHandle && canAutosave) return writeThroughToFile(blob, true);
-        status("Unsaved — tap Save database updates", "warn");
+      enqueue(function () {
+        return commit().then(function (c) {
+          if (!c) return;
+          if (fileHandle && canAutosave) return writeThroughToFile(c.blob, c.seq, { loud: true });
+          status("Unsaved — tap Save database updates", "warn");
+        });
       });
     }, 1200);
   }
@@ -465,7 +539,9 @@
   function flush() {
     clearTimeout(persistTimer);
     if (!opened) return Promise.resolve();
-    return commit().then(function (blob) { return writeThroughToFile(blob, false); });
+    return enqueue(function () {
+      return commit().then(function (c) { return c ? writeThroughToFile(c.blob, c.seq) : false; });
+    });
   }
 
   // Refresh this tab's in-memory bundle from the latest IndexedDB working copy. Schedule uses
@@ -485,16 +561,42 @@
       return shareOrDownload(blob, base + ".conflict-" + backupStamp() + ".crmdb");
     });
   }
+  // Every signature that means "this machine put those bytes there": ours, plus whatever is on the
+  // shared metadata right now. The other tab may have saved since we loaded, and its write is no
+  // more foreign than our own — reading the shared copy is what keeps a two-tab station from
+  // reporting its own saves as another station's edits.
+  function knownSigs() {
+    return idbGet(META_KEY).then(function (m) {
+      var sigs = [baseSig, pendingSig];
+      if (m && typeof m === "object") sigs.push(m.baseSig, m.pendingSig);
+      return sigs.filter(Boolean);
+    });
+  }
+  // Read the bound file once and work out whose bytes are on it: `own` when some save from this
+  // machine produced them (including one cut short before it could record itself), false when this
+  // is a copy no station of ours has ever written — i.e. genuinely someone else's.
+  function readFile(f) {
+    return f.arrayBuffer().then(function (ab) {
+      return sigOf(ab).then(function (sig) {
+        return knownSigs().then(function (sigs) {
+          return { ab: ab, sig: sig, own: !!sig && sigs.indexOf(sig) >= 0 };
+        });
+      });
+    });
+  }
   // Replace our cache with the file's bytes and publish it as the authoritative working copy.
-  function adoptFile(f) {
-    return f.arrayBuffer().then(ingest).then(function () {
-      markAuthoritative();
-      baseFileMod = f.lastModified; cacheMatchesFile = true; freshnessVerified = true;
-      return persistMeta().then(function () { return commit(); });
+  function adoptFile(f, info) {
+    return (info ? Promise.resolve(info) : readFile(f)).then(function (i) {
+      return ingest(i.ab).then(function () {
+        markAuthoritative();
+        baseFileMod = f.lastModified; cacheMatchesFile = true; freshnessVerified = true;
+        baseSig = i.sig; pendingSig = null;
+        return persistMeta().then(function () { return commit(); });
+      });
     });
   }
   // A true conflict: the file moved AND our cache has unsaved edits. Ask the page which wins.
-  function resolveConflict(f) {
+  function resolveConflict(f, info) {
     var details = { fileName: suggestedName, fileModified: f.lastModified };
     var ask = conflictCb ? Promise.resolve().then(function () { return conflictCb(details); })
                          : Promise.resolve("file");   // no handler wired → safest default is the file
@@ -503,13 +605,14 @@
         // Keep our cache and let it overwrite the file on the next save. Reconcile the base so we
         // don't re-prompt, and leave it marked dirty-vs-file so a save is actually written out.
         baseFileMod = f.lastModified; cacheMatchesFile = false; freshnessVerified = true;
+        baseSig = (info && info.sig) || null; pendingSig = null;
         markAuthoritative();
         return persistMeta().then(function () { return { decision: "local" }; });
       }
       if (choice === "backup") {
-        return backupCurrentCache().then(function () { return adoptFile(f); }).then(function () { return { decision: "backup" }; });
+        return backupCurrentCache().then(function () { return adoptFile(f, info); }).then(function () { return { decision: "backup" }; });
       }
-      return adoptFile(f).then(function () { return { decision: "file" }; });   // "file" / anything else
+      return adoptFile(f, info).then(function () { return { decision: "file" }; });   // "file" / anything else
     });
   }
   // Compare the bound file to our cache and settle who is authoritative. Desktop-only; everything
@@ -518,14 +621,41 @@
   // so autosave stays blocked until a real reconnect.
   function verifyFreshness() {
     if (!fileHandle || !canAutosave) { freshnessVerified = true; return Promise.resolve({ decision: "cache" }); }
-    return fileHandle.getFile().then(function (f) {
-      // File unchanged since our cache was based on it → the cache is at least as new. Trust it.
-      if (baseFileMod != null && f.lastModified <= baseFileMod) { freshnessVerified = true; return { decision: "cache" }; }
-      // File is newer than the state our cache was based on (edited from another station, or a
-      // OneDrive sync brought a newer copy down). No unsaved edits here → the file simply wins.
-      if (cacheMatchesFile) return adoptFile(f).then(function () { return { decision: "file" }; });
-      // Newer file AND unsaved local edits → real conflict.
-      return resolveConflict(f);
+    // Queued behind any save still in flight, so we never compare against a file that is mid-write.
+    return enqueue(function () {
+      return fileHandle.getFile().then(function (f) {
+        // File unchanged since our cache was based on it → the cache is at least as new. Trust it.
+        if (baseFileMod != null && f.lastModified <= baseFileMod) {
+          freshnessVerified = true;
+          if (!pendingSig) return { decision: "cache" };
+          pendingSig = null;                                  // that save never reached the file
+          return persistMeta().then(function () { return { decision: "cache" }; });
+        }
+        // The mtime moved. Before calling that another station's work, check whose bytes are there.
+        return readFile(f).then(function (info) {
+          if (info.own) {
+            // Bytes this machine put there: an autosave whose bookkeeping was cut short by
+            // navigation, the other tab's save, or OneDrive re-stamping the file after syncing it
+            // up. Never a conflict — but if they came from the other tab (a signature we know that
+            // isn't the one our cache is pinned to) and we hold nothing unsaved, load them, the way
+            // any newer copy would be loaded.
+            if (info.sig !== baseSig && cacheMatchesFile) {
+              return adoptFile(f, info).then(function () { return { decision: "file" }; });
+            }
+            // Otherwise just re-pin. Local edits stay pending (cacheMatchesFile untouched) so the
+            // next save still carries them out to the file.
+            baseFileMod = f.lastModified;
+            baseSig = info.sig; pendingSig = null;
+            freshnessVerified = true;
+            return persistMeta().then(function () { return { decision: "cache" }; });
+          }
+          // File is newer than the state our cache was based on (edited from another station, or a
+          // OneDrive sync brought a newer copy down). No unsaved edits here → the file simply wins.
+          if (cacheMatchesFile) return adoptFile(f, info).then(function () { return { decision: "file" }; });
+          // Newer file AND unsaved local edits → real conflict.
+          return resolveConflict(f, info);
+        });
+      });
     });
   }
 
@@ -536,18 +666,21 @@
     // Goes through the same rebase + compare-and-swap as any other save. When we have nothing of
     // our own to publish, adopt the shared copy first so Save writes the NEWEST bytes to the
     // USB/file rather than this tab's possibly-stale ones.
-    return commit().then(function (blob) {
-      return blob || adoptShared().then(serialize);
-    }).then(function (blob) {
-      if (fileHandle && canAutosave) {
-        // Same guard as the autosave path: an unverified session must not write to the file.
-        if (!freshnessVerified) { status("Reconnect the database before saving — it hasn't been verified against the file yet", "warn"); return; }
-        return fileHandle.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); })
-          .then(function () { return fileHandle.getFile(); })
-          .then(function (f) { baseFileMod = f.lastModified; cacheMatchesFile = true; return persistMeta(); })
-          .then(function () { status("Saved to " + (suggestedName) + " ✓", "ok"); });
-      }
-      return shareOrDownload(blob, suggestedName || DEFAULT_NAME);
+    return enqueue(function () {
+      return commit().then(function (c) {
+        if (c) return c;
+        var seq = mutSeq;
+        return adoptShared().then(serialize).then(function (blob) { return { blob: blob, seq: seq }; });
+      }).then(function (c) {
+        if (fileHandle && canAutosave) {
+          // Same guard as the autosave path (inside writeThroughToFile): an unverified session must
+          // not write to the file, and must not claim it saved.
+          return writeThroughToFile(c.blob, c.seq, { rethrow: true }).then(function (written) {
+            if (written) status("Saved to " + (suggestedName) + " ✓", "ok");
+          });
+        }
+        return shareOrDownload(c.blob, suggestedName || DEFAULT_NAME);
+      });
     });
   }
   // iPad has no showSaveFilePicker; the ONLY way a web page can write to an external USB is the
@@ -649,10 +782,13 @@
             return next.getFile();
           }).then(function (f) {
             var mod = f.lastModified;
-            return f.arrayBuffer().then(ingest).then(function () {
-              fileHandle = next;
-              // We just read the file, so the cache equals it exactly and this session is verified.
-              baseFileMod = mod; cacheMatchesFile = true; freshnessVerified = true;
+            return readFile(f).then(function (info) {
+              return ingest(info.ab).then(function () {
+                fileHandle = next;
+                // We just read the file, so the cache equals it exactly and this session is verified.
+                baseFileMod = mod; cacheMatchesFile = true; freshnessVerified = true;
+                baseSig = info.sig; pendingSig = null;
+              });
             }).catch(function (e) { fileHandle = prev; suggestedName = prevName; protection = prevProtection; throw e; });
           })
             .then(function () { return idbSet("fileHandle", fileHandle); })
@@ -674,6 +810,7 @@
         f.arrayBuffer().then(ingest).then(function () {
           fileHandle = null; opened = true;
           freshnessVerified = true; baseFileMod = null; cacheMatchesFile = true;  // iPad: the cache IS the database
+          baseSig = null; pendingSig = null;
           markAuthoritative();
           return commit();
         }).then(function () { res(ROOT); })
@@ -693,6 +830,7 @@
           opened = true; fileHandle = h; suggestedName = h.name;
           // Brand-new file we are about to author: verified by construction, so saveNow may write it.
           freshnessVerified = true; baseFileMod = null; cacheMatchesFile = false;
+          baseSig = null; pendingSig = null;
           markAuthoritative();                  // a brand-new database replaces the working copy
           return idbSet("fileHandle", h);
         })
@@ -705,6 +843,7 @@
     fileHandle = null; suggestedName = DEFAULT_NAME;
     opened = true;
     freshnessVerified = true; baseFileMod = null; cacheMatchesFile = true;
+    baseSig = null; pendingSig = null;
     markAuthoritative();
     return commit().then(function () { return ROOT; });
   }
@@ -763,6 +902,7 @@
     // Drop any pending edits with the database — nothing may be replayed into the next one.
     journal.clear(); authoritative = false; myRev = 0;
     baseFileMod = null; cacheMatchesFile = false; freshnessVerified = false;
+    baseSig = null; pendingSig = null;
     return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY), idbDel(META_KEY)]).then(function () {});
   }
 
@@ -913,7 +1053,8 @@
     // test hooks (used by the Node unit test; harmless in the browser)
     _bundle: bundle, _serialize: serialize, _serializeZip: serializeZip, _ingest: ingest,
     _markAuthoritativeForTest: markAuthoritative, _journal: journal,
-    _setFileHandleForTest: function (h) { fileHandle = h; }, _metaForTest: function () { return { baseFileMod: baseFileMod, cacheMatchesFile: cacheMatchesFile, freshnessVerified: freshnessVerified }; }
+    _setFileHandleForTest: function (h) { fileHandle = h; },
+    _metaForTest: function () { return { baseFileMod: baseFileMod, cacheMatchesFile: cacheMatchesFile, freshnessVerified: freshnessVerified, baseSig: baseSig, pendingSig: pendingSig }; }
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.CRMWorkspace = api;

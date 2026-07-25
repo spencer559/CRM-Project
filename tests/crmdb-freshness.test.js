@@ -25,7 +25,8 @@ global.showOpenFilePicker = function () {};
 global.showSaveFilePicker = function () {};
 
 // Minimal DOM/nav stubs so the "backup" branch (shareOrDownload -> download) doesn't throw in Node.
-global.navigator = {};
+// Node 20+ defines a getter-only global.navigator, so it must be replaced rather than assigned.
+Object.defineProperty(global, "navigator", { value: {}, configurable: true, writable: true });
 global.URL = { createObjectURL: function () { return "blob:x"; }, revokeObjectURL: function () {} };
 global.document = {
   body: { appendChild: function () {}, removeChild: function () {} },
