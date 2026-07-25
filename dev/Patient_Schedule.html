@@ -453,15 +453,26 @@
     return localISO();
   }
   // Likewise UI-only, and kept for the length of the visit so stepping out to the Report Generator
-  // and back returns to the same filtered day. renderProviderControl drops it if the provider is
-  // no longer on the roster.
+  // and back returns to the same filtered day.
   function loadProviderFilter() {
     try { return sessionStorage.getItem(PROVKEY) || ""; } catch (e) { return ""; }
   }
 
   var state = load();
   var curDate = loadCurDate();
-  var providerFilter = loadProviderFilter();
+  // The remembered choice is kept SEPARATE from the active filter. The provider roster lives in the
+  // database, which loads asynchronously — after the first render, and with no localStorage mirror
+  // at all when the database is password-protected or in USB-only mode. Storing only the active
+  // filter meant that first roster-less paint threw the choice away before the database could
+  // arrive with the provider in it.
+  var rememberedProvider = loadProviderFilter();
+  var providerFilter = "";                 // recomputed from rememberedProvider on every render
+  // The one place the filter changes: remember the choice, and let the next render activate it.
+  function setProviderFilter(name) {
+    rememberedProvider = name || "";
+    providerFilter = rememberedProvider;
+    try { rememberedProvider ? sessionStorage.setItem(PROVKEY, rememberedProvider) : sessionStorage.removeItem(PROVKEY); } catch (e) {}
+  }
   var scheduleChannel = null;
   var remotePendingRevision = 0;
   try { if (typeof BroadcastChannel !== "undefined") scheduleChannel = new BroadcastChannel("patientScheduleSyncV1"); } catch (e) {}
@@ -543,10 +554,11 @@
     }).join("");
   }
   function renderProviderControl() {
-    if (providerFilter && state.providers.indexOf(providerFilter) === -1) providerFilter = "";
-    // Every path that changes the filter ends here through render(), so this is the one place the
-    // choice needs to be remembered — after the roster check, so a deleted provider isn't kept.
-    try { providerFilter ? sessionStorage.setItem(PROVKEY, providerFilter) : sessionStorage.removeItem(PROVKEY); } catch (e) {}
+    // Activate the remembered choice against the roster we hold right now — the database may have
+    // arrived since the last render and brought the provider with it. A provider that is genuinely
+    // gone simply never activates again; the memory is only ever rewritten by setProviderFilter,
+    // so a roster we haven't loaded yet can no longer erase it.
+    providerFilter = (rememberedProvider && state.providers.indexOf(rememberedProvider) !== -1) ? rememberedProvider : "";
     var btn = $("providerBtn");
     btn.textContent = (providerFilter || "All Providers") + " \u25be";
     btn.setAttribute("aria-expanded", $("providerMenu").hidden ? "false" : "true");
@@ -603,7 +615,7 @@
       (state.dates[date] || []).forEach(function (r) { if ((r.provider || "Tech") === name) r.provider = "Tech"; });
     });
     state.providers = state.providers.filter(function (p) { return p !== name; });
-    if (providerFilter === name) providerFilter = "Tech";
+    if (providerFilter === name) setProviderFilter("Tech");
     save(); render();
   }
   function persistProviderDomOrder() {
@@ -613,7 +625,7 @@
   $("providerBtn").addEventListener("click", openProviderMenu);
   $("providerMenu").addEventListener("click", function (ev) {
     var filter = ev.target.closest("[data-provider-filter]");
-    if (filter) { providerFilter = filter.dataset.providerFilter; closeProviderMenu(); render(); return; }
+    if (filter) { setProviderFilter(filter.dataset.providerFilter); closeProviderMenu(); render(); return; }
     var move = ev.target.closest("[data-provider-move]");
     if (move) { moveProvider(move.closest(".provider-item").dataset.providerName, +move.dataset.providerMove); return; }
     var del = ev.target.closest("[data-provider-delete]");
@@ -835,7 +847,7 @@
   $("allFilter").addEventListener("input", function () { renderAllPatients(this.value); });
   $("allList").addEventListener("click", function (ev) {
     var row = ev.target.closest(".all-row"); if (!row) return;
-    curDate = row.dataset.date; providerFilter = ""; render(); closeAllPatients();
+    curDate = row.dataset.date; setProviderFilter(""); render(); closeAllPatients();
   });
   $("allModal").addEventListener("click", function (ev) { if (ev.target === this) closeAllPatients(); });
   document.addEventListener("keydown", function (ev) {
@@ -1559,7 +1571,7 @@
     var done = (open && WS) ? WS.saveNow() : Promise.resolve();
     done.then(function () {
       try { localStorage.removeItem(KEY); } catch (e) {}
-      try { sessionStorage.removeItem(PROVKEY); } catch (e) {}   // don't hand the next user a filtered view
+      setProviderFilter("");   // don't hand the next user a filtered view
       return (WS ? WS.forget() : Promise.resolve());
     }).then(function () { setTimeout(function () { location.reload(); }, 400); });
   };
