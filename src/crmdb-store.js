@@ -372,8 +372,37 @@
   }
   // Persist the freshness metadata beside the bundle so a later session (a reopen at this station)
   // can tell whether its cache is stale relative to the file.
+  //
+  // The signature list is MERGED inside the transaction rather than overwritten. Commits and file
+  // writes now run on separate queues, so their metadata writes can land in either order; losing a
+  // signature that way would make one of this station's own writes look foreign on the next open.
+  // The scalars stay last-write-wins: a stale mtime only costs a content check, and a wrongly-clean
+  // cacheMatchesFile is already prevented by the mutation-counter check in writeThroughToFile.
+  var SIG_RING = 8;
+  function mergeSigs(prev) {
+    var out = [];
+    [baseSig, pendingSig].concat(Array.isArray(prev) ? prev : []).forEach(function (s) {
+      if (s && out.indexOf(s) === -1) out.push(s);
+    });
+    return out.slice(0, SIG_RING);
+  }
   function persistMeta() {
-    return idbSet(META_KEY, { baseFileMod: baseFileMod, cacheMatchesFile: cacheMatchesFile, baseSig: baseSig, pendingSig: pendingSig });
+    return idb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction("kv", "readwrite"), st = tx.objectStore("kv");
+        var rq = st.get(META_KEY);
+        rq.onsuccess = function () {
+          var prev = (rq.result && typeof rq.result === "object") ? rq.result : {};
+          st.put({
+            baseFileMod: baseFileMod, cacheMatchesFile: cacheMatchesFile,
+            baseSig: baseSig, pendingSig: pendingSig,
+            sigs: mergeSigs(prev.sigs || [prev.baseSig, prev.pendingSig])
+          }, META_KEY);
+        };
+        tx.oncomplete = function () { res(); };
+        tx.onerror = function () { rej(tx.error); };
+      });
+    }).catch(function () {});
   }
   function loadMeta() {
     return idbGet(META_KEY).then(function (m) {
@@ -426,15 +455,30 @@
     });
   }
 
-  // Saving is commit → file write → metadata write, and two of those chains running at once
-  // interleave their metadata writes: the Schedule's patient-file delete and its schedule.json save
-  // both flush, and the slower chain's "unsaved edits" flag could land AFTER the faster chain's
-  // "saved, file is at mtime N" — leaving IndexedDB describing a state that never existed. Every
-  // save therefore runs to completion before the next one starts.
-  var opChain = Promise.resolve();
-  function enqueue(fn) {
-    var run = opChain.then(fn, fn);
-    opChain = run.then(function () {}, function () {});
+  // Saving is commit → file write → metadata write, and two of those running at once interleave
+  // their metadata writes: the Schedule's patient-file delete and its schedule.json save both
+  // flush, and the slower one's "unsaved edits" flag could land AFTER the faster one's "saved, file
+  // is at mtime N" — leaving IndexedDB describing a state that never existed. So each half runs
+  // strictly serially. They are separate queues because only one of them is worth waiting for:
+  //
+  //   • commitChain — serialize + publish to IndexedDB. This is the entire handoff between the two
+  //     pages, so it is what a navigation waits on.
+  //   • fileChain  — the write-through to the .crmdb itself: a multi-megabyte write to a synced
+  //     OneDrive file. Nothing a user is waiting on needs it to have finished. A write cut short by
+  //     navigation is recognized by signature on the next open rather than mistaken for another
+  //     station's, and verifyFreshness catches the file up as soon as any page comes back.
+  //
+  // Keeping them apart is what stops a background file write from delaying the next page.
+  var commitChain = Promise.resolve(), fileChain = Promise.resolve();
+  function noop() {}
+  function enqueueCommit(fn) {
+    var run = commitChain.then(fn, fn);
+    commitChain = run.then(noop, noop);
+    return run;
+  }
+  function enqueueFile(fn) {
+    var run = fileChain.then(fn, fn);
+    fileChain = run.then(noop, noop);
     return run;
   }
 
@@ -524,23 +568,49 @@
     if (!opened) return;
     clearTimeout(persistTimer);
     persistTimer = setTimeout(function () {
-      enqueue(function () {
+      enqueueCommit(function () {
         return commit().then(function (c) {
           if (!c) return;
-          if (fileHandle && canAutosave) return writeThroughToFile(c.blob, c.seq, { loud: true });
+          if (fileHandle && canAutosave) { writeToFileInBackground(c); return; }
           status("Unsaved — tap Save database updates", "warn");
         });
       });
     }, 1200);
   }
 
-  // Flush the working copy to IndexedDB (and the desktop file) immediately — NO download.
-  // Used before navigating between the two pages so the handoff carries the latest edits.
+  // Hand the committed bytes to the file queue and DON'T wait: autosave and page handoffs have no
+  // reason to block on a multi-megabyte OneDrive write. Losing it to a page teardown is safe — the
+  // signature written before the write identifies it on the next open, and catchUpFile finishes the
+  // job when a page comes back.
+  function writeToFileInBackground(c, loud) {
+    if (!c || !c.blob || !fileHandle || !canAutosave) return;
+    enqueueFile(function () { return writeThroughToFile(c.blob, c.seq, { loud: !!loud }); });
+  }
+
+  // Flush the working copy to IndexedDB immediately, and start (but don't await) the file write —
+  // NO download. Used before navigating between the two pages: the shared IndexedDB copy IS the
+  // handoff, so that is all the navigation has to wait for.
   function flush() {
     clearTimeout(persistTimer);
     if (!opened) return Promise.resolve();
-    return enqueue(function () {
-      return commit().then(function (c) { return c ? writeThroughToFile(c.blob, c.seq) : false; });
+    return enqueueCommit(function () {
+      return commit().then(function (c) {
+        if (!c) return false;
+        writeToFileInBackground(c);
+        return true;
+      });
+    });
+  }
+
+  // The file can legitimately be behind the working copy: a write cut short by navigation, or one
+  // still queued when the page went away. Any page that has just verified itself finishes the job,
+  // in the background, so the .crmdb never stays behind for long.
+  function catchUpFile() {
+    if (!opened || cacheMatchesFile || !freshnessVerified || !fileHandle || !canAutosave) return;
+    enqueueFile(function () {
+      var seq = mutSeq;
+      return serialize().then(function (blob) { return writeThroughToFile(blob, seq, {}); })
+        .catch(function () { return false; });
     });
   }
 
@@ -568,7 +638,7 @@
   function knownSigs() {
     return idbGet(META_KEY).then(function (m) {
       var sigs = [baseSig, pendingSig];
-      if (m && typeof m === "object") sigs.push(m.baseSig, m.pendingSig);
+      if (m && typeof m === "object") sigs = sigs.concat(m.baseSig, m.pendingSig, m.sigs || []);
       return sigs.filter(Boolean);
     });
   }
@@ -621,8 +691,8 @@
   // so autosave stays blocked until a real reconnect.
   function verifyFreshness() {
     if (!fileHandle || !canAutosave) { freshnessVerified = true; return Promise.resolve({ decision: "cache" }); }
-    // Queued behind any save still in flight, so we never compare against a file that is mid-write.
-    return enqueue(function () {
+    // Queued behind any file write still in flight, so we never compare against a file mid-write.
+    return enqueueFile(function () {
       return fileHandle.getFile().then(function (f) {
         // File unchanged since our cache was based on it → the cache is at least as new. Trust it.
         if (baseFileMod != null && f.lastModified <= baseFileMod) {
@@ -656,6 +726,9 @@
           return resolveConflict(f, info);
         });
       });
+    }).then(function (res) {
+      catchUpFile();   // outside the queued step: it enqueues its own write behind this one
+      return res;
     });
   }
 
@@ -666,21 +739,25 @@
     // Goes through the same rebase + compare-and-swap as any other save. When we have nothing of
     // our own to publish, adopt the shared copy first so Save writes the NEWEST bytes to the
     // USB/file rather than this tab's possibly-stale ones.
-    return enqueue(function () {
+    // Unlike a navigation flush, this one is AWAITED all the way to the file: pressing Save (or
+    // Leave Station) is a promise that the bytes are on disk before it reports success.
+    return enqueueCommit(function () {
       return commit().then(function (c) {
         if (c) return c;
         var seq = mutSeq;
         return adoptShared().then(serialize).then(function (blob) { return { blob: blob, seq: seq }; });
-      }).then(function (c) {
-        if (fileHandle && canAutosave) {
+      });
+    }).then(function (c) {
+      if (fileHandle && canAutosave) {
+        return enqueueFile(function () {
           // Same guard as the autosave path (inside writeThroughToFile): an unverified session must
           // not write to the file, and must not claim it saved.
           return writeThroughToFile(c.blob, c.seq, { rethrow: true }).then(function (written) {
             if (written) status("Saved to " + (suggestedName) + " ✓", "ok");
           });
-        }
-        return shareOrDownload(c.blob, suggestedName || DEFAULT_NAME);
-      });
+        });
+      }
+      return shareOrDownload(c.blob, suggestedName || DEFAULT_NAME);
     });
   }
   // iPad has no showSaveFilePicker; the ONLY way a web page can write to an external USB is the
@@ -1054,6 +1131,9 @@
     _bundle: bundle, _serialize: serialize, _serializeZip: serializeZip, _ingest: ingest,
     _markAuthoritativeForTest: markAuthoritative, _journal: journal,
     _setFileHandleForTest: function (h) { fileHandle = h; },
+    // Resolves when every queued write-through has finished. Tests use it to observe the file
+    // writes that flush()/persist() now deliberately leave running in the background.
+    _fileIdle: function () { return fileChain.then(noop, noop); },
     _metaForTest: function () { return { baseFileMod: baseFileMod, cacheMatchesFile: cacheMatchesFile, freshnessVerified: freshnessVerified, baseSig: baseSig, pendingSig: pendingSig }; }
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

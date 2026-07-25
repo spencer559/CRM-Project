@@ -131,7 +131,8 @@ async function station() {
 async function dirtyCache(h, tab, schedule) {
   h.failWrite = true;
   await writeSched(tab, schedule);
-  await tab.flush();          // reaches IndexedDB, never reaches the file
+  await tab.flush();          // reaches IndexedDB...
+  await tab._fileIdle();      // ...and the background write-through fails, so never the file
   h.failWrite = false;
 }
 
@@ -156,7 +157,8 @@ async function run() {
     const { h, seed } = await station();
     await writeSched(seed, { v: "DELETED-A-PATIENT" });
     h.cutAfterWrite = true;
-    await seed.flush();                   // file gets the bytes; the metadata write never happens
+    await seed.flush();                   // returns as soon as IndexedDB has it — the file write runs on
+    await seed._fileIdle();               // the background queue, and is cut short before it records itself
     assert.strictEqual(h.writes, 2, "the interrupted save must still have reached the file");
 
     const { res, asked } = await reopen("file");
