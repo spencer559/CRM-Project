@@ -208,15 +208,43 @@
   function slotPrefix(date, slot) { return "patients/" + date + "/" + slot + "/"; }
 
   /* --------------------------------------------------- bundle <-> .crmdb bytes */
+  // CRC-32 of a stored file, memoized on the Blob that holds it.
+  //
+  // A commit re-serializes the WHOLE database, and the ZIP format needs a CRC-32 per entry. Doing
+  // that the obvious way — read every Blob, run the JS crc32 loop over every byte — is where
+  // essentially all of a commit's main-thread time went: at 53 MB, ~135 ms of a ~145 ms serialize,
+  // every time, even when a single note changed. Nothing about an unchanged file's CRC changes
+  // between commits, so we only ever compute one once.
+  //
+  // Keyed on the Blob rather than the path, which is what makes a hit safe to trust:
+  //   • Blobs are immutable, so a given Blob's bytes (and CRC) can never change underneath us;
+  //   • bset() installs a NEW Blob whenever a file's content changes, so changed content always
+  //     misses and is re-CRC'd;
+  //   • moveSlot/moveDate re-key the SAME Blob under a new path, and a CRC covers content only,
+  //     so a rename correctly keeps its memo instead of paying for the file again.
+  // A WeakMap means pruned or replaced files drop out of the memo on their own.
+  var crcCache = (typeof WeakMap !== "undefined") ? new WeakMap() : null;
+  function crcOf(blob) {
+    if (crcCache && crcCache.has(blob)) return Promise.resolve(crcCache.get(blob));
+    return blob.arrayBuffer().then(function (ab) {
+      var crc = window.CRMDB.crc32(new Uint8Array(ab));
+      if (crcCache) crcCache.set(blob, crc);
+      return crc;
+    });
+  }
   function serializeZip() {
     var entries = [
       { name: "manifest.json", data: JSON.stringify({ type: "crm-workspace-bundle", version: 1, modified: new Date().toISOString(), fileCount: bundle.size }, null, 2) }
     ];
     if (!bundle.has("schedule.json")) entries.push({ name: "schedule.json", data: JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2) });
     var paths = Array.from(bundle.keys());
+    // Each entry hands CRMDB.write the Blob ITSELF plus its CRC, so the bytes are never read or
+    // copied here — the output Blob just references them. Only genuinely new content is read.
     return paths.reduce(function (p, path) {
-      return p.then(function () { return bundle.get(path).arrayBuffer(); })
-        .then(function (ab) { entries.push({ name: path, data: new Uint8Array(ab) }); });
+      return p.then(function () {
+        var blob = bundle.get(path);
+        return crcOf(blob).then(function (crc) { entries.push({ name: path, data: blob, crc: crc }); });
+      });
     }, Promise.resolve()).then(function () { return window.CRMDB.write(entries); });
   }
   function encryptZip(blob) {

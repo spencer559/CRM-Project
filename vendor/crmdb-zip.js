@@ -9,6 +9,11 @@
  *
  * where entries is [{ name: "patients/2026-07-13/0800_JS/notes.txt", data: Uint8Array|string }, ...]
  *
+ * An entry's data may also be a Blob, in which case the caller must supply `crc` (the CRC-32 of
+ * its bytes). Such an entry is placed in the output Blob BY REFERENCE: its bytes are never read,
+ * CRC'd or copied here. That is what keeps a re-save of a large database off the main thread —
+ * see the CRC memo in crmdb-store.js. read() is unaffected either way.
+ *
  * The output is a standard .zip: a .crmdb can be renamed to .zip and opened in Finder or
  * Windows Explorer for recovery. On read we handle STORE directly and DEFLATE via the
  * browser's built-in DecompressionStream when a bundle was produced elsewhere.
@@ -62,12 +67,23 @@
     var central = [];        // central-directory records
     var offset = 0;          // running offset of the next local header
 
-    function push(u8) { chunks.push(u8); offset += u8.length; }
+    // `len` is passed explicitly because a part may be a Blob (.size) rather than a Uint8Array
+    // (.length), and a Blob's bytes are deliberately never touched here.
+    function push(part, len) { chunks.push(part); offset += len; }
 
     entries.forEach(function (e) {
       var nameBytes = te.encode(e.name);
-      var body = toU8(e.data);
-      var crc = crc32(body);
+      var body, size, crc;
+      if (typeof Blob !== "undefined" && e.data instanceof Blob) {
+        // By-reference entry. Without a precomputed CRC we would have to read the whole Blob,
+        // which is the cost this path exists to avoid — so refuse rather than silently do it.
+        if (typeof e.crc !== "number") throw new Error("crmdb: Blob entry '" + e.name + "' needs a precomputed crc");
+        body = e.data; size = e.data.size; crc = e.crc >>> 0;
+      } else {
+        body = toU8(e.data);
+        size = body.length;
+        crc = (typeof e.crc === "number") ? (e.crc >>> 0) : crc32(body);
+      }
 
       // ---- local file header (30 bytes + name) ----
       var lh = new Uint8Array(30 + nameBytes.length);
@@ -79,15 +95,15 @@
       v.setUint16(10, dt.time, true);
       v.setUint16(12, dt.date, true);
       v.setUint32(14, crc, true);
-      v.setUint32(18, body.length, true); // compressed size (== raw for STORE)
-      v.setUint32(22, body.length, true); // uncompressed size
+      v.setUint32(18, size, true);        // compressed size (== raw for STORE)
+      v.setUint32(22, size, true);        // uncompressed size
       v.setUint16(26, nameBytes.length, true);
       v.setUint16(28, 0, true);           // extra length
       lh.set(nameBytes, 30);
 
       var localOffset = offset;
-      push(lh);
-      push(body);
+      push(lh, lh.length);
+      push(body, size);
 
       // ---- central directory record (46 bytes + name) ----
       var cd = new Uint8Array(46 + nameBytes.length);
@@ -100,8 +116,8 @@
       cv.setUint16(12, dt.time, true);
       cv.setUint16(14, dt.date, true);
       cv.setUint32(16, crc, true);
-      cv.setUint32(20, body.length, true);
-      cv.setUint32(24, body.length, true);
+      cv.setUint32(20, size, true);
+      cv.setUint32(24, size, true);
       cv.setUint16(28, nameBytes.length, true);
       cv.setUint16(30, 0, true);          // extra length
       cv.setUint16(32, 0, true);          // comment length
@@ -115,7 +131,7 @@
 
     // ---- central directory + EOCD ----
     var cdStart = offset;
-    central.forEach(push);
+    central.forEach(function (rec) { push(rec, rec.length); });
     var cdSize = offset - cdStart;
 
     var eocd = new Uint8Array(22);
@@ -128,7 +144,7 @@
     ev.setUint32(12, cdSize, true);
     ev.setUint32(16, cdStart, true);
     ev.setUint16(20, 0, true);                   // comment length
-    push(eocd);
+    push(eocd, eocd.length);
 
     return new Blob(chunks, { type: "application/octet-stream" });
   }
