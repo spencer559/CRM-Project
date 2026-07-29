@@ -151,13 +151,17 @@
        as printed: location = the chamber label as shown ("Atrial" / "RV" / "CS"), with model,
        serial and implant date verbatim. These rows REPEAT across report sections, so de-dup by
        SERIAL (a physical lead) rather than by chamber — that collapses page-to-page repeats
-       while still keeping two distinct leads that happen to share a chamber. */
+       while still keeping two distinct leads that happen to share a chamber.
+       Conduction-system pacing leads print their implant site as the chamber label ("LBB" for
+       left-bundle-branch area, "His"), not "RV" — matching only RV dropped those rows and left
+       the report with no ventricular lead at all. They sit on the RV port, so they normalize to
+       chamber RV while `location` keeps the site verbatim. */
     function mapLeadInventory() {
       LEADS = [];
       var seen = {};
       LINES.forEach(function (l) {
         var c = l.items[0]; if (!c) return;
-        if (!/^(Atrial|RV(\/SVC)?|LV|CS)$/.test(c.str)) return;            // a lead row, not "Device"
+        if (!/^(Atrial|RA|RV(\/SVC)?|LV|CS|LBB(AP|P)?|His|HB|HBP)$/i.test(c.str)) return;   // a lead row, not "Device"
         var mi = l.items.findIndex(function (i) { return /^Medtronic$/.test(i.str); }); if (mi < 0) return;
         var model = (l.items[mi + 1] || {}).str || '';
         var serial = (l.items[mi + 2] || {}).str || '';
@@ -165,7 +169,7 @@
         if (serial && seen[serial]) return;                                 // collapse repeated rows
         if (serial) seen[serial] = 1;
         LEADS.push({ location: c.str, manufacturer: (l.items[mi] || {}).str || '', model: model, serial: serial, date: date,
-          chamber: /^Atrial$/.test(c.str) ? 'Atrial' : /^RV/.test(c.str) ? 'RV' : 'LV' });
+          chamber: /^(Atrial|RA)$/i.test(c.str) ? 'Atrial' : /^(RV|LBB|His|HB)/i.test(c.str) ? 'RV' : 'LV' });
       });
     }
 
@@ -306,15 +310,23 @@
       // x split drops a column on the tighter layout (e.g. RV at x281 falls left of a 310 split,
       // leaving RV empty). Derive the split from that header row instead — prefer the final one,
       // since twoCol pulls the final-section data.
+      // The parenthesized model number is OPTIONAL: a conduction-system implant (LBB / His) has no
+      // lead registered to the RV port, so the header prints a BARE "RV" next to "Atrial(4076)".
+      // Requiring "RV(" there saw an atrial-only header and sent every cell into the atrial column,
+      // leaving all four lead-rv-* fields empty. Accept a bare chamber token, and keep stray "RV"
+      // items (EGM source rows, implant tables) out by taking only lines made up ENTIRELY of chamber
+      // tokens, preferring the final section and then the header carrying the most chambers.
       var cs = (function () {
+        var CH = /^(?:Atrial|RA|RV(?:\/SVC)?|LV|CS)(?:\(|$)/i;
         var hdr = null;
         LINES.forEach(function (l) {
-          var a = l.items.find(function (i) { return /^Atrial\(/.test(i.str); });
-          var rv = l.items.find(function (i) { return /^RV\(/.test(i.str); });
-          if (!a && !rv) return;                              // not a chamber header (need ≥1 chamber)
-          var lv = l.items.find(function (i) { return /^LV(\(|$)/.test(i.str); });
-          if (!hdr || (l.secType === 'final' && hdr.secType !== 'final'))
-            hdr = { a: a ? a.x : null, rv: rv ? rv.x : null, lv: lv ? lv.x : null, secType: l.secType };
+          if (!l.items.length) return;
+          if (!l.items.every(function (i) { return CH.test(i.str); })) return;   // chamber-header row only
+          var xOf = function (re) { var m = l.items.find(function (i) { return re.test(i.str); }); return m ? m.x : null; };
+          var c = { a: xOf(/^(?:Atrial|RA)(?:\(|$)/i), rv: xOf(/^RV(?:\/SVC)?(?:\(|$)/i), lv: xOf(/^(?:LV|CS)(?:\(|$)/i), secType: l.secType };
+          c.n = (c.a != null) + (c.rv != null) + (c.lv != null);
+          if (!c.n) return;
+          if (!hdr || (c.secType === 'final' && hdr.secType !== 'final') || (c.secType === hdr.secType && c.n > hdr.n)) hdr = c;
         });
         if (!hdr) return { split: COL_SPLIT, lvSplit: isCRT ? LV_SPLIT : undefined };   // fallback to fixed
         if (hdr.a != null && hdr.rv != null)                  // two-column: atrial | RV [| LV]
@@ -398,9 +410,18 @@
       h = findRight(/VT-NS/); set('ep-hvr', 'HVR (VT/VF/NS-VT)', h && num(h.v), h ? 'p' + h.page : '', 'review', 'Non-sustained VT count this session. Confirm episode counts in the device log.');
 
       mapLeadInventory();
+      // Conduction-system pacing: the ventricular lead is at the LBB area / His bundle, but it uses
+      // the RV port, so every measurement above came out of the column the device labels "RV". Note
+      // it on those fields so the report doesn't read as a conventional RV apical/septal lead.
+      var csp = LEADS.find(function (d) { return /^(LBB|His|HB)/i.test(d.location); });
+      if (csp) ['lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw'].forEach(function (k) {
+        var f = RESULT[k]; if (!f) return;
+        f.note = (f.note ? f.note + ' ' : '') + 'Ventricular lead is ' + csp.location + (csp.model ? ' (' + csp.model + ')' : '') + ' — the device reports it in the RV column.';
+      });
       flagMode();
       GOTCHAS = [
         { tag: '2-COL', body: '<b>Two-column lead data.</b> "Capture Threshold 0.875 (atrial) | 0.750 (RV)" — right-of-label alone takes the first cell. A column split at x' + COL_SPLIT + ' separates atrial from RV so RV no longer inherits the atrial value.' },
+        { tag: 'LBB', body: '<b>Conduction-system implants (LBB / His)</b> print a bare "RV" chamber header (no model in parens) and label the lead row "LBB". The split now accepts a bare chamber token and the inventory accepts LBB/His rows, so the ventricular lead and its measurements are no longer dropped.' },
         { tag: 'LABEL', body: '<b>The pacing-impedance row is labeled "Pacing Impedance" (Quick Look / Session Summary), while "Lead Impedance" is only a value-less header on the Battery &amp; Lead Measurements page.</b> The map matches either label and skips the header, so RV impedance no longer comes back empty.' },
         { tag: 'CAPS', body: '<b>"OBSERVATIONS" vs "Observations."</b> The match is now case-insensitive, so observations are caught either way.' },
         { tag: 'MVP', body: '<b>AAI⇔DDD (MVP)</b> is two mode tokens. The dual map collects both and records DDD with a note, instead of grabbing just "AAI."' }
