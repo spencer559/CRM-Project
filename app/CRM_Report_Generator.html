@@ -3113,15 +3113,53 @@ loadSaved();
     // USB-only: the slot's report.json is the recovery copy — drop the browser one
     if ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted())) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
   }
-  function disarm() { syncArmed = false; clearTimeout(syncTimer); syncTimer = null; setSync(''); }
+  function disarm() {
+    syncArmed = false;
+    clearTimeout(syncTimer); syncTimer = null;
+    if (pendingCommit) commitNow();   // don't strand staged edits in memory
+    setSync('');
+  }
+
+  /* ---- commit cadence ----
+     Committing is NOT cheap: it re-serializes the entire database (every file CRC-32'd and
+     copied on the main thread), so on a clinic-sized .crmdb it blocks for a few hundred ms.
+     It used to run on the typing debounce — every ~1.5s pause — which is what made the page
+     hitch during a visit, and it got worse as the database grew.
+
+     So the live sync stages report.json into the working copy on every pause (cheap: an
+     in-memory write) and commits at most every 30s. Every deliberate exit — leaving for the
+     Schedule, switching patient, tab-hide, pagehide, Save — still commits immediately, so the
+     30s window is only ever exposed by a hard crash, never by a normal close or navigation. */
+  var COMMIT_EVERY_MS = 30000;
+  var commitTimer = null, pendingCommit = false;
+  function scheduleCommit() {
+    pendingCommit = true;
+    if (commitTimer) return;                  // already counting down — a fresh edit must not restart it
+    commitTimer = setTimeout(function () {
+      commitTimer = null;
+      if (pendingCommit) commitNow();
+    }, COMMIT_EVERY_MS);
+  }
+  // Publish the staged working copy. Used by the cadence timer and by every immediate-exit path.
+  function commitNow() {
+    pendingCommit = false;
+    clearTimeout(commitTimer); commitTimer = null;
+    if (!WS || !WS.flush) return Promise.resolve();
+    return WS.flush().then(function () {
+      setSync('USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    }, function () { setSync('USB sync failed — reconnect', true); });
+  }
   function writeJsonNow() {
     clearTimeout(syncTimer); syncTimer = null;
     if (!syncArmed || !slotRoot || !slotDate || !slotName) return Promise.resolve();
     return WS.slotDir(slotRoot, slotDate, slotName, true)
-      .then(function (dir) { return WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2)); })
-      .then(function () { return WS.flush ? WS.flush() : null; })   // land it in the shared copy for the Schedule page
+      // deferred: staged now, committed by scheduleCommit's cadence (or sooner by any exit path)
+      .then(function (dir) { return WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2), { defer: true }); })
       .then(function () {
-        setSync('USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        scheduleCommit();
+        // "Captured" (not "USB ✓") is the honest word here: the edit is in the working copy but
+        // hasn't been written out yet. commitNow upgrades it to USB ✓ once it has.
+        setSync('Captured ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       })
       .catch(function (e) { setSync('USB sync failed — reconnect', true); });
   }
@@ -3141,6 +3179,10 @@ loadSaved();
     }).then(function () {
       dirty = false;
       clearTimeout(syncTimer); syncTimer = null;
+      // this flush publishes everything staged by the live sync too, so the cadence timer has
+      // nothing left to do — cancel it rather than leaving a redundant commit armed.
+      pendingCommit = false;
+      clearTimeout(commitTimer); commitTimer = null;
       setSync('Report saved · USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       return WS.flush ? WS.flush() : null;
     }).catch(function (e) { setSync('USB sync failed — reconnect', true); });
@@ -3152,10 +3194,28 @@ loadSaved();
     clearTimeout(syncTimer);
     syncTimer = setTimeout(writeJsonNow, 1500);   // cheap live JSON sync while editing
   }, true);
-  // Backgrounding / tab-hide (also fires just before a tab close): rebuild the full report set
-  // if anything changed. Cheap when idle (dirty stays false → skipped).
-  document.addEventListener('visibilitychange', function () { if (document.hidden && syncArmed && dirty) finalizeReports(); });
-  window.addEventListener('beforeunload', function () { if (syncArmed && dirty) writeJsonNow(); });
+  // Leaving the page, in any of the ways a browser signals it. Each rebuilds the FULL report set
+  // (so the stored report.pdf the Schedule reads is never behind the form) and commits — this is
+  // what keeps the 30s cadence above from ever costing a normal exit. Cheap when idle: `dirty`
+  // stays false and nothing rebuilds, but staged edits still get committed.
+  function leaveHook() {
+    if (syncArmed && dirty) {
+      // Claim the work SYNCHRONOUSLY. All three teardown events can fire for one page exit, and
+      // finalizeReports only clears these in a .then — so without claiming them here, closing the
+      // tab would build the PDF and re-serialize the database three times over.
+      dirty = false;
+      pendingCommit = false;
+      finalizeReports();
+    } else if (pendingCommit) {
+      commitNow();
+    }
+  }
+  // Backgrounding / tab-hide (also fires just before a tab close).
+  document.addEventListener('visibilitychange', function () { if (document.hidden) leaveHook(); });
+  // pagehide is the reliable teardown signal — it covers browser Back out of the generator and a
+  // tab close, which is exactly the path that used to leave the Schedule reading a stale PDF.
+  window.addEventListener('pagehide', leaveHook);
+  window.addEventListener('beforeunload', leaveHook);
   // A cleared form must never live-sync over a saved patient. clearForm also reloads the
   // page, so strip the #slot hash first or the same patient would auto-reopen.
   (function () {
@@ -3440,19 +3500,57 @@ loadSaved();
       ? { label: 'Generated', colour: '#5a6b7c' }
       : { label: 'Programmer', colour: '#1e3a5f' };
   }
-  // Open a stored file in a new tab. MUST stay synchronous: window.open called from a promise
-  // callback has lost the click's user activation and gets popup-blocked (Safari is strictest,
-  // and this runs on iPad). The File is resolved up front in buildFilesMenu so this can be.
+  // Open a file in a new tab. MUST stay synchronous: window.open called from a promise callback
+  // has lost the click's user activation and gets popup-blocked (Safari is strictest, and this
+  // runs on iPad). The File is resolved up front in buildFilesMenu so this can be.
   // getFile() re-assigns the MIME by extension, so a PDF renders inline in the browser's viewer
   // instead of downloading — which is the point: read the programmer report while filling the form.
-  function openStoredFile(file) {
+  function openStoredFile(file, name) {
+    name = name || file.name;
     var url = URL.createObjectURL(file);
     var w = window.open(url, '_blank');
-    if (!w) toast('Your browser blocked the new tab for ' + file.name + ' — allow pop-ups for this page.', 'err');
+    if (!w) toast('Your browser blocked the new tab for ' + name + ' — allow pop-ups for this page.', 'err');
     // Revoking immediately would kill the tab before it loads; the loaded document keeps its own
     // reference after that.
     setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
     return !!w;
+  }
+
+  /* ---- the generated report is built at the moment you ask for it ----
+     The stored report.pdf is only as new as the last finalizeReports (leave, patient-switch,
+     tab-hide, Save) — the live sync deliberately doesn't rebuild it, because rebuilding means
+     re-serializing the whole database. So anything served straight from the slot is behind the
+     form by however much you've typed since. Building on the click removes that window entirely
+     rather than narrowing it, and costs nothing when you aren't asking for the report.
+
+     buildReportPdfBlob() reads the live DOM and is synchronous, so this works inside both a click
+     and a dragstart without losing user activation.
+
+     Guarded, because a live build is only the truth when the form actually holds this patient:
+     `syncArmed` is set by openSlot/arm once the slot is loaded. If a slot's report.json failed to
+     load, the form is blank and armed — so we also require that the form isn't empty, or a click
+     would overwrite a good stored PDF with a blank one. */
+  function canBuildLiveReport() {
+    if (!syncArmed || !slotName || typeof buildReportPdfBlob !== 'function') return false;
+    // any of the identity fields filled ⇒ this form is a real report, not an empty shell
+    return ['pt-name', 'pt-mrn', 'pt-dob', 'pt-date'].some(function (id) {
+      var e = document.getElementById(id);
+      return e && (e.value || '').trim() !== '';
+    });
+  }
+  // Fresh bytes for report.pdf, or null to fall back to whatever is stored.
+  function freshReportPdf() {
+    if (!canBuildLiveReport()) return null;
+    try { return buildReportPdfBlob(); } catch (e) { return null; }   // never block on a builder error
+  }
+  // Persist a just-built report.pdf back into the slot so the Schedule (and the next open of this
+  // menu) sees the same bytes. Deliberately fire-and-forget and AFTER the tab/drag has been handed
+  // off — a commit re-serializes the database, and nothing here should wait on that.
+  function storeFreshReportPdf(blob) {
+    if (!blob || !slotRoot || !slotDate || !slotName) return;
+    WS.slotDir(slotRoot, slotDate, slotName, true)
+      .then(function (dir) { return WS.writeFile(dir, 'report.pdf', blob); })
+      .catch(function () {});
   }
   // Drag a stored file straight out to an upload target (Cerner's document upload, the desktop),
   // so the report never has to be exported to disk and cleaned up afterwards. Nothing in the
@@ -3462,16 +3560,22 @@ loadSaved();
   //   • DownloadURL         — what the OS shell honours when dropping on the desktop/Explorer,
   //                           which materialises a real file at the drop location.
   // Chrome picks whichever the drop target understands; setting both costs nothing.
-  function attachDragOut(btn, file) {
+  // `live` (report.pdf only) rebuilds from the current form at dragstart. This matters more here
+  // than on the click path: dragging into Cerner's upload attaches the file to the chart, so a
+  // stale payload lands in the record permanently.
+  function attachDragOut(btn, file, live) {
     btn.draggable = true;
     btn.addEventListener('dragstart', function (e) {
       var dt = e.dataTransfer;
       if (!dt) return;
-      try { dt.items.add(file); } catch (err) { /* older engines: DownloadURL still covers it */ }
-      var url = URL.createObjectURL(file);
-      try { dt.setData('DownloadURL', (file.type || 'application/octet-stream') + ':' + file.name + ':' + url); } catch (err) {}
+      var fresh = live ? freshReportPdf() : null;
+      var payload = fresh ? new File([fresh], file.name, { type: 'application/pdf' }) : file;
+      try { dt.items.add(payload); } catch (err) { /* older engines: DownloadURL still covers it */ }
+      var url = URL.createObjectURL(payload);
+      try { dt.setData('DownloadURL', (payload.type || 'application/octet-stream') + ':' + payload.name + ':' + url); } catch (err) {}
       dt.effectAllowed = 'copy';
       setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      if (fresh) storeFreshReportPdf(fresh);
     });
   }
   window.buildFilesMenu = function () {
@@ -3496,12 +3600,18 @@ loadSaved();
         // synchronously (see openStoredFile). The bytes are already in memory — getFile() is
         // only nominally async — so this costs nothing but buys popup-blocker immunity.
         return Promise.all(listable.map(function (fh) { return fh.getFile(); })).then(function (resolved) {
+          var builtLive = false;
           resolved.forEach(function (file) {
             var k = fileKind(file.name);
+            // the generated report — and only it — can be rebuilt from the live form on demand
+            var live = String(file.name).toLowerCase() === 'report.pdf' && canBuildLiveReport();
+            if (live) builtLive = true;
             var b = document.createElement('button');
             b.type = 'button';
             b.className = 'json-dd-item file-row';
-            b.title = 'Click to open ' + file.name + ' in a new tab · drag it onto Cerner\'s upload to attach it directly';
+            b.title = live
+              ? 'Click to build ' + file.name + ' from the form as it is right now and open it · drag it onto Cerner\'s upload to attach it'
+              : 'Click to open ' + file.name + ' in a new tab · drag it onto Cerner\'s upload to attach it directly';
             var tag = document.createElement('span');
             tag.className = 'file-kind';
             tag.textContent = k.label;
@@ -3510,11 +3620,19 @@ loadSaved();
             nm.className = 'file-name';
             nm.textContent = file.name;
             b.appendChild(tag); b.appendChild(nm);
-            b.onclick = function (e) { e.stopPropagation(); openStoredFile(file); };
-            attachDragOut(b, file);
+            b.onclick = function (e) {
+              e.stopPropagation();
+              // Build first, synchronously, so window.open still carries the click's activation.
+              var fresh = live ? freshReportPdf() : null;
+              openStoredFile(fresh || file, file.name);
+              if (fresh) storeFreshReportPdf(fresh);   // after the tab is open — never block on it
+            };
+            attachDragOut(b, file, live);
             holder.appendChild(b);
           });
-          holder.appendChild(noteEl('Click to open · drag onto Cerner to attach'));
+          holder.appendChild(noteEl(builtLive
+            ? 'Generated report is built when you click or drag it · drag onto Cerner to attach'
+            : 'Click to open · drag onto Cerner to attach'));
         });
       })
       .catch(function (e) { holder.appendChild(noteEl('Could not read this patient\'s files: ' + e.message)); });

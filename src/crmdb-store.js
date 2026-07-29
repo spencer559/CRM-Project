@@ -994,9 +994,16 @@
     if (!bundle.has(path)) return Promise.reject(new Error("not found: " + name));
     return bundle.get(path).text();
   }
-  function writeFile(dir, name, data) {
+  // opts.defer stages the write in the working copy WITHOUT scheduling a commit. A commit
+  // re-serializes the WHOLE database — serializeZip CRC-32s every byte of every file and
+  // concatenates the result — which on a clinic-sized bundle is a multi-hundred-millisecond
+  // block of the main thread. Writes that fire on a typing debounce (the report generator's
+  // live sync) therefore stage here and let their caller commit on a much slower cadence;
+  // the staged bytes are in the bundle either way, so any later commit or flush carries them.
+  // Every other caller persists as before.
+  function writeFile(dir, name, data, opts) {
     bset(dir.prefix + name, toBlob(data));
-    persist();
+    if (!opts || !opts.defer) persist();
     return Promise.resolve();
   }
   function listFiles(dir) {
