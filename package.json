@@ -1,0 +1,8 @@
+{
+  "name": "crm-project",
+  "private": true,
+  "description": "Clinic CRM toolkit — static pages plus the .crmdb container engine in src/ and vendor/. No build step and no runtime dependencies; package.json exists only to give the test suite one entrypoint.",
+  "scripts": {
+    "test": "node tests/run.js"
+  }
+}

@@ -151,9 +151,16 @@
 
   /* ------------------------------------------------------------------- READ */
   function inflateRaw(u8) {
-    if (typeof DecompressionStream === "undefined")
+    // read() is documented to return a promise, so a runtime without "deflate-raw" has to REJECT
+    // rather than throw out of it — the DecompressionStream constructor throws synchronously, and
+    // a caller with only a .catch() would otherwise never see it.
+    var ds;
+    try {
+      if (typeof DecompressionStream === "undefined") throw new Error("no DecompressionStream");
+      ds = new DecompressionStream("deflate-raw");
+    } catch (e) {
       return Promise.reject(new Error("crmdb: this bundle uses compression this browser can't read"));
-    var ds = new DecompressionStream("deflate-raw");
+    }
     var stream = new Blob([u8]).stream().pipeThrough(ds);
     return new Response(stream).arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
   }
@@ -204,11 +211,109 @@
     })).then(function (list) { return list.filter(Boolean); });
   }
 
+  /* -------------------------------------------------------- READ, by reference */
+  // readBlob(blob) is read() for the case that actually matters: a .crmdb we wrote ourselves,
+  // coming back out of IndexedDB or off disk, that we want as a bundle of Blobs.
+  //
+  // read() has to materialize all of it — the whole file as an ArrayBuffer, then a copy of every
+  // entry's bytes, then a Blob around each copy. That is the file's size two or three times over,
+  // on every page load and every hand-off between the two pages.
+  //
+  // Here nothing but the central directory is ever read. Each entry comes back as a blob.slice(),
+  // which is a view: the browser hands out the same backing bytes without copying them. This is
+  // the read-side twin of write()'s by-reference entries.
+  //
+  // Note the lifetime that buys: every entry shares ONE backing store (the source), instead of N
+  // independent copies, and the source stays alive until the last slice is dropped. That is the
+  // intended trade — one copy of the database in memory rather than several.
+  //
+  // Anything we didn't write falls back to read(): a DEFLATE entry, or a layout where the local
+  // headers don't line up with what the central directory promised.
+  var EOCD_SIG = 0x06054b50, CDH_SIG = 0x02014b50, LFH_SIG = 0x04034b50;
+  var EOCD_MIN = 22, TAIL_SMALL = 512, TAIL_SCAN = 66560;   // 22-byte record + up to a 64K comment
+
+  function readBlob(blob) {
+    if (typeof Blob === "undefined" || !(blob instanceof Blob)) return read(blob);
+    var size = blob.size;
+    if (size < EOCD_MIN) return Promise.reject(new Error("crmdb: not a valid bundle (too small)"));
+    var full = function () { return blob.arrayBuffer().then(read); };
+
+    // write() emits no ZIP comment, so our own containers put the EOCD in the last 22 bytes. Try a
+    // small tail first and only fall back to the full 64K comment scan for a foreign file.
+    function scanTail(len) {
+      return blob.slice(Math.max(0, size - len), size).arrayBuffer().then(function (tab) {
+        var tv = new DataView(tab);
+        for (var i = tab.byteLength - EOCD_MIN; i >= 0; i--) {
+          if (tv.getUint32(i, true) === EOCD_SIG) return { tv: tv, eocd: i };
+        }
+        return null;
+      });
+    }
+
+    return scanTail(Math.min(size, TAIL_SMALL)).then(function (hit) {
+      return (hit || size <= TAIL_SMALL) ? hit : scanTail(TAIL_SCAN);
+    }).then(function (hit) {
+      if (!hit) return full();
+      var tv = hit.tv, eocd = hit.eocd;
+
+      var total = tv.getUint16(eocd + 10, true);
+      var cdSize = tv.getUint32(eocd + 12, true);
+      var cdOffset = tv.getUint32(eocd + 16, true);
+      if (cdOffset + cdSize > size) return full();
+
+      return blob.slice(cdOffset, cdOffset + cdSize).arrayBuffer().then(function (cab) {
+        var cd = new Uint8Array(cab), cv = new DataView(cab);
+        var records = [], p = 0, n;
+        for (n = 0; n < total; n++) {
+          if (p + 46 > cd.length || cv.getUint32(p, true) !== CDH_SIG) return full();
+          var method = cv.getUint16(p + 10, true);
+          if (method !== 0) return full();                    // DEFLATE: read() handles it
+          var compSize = cv.getUint32(p + 20, true);
+          var nameLen = cv.getUint16(p + 28, true);
+          var extraLen = cv.getUint16(p + 30, true);
+          var commentLen = cv.getUint16(p + 32, true);
+          var localOff = cv.getUint32(p + 42, true);
+          records.push({
+            name: td.decode(cd.subarray(p + 46, p + 46 + nameLen)),
+            compSize: compSize,
+            localOff: localOff,
+            // write() emits extraLen 0 in the LOCAL header and repeats the name, so the data
+            // begins right after it. Verified below rather than assumed.
+            dataStart: localOff + 30 + nameLen
+          });
+          p += 46 + nameLen + extraLen + commentLen;
+        }
+
+        // Validate the assumption above WITHOUT reading any entry: walk the records in offset order
+        // and require each one's data to end exactly where the next local header begins, and the
+        // last to end at the central directory. Any local extra field we didn't account for would
+        // shift a data region and break the tiling, sending us to the full path instead of handing
+        // back silently wrong bytes.
+        var ordered = records.slice().sort(function (a, b) { return a.localOff - b.localOff; });
+        for (n = 0; n < ordered.length; n++) {
+          var end = ordered[n].dataStart + ordered[n].compSize;
+          var next = (n + 1 < ordered.length) ? ordered[n + 1].localOff : cdOffset;
+          if (end !== next) return full();
+        }
+        if (!ordered.length) return [];
+
+        // One real check that this is a ZIP laid out the way we think, not just self-consistent.
+        return blob.slice(ordered[0].localOff, ordered[0].localOff + 30).arrayBuffer().then(function (lab) {
+          var lv = new DataView(lab);
+          if (lab.byteLength < 30 || lv.getUint32(0, true) !== LFH_SIG || lv.getUint16(28, true) !== 0) return full();
+          return records.filter(function (r) { return !/\/$/.test(r.name); }).map(function (r) {
+            return { name: r.name, blob: blob.slice(r.dataStart, r.dataStart + r.compSize) };
+          });
+        });
+      });
+    });
+  }
+
   /* small convenience: text <-> bytes */
   function encodeText(s) { return te.encode(s); }
   function decodeText(u8) { return td.decode(u8); }
 
-  var api = { write: write, read: read, crc32: crc32, encodeText: encodeText, decodeText: decodeText };
+  var api = { write: write, read: read, readBlob: readBlob, crc32: crc32, encodeText: encodeText, decodeText: decodeText };
   if (typeof module !== "undefined" && module.exports) module.exports = api;   // Node tests
   if (typeof window !== "undefined") window.CRMDB = api;                        // browser
 })();

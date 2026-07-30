@@ -89,7 +89,7 @@
   var journal = new Map();     // path -> Blob (written) | null (deleted), since the last commit
   var myRev = 0;               // the shared revision this tab's bundle is based on
   var authoritative = false;   // our bundle is a whole new database (opened/created) — overwrite
-  var REV_KEY = "rev", BUNDLE_KEY = "bundle";
+  var REV_KEY = "rev", BUNDLE_KEY = "bundle", CRC_KEY = "crcs";
   // Record a mutation as well as applying it, so a later rebase can replay it. Any edit means the
   // cache no longer matches the bound file until the next successful write-through.
   function bset(path, blob) { bundle.set(path, blob); journal.set(path, blob); cacheMatchesFile = false; mutSeq++; }
@@ -224,29 +224,65 @@
   //     so a rename correctly keeps its memo instead of paying for the file again.
   // A WeakMap means pruned or replaced files drop out of the memo on their own.
   var crcCache = (typeof WeakMap !== "undefined") ? new WeakMap() : null;
+  // The memoized CRC, or null when this Blob has not been hashed yet. Separate from crcOf because
+  // the answer being available WITHOUT a promise is the whole point on the common path — see
+  // serializeZip. (0 is a real CRC — the empty file's — so null, not falsiness, is the sentinel.)
+  function crcHit(blob) { return (crcCache && crcCache.has(blob)) ? crcCache.get(blob) : null; }
   function crcOf(blob) {
-    if (crcCache && crcCache.has(blob)) return Promise.resolve(crcCache.get(blob));
+    var hit = crcHit(blob);
+    if (hit !== null) return Promise.resolve(hit);
     return blob.arrayBuffer().then(function (ab) {
       var crc = window.CRMDB.crc32(new Uint8Array(ab));
       if (crcCache) crcCache.set(blob, crc);
       return crc;
     });
   }
-  function serializeZip() {
+  // Restore the CRC memo for a bundle we have just ingested. `crcs` was written in the SAME
+  // IndexedDB transaction as the bytes it describes, so path -> crc is exactly right for these
+  // entries. Without it the first commit after every page load re-hashes the whole database:
+  // ingest hands back fresh Blob objects and the memo is keyed on Blob identity, so every entry
+  // would miss. (Skipped for an encrypted container, which never round-trips these bytes.)
+  function seedCrcs(crcs) {
+    if (!crcCache || !crcs) return;
+    bundle.forEach(function (blob, path) {
+      var c = crcs[path];
+      if (typeof c === "number") crcCache.set(blob, c);
+    });
+  }
+  function buildZip() {
     var entries = [
       { name: "manifest.json", data: JSON.stringify({ type: "crm-workspace-bundle", version: 1, modified: new Date().toISOString(), fileCount: bundle.size }, null, 2) }
     ];
     if (!bundle.has("schedule.json")) entries.push({ name: "schedule.json", data: JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2) });
-    var paths = Array.from(bundle.keys());
-    // Each entry hands CRMDB.write the Blob ITSELF plus its CRC, so the bytes are never read or
-    // copied here — the output Blob just references them. Only genuinely new content is read.
-    return paths.reduce(function (p, path) {
-      return p.then(function () {
-        var blob = bundle.get(path);
-        return crcOf(blob).then(function (crc) { entries.push({ name: path, data: blob, crc: crc }); });
-      });
-    }, Promise.resolve()).then(function () { return window.CRMDB.write(entries); });
+    // Walk the bundle ONCE, synchronously, capturing each Blob as we go. Each entry hands
+    // CRMDB.write the Blob ITSELF plus its CRC, so the bytes are never read or copied here — the
+    // output Blob just references them.
+    //
+    // Taking the Blobs up front also snapshots the bundle: the CRC pass below can await, and an
+    // edit landing mid-serialize must not change what this snapshot contains (commit() dates it
+    // with mutSeq on exactly that assumption).
+    var misses = [];
+    bundle.forEach(function (blob, path) {
+      var entry = { name: path, data: blob, crc: crcHit(blob) };
+      entries.push(entry);
+      if (entry.crc === null) misses.push(entry);
+    });
+    function finish() {
+      // The CRCs of exactly the entries this container holds, so an ingest of these same bytes can
+      // restore the memo rather than re-hash the database. Built from `entries`, not from the live
+      // bundle, so an edit landing during the CRC pass above can't put a wrong CRC under a path.
+      var crcs = {};
+      entries.forEach(function (e) { if (typeof e.crc === "number") crcs[e.name] = e.crc; });
+      return { blob: window.CRMDB.write(entries), crcs: crcs };
+    }
+    // Every CRC already memoized — the overwhelmingly common case, since only changed content
+    // misses — so there is nothing to await and the whole serialize stays in one synchronous turn.
+    if (!misses.length) return Promise.resolve(finish());
+    return misses.reduce(function (p, entry) {
+      return p.then(function () { return crcOf(entry.data).then(function (crc) { entry.crc = crc; }); });
+    }, Promise.resolve()).then(finish);
   }
+  function serializeZip() { return buildZip().then(function (r) { return r.blob; }); }
   function encryptZip(blob) {
     if (!protection) return Promise.resolve(blob);
     var c = cryptoApi(), iv = new Uint8Array(12); c.getRandomValues(iv);
@@ -259,6 +295,16 @@
     }).then(function (ciphertext) { return new Blob([header, ciphertext], { type: "application/octet-stream" }); });
   }
   function serialize() { return serializeZip().then(encryptZip); }
+  // serialize() plus the CRC map for the container it produced — what commit() publishes.
+  function serializeForCommit() {
+    return buildZip().then(function (r) {
+      return encryptZip(r.blob).then(function (out) {
+        // An encrypted container is re-read by decrypting it whole, never through the by-reference
+        // path, so a stored memo would only ever be dead weight there.
+        return { blob: out, crcs: protection ? null : r.crcs };
+      });
+    });
+  }
 
   function decryptEnvelope(arrayBuffer) {
     var bytes = new Uint8Array(arrayBuffer);
@@ -293,22 +339,38 @@
       return decryptWith(key).catch(function () { clearSessionKey(); return attempt(); });
     });
   }
-  function ingestZip(arrayBuffer) {
-    return window.CRMDB.read(arrayBuffer).then(function (entries) {
+  // A Blob source goes through CRMDB.readBlob, which hands back each entry as a view onto the SAME
+  // backing bytes instead of a copy — so re-reading the working copy costs a couple of kilobytes
+  // rather than the database three times over (once as an ArrayBuffer, once per entry's copy, once
+  // per entry's Blob). An ArrayBuffer source still uses read(); by then the bytes are in memory
+  // anyway, which is exactly the decrypted-envelope case.
+  function ingestZip(source) {
+    var isBlob = (typeof Blob !== "undefined") && (source instanceof Blob);
+    return (isBlob ? window.CRMDB.readBlob(source) : window.CRMDB.read(source)).then(function (entries) {
       bundle.clear();
       entries.forEach(function (e) {
         if (e.name === "manifest.json") return;
-        bundle.set(e.name, new Blob([e.data]));
+        bundle.set(e.name, e.blob || new Blob([e.data]));
       });
       if (!bundle.has("schedule.json")) bundle.set("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
       opened = true;
     });
   }
-  function ingest(arrayBuffer) {
-    var bytes = arrayBuffer instanceof Uint8Array ? arrayBuffer : new Uint8Array(arrayBuffer);
-    if (isEncryptedBytes(bytes)) return decryptEnvelope(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)).then(ingestZip);
+  function ingest(source) {
+    if ((typeof Blob !== "undefined") && (source instanceof Blob)) {
+      // Only the magic is needed to tell the two container shapes apart — a few bytes, not the file.
+      return source.slice(0, ENC_MAGIC.length).arrayBuffer().then(function (head) {
+        if (!isEncryptedBytes(new Uint8Array(head))) { protection = null; return ingestZip(source); }
+        // Encrypted: AES-GCM has to authenticate the whole envelope at once, so there is nothing to
+        // stream here and nothing the by-reference path could save.
+        return source.arrayBuffer().then(decryptEnvelope).then(ingestZip);
+      });
+    }
+    var bytes = source instanceof Uint8Array ? source : new Uint8Array(source);
+    var ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    if (isEncryptedBytes(bytes)) return decryptEnvelope(ab).then(ingestZip);
     protection = null;
-    return ingestZip(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    return ingestZip(ab);
   }
 
   function verifyPassword(password) {
@@ -449,7 +511,7 @@
   //   → { ok:true, rev }        committed
   //   → { ok:false }            another tab moved the revision; caller rebases and retries
   //   → { ok:true, noIdb:true } no IndexedDB (Node / private mode) — nothing to race with
-  function idbCas(expectedRev, blob) {
+  function idbCas(expectedRev, blob, crcs) {
     return idb().then(function (db) {
       return new Promise(function (res, rej) {
         var tx = db.transaction("kv", "readwrite"), st = tx.objectStore("kv");
@@ -457,6 +519,10 @@
         rq.onsuccess = function () {
           if ((Number(rq.result) || 0) !== expectedRev) return;   // conflict: complete without writing
           st.put(blob, BUNDLE_KEY);
+          // Same transaction as the bytes, deliberately: a CRC map that could outlive the bundle it
+          // describes would hand a later ingest the wrong CRC for a path, and silently corrupt the
+          // container it writes next.
+          st.put(crcs || {}, CRC_KEY);
           st.put(expectedRev + 1, REV_KEY);
           wrote = true;
         };
@@ -473,11 +539,17 @@
     return idbGet(REV_KEY).then(function (r) {
       return idbGet(BUNDLE_KEY).then(function (blob) {
         if (!blob) return ROOT;
-        return blob.arrayBuffer().then(ingest).then(function () {
-          applyJournal();
-          myRev = Number(r) || 0;
-          opened = true;
-          return ROOT;
+        return idbGet(CRC_KEY).then(function (crcs) {
+          return ingest(blob).then(function () {     // the Blob itself: by-reference, no full read
+            // Strictly BEFORE applyJournal. The map describes the shared bundle's blobs; replaying
+            // the journal first would put this tab's own (different) blob under a path the map has
+            // a CRC for, and seeding that CRC onto it would write a container whose checksums lie.
+            seedCrcs(crcs);
+            applyJournal();
+            myRev = Number(r) || 0;
+            opened = true;
+            return ROOT;
+          });
         });
       });
     });
@@ -528,8 +600,9 @@
         var stale = !authoritative && journal.size && shared !== myRev;
         return (stale ? adoptShared() : Promise.resolve()).then(function () {
           var seq = mutSeq;                        // what this snapshot contains
-          return serialize().then(function (blob) {
-            return idbCas(shared, blob).then(function (res) {
+          return serializeForCommit().then(function (s) {
+            var blob = s.blob;
+            return idbCas(shared, blob, s.crcs).then(function (res) {
               if (!res.ok) {                       // another tab committed mid-serialize
                 if (++tries >= COMMIT_RETRIES) return null;
                 return attempt();
@@ -833,12 +906,15 @@
       kind: "file",
       name: baseName(path),
       getFile: function () { var b = bundle.get(path) || new Blob([]); return Promise.resolve(new File([b], baseName(path), { type: mimeFor(path) })); },
-      createWritable: function () {
-        var chunks = [];
+      // opts.defer stages without scheduling a commit, exactly as writeFile's does — the Schedule
+      // writes schedule.json through this handle on a typing debounce, and a commit re-serializes
+      // the whole database. The bytes are in the bundle either way; a later commit carries them.
+      createWritable: function (opts) {
+        var chunks = [], defer = !!(opts && opts.defer);
         return Promise.resolve({
           write: function (d) { chunks.push(d); return Promise.resolve(); },
           truncate: function () { return Promise.resolve(); },
-          close: function () { bset(path, new Blob(chunks)); persist(); return Promise.resolve(); }
+          close: function () { bset(path, new Blob(chunks)); if (!defer) persist(); return Promise.resolve(); }
         });
       }
     };
@@ -912,7 +988,9 @@
         if (!f) { rej(Object.assign(new Error("cancelled"), { name: "AbortError" })); return; }
         var prev = fileHandle, prevName = suggestedName, prevProtection = protection;
         suggestedName = f.name;
-        f.arrayBuffer().then(ingest).then(function () {
+        // The File itself, not its bytes: iPad keeps no content signature (baseSig stays null), so
+        // nothing here needs the whole thing in memory and ingest can go by reference.
+        ingest(f).then(function () {
           fileHandle = null; opened = true;
           freshnessVerified = true; baseFileMod = null; cacheMatchesFile = true;  // iPad: the cache IS the database
           baseSig = null; pendingSig = null;
@@ -968,9 +1046,12 @@
             // Adopting the shared copy: record which revision we're based on, so the first save
             // knows whether anyone else has moved since.
             return idbGet(REV_KEY).then(function (r) {
-              return blob.arrayBuffer().then(ingest).then(function () {
-                opened = true; myRev = Number(r) || 0; journal.clear(); authoritative = false;
-                return ROOT;
+              return idbGet(CRC_KEY).then(function (crcs) {
+                return ingest(blob).then(function () {
+                  seedCrcs(crcs);
+                  opened = true; myRev = Number(r) || 0; journal.clear(); authoritative = false;
+                  return ROOT;
+                });
               });
             });
           }
@@ -1008,7 +1089,7 @@
     journal.clear(); authoritative = false; myRev = 0;
     baseFileMod = null; cacheMatchesFile = false; freshnessVerified = false;
     baseSig = null; pendingSig = null;
-    return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY), idbDel(META_KEY)]).then(function () {});
+    return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY), idbDel(META_KEY), idbDel(CRC_KEY)]).then(function () {});
   }
 
   /* USB-only preference (unchanged semantics: whether pages keep a localStorage mirror) */

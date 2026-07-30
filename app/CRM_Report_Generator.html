@@ -1347,8 +1347,23 @@ function collectFormData() {
   return d;
 }
 
+// ONE pass over the form per typing pause, shared by every sink that wants it.
+//
+// collectFormData() walks every input, select and textarea on the page. That used to happen TWICE
+// per pause — here on a 900ms timer for the browser draft, and again 600ms later on the USB live
+// sync's own 1500ms timer — producing the same answer both times. Now the walk happens once.
 function doSave() {
   var d = collectFormData();
+  // Hand the live sync the same snapshot, serialized NOW: it stages asynchronously, and the
+  // retention stamp in saveDraft mutates `d`.
+  if (typeof window.onFormSaved === 'function') {
+    try { window.onFormSaved(JSON.stringify(d, null, 2)); } catch (e) {}
+  }
+  saveDraft(d);
+}
+// The browser's crash-recovery draft. Overridden while a patient slot is armed — the slot's own
+// report.json is that copy already, so the draft is redundant there.
+function saveDraft(d) {
   d.__savedAt = Date.now();   // retention stamp — loadSaved() refuses saves older than 24h
   try {
     localStorage.setItem('crm-digital', JSON.stringify(d));
@@ -2557,14 +2572,49 @@ loadSaved();
 </style>
 
 
-<!-- pdf.js is vendored locally (not pulled from a CDN at runtime) so no third-party script ever
-     runs in the same context as PHI, and the page makes no external network requests. -->
-<script src="../vendor/pdf.min.js"></script>
-<script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '../vendor/pdf.worker.min.js';</script>
-<!-- jsPDF + autotable (vendored locally) — used by the PDF "Save" option to generate a real,
-     selectable, vector PDF file. Pure JS, no network, CSP-safe. -->
-<script src="../vendor/jspdf.umd.min.js"></script>
-<script src="../vendor/jspdf.plugin.autotable.min.js"></script>
+<!-- pdf.js and jsPDF are vendored locally (never pulled from a CDN at runtime) so no third-party
+     script ever runs in the same context as PHI, and the page makes no external network requests.
+
+     Between them they are ~770 KB of script to fetch and parse, and NEITHER is needed to open the
+     page and start filling in a form — so neither blocks that any more:
+
+       • pdf.js (320 KB, plus a 1 MB worker it fetches itself) is loaded the first time a programmer
+         PDF is actually dropped. A visit that never imports one never pays for it at all.
+       • jsPDF + autotable are PRELOADED once the page is idle rather than loaded on demand, because
+         buildReportPdfBlob() is called synchronously — from click and dragstart handlers, where
+         awaiting would lose the user activation the popup blocker checks for (see the note there),
+         and from the pagehide teardown, which cannot await anything either.
+
+     Injected as <script> elements, not fetched: connect-src 'none' blocks fetch/XHR by design, and
+     script-src 'self' is what governs these. -->
+<script>
+window.loadScriptOnce = (function () {
+  var cache = {};
+  return function (src) {
+    if (cache[src]) return cache[src];
+    cache[src] = new Promise(function (res, rej) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = function () { res(); };
+      s.onerror = function () { cache[src] = null; rej(new Error('Could not load ' + src)); };
+      document.head.appendChild(s);
+    });
+    return cache[src];
+  };
+})();
+window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); };
+// Warm jsPDF as soon as the page is idle. It has to be PRESENT, not merely loadable, by the time
+// anything builds a report — the timeout keeps a busy page from starving the callback.
+(function () {
+  function warm() {
+    loadScriptOnce('../vendor/jspdf.umd.min.js')
+      .then(function () { return loadScriptOnce('../vendor/jspdf.plugin.autotable.min.js'); })
+      .catch(function () { /* buildReportPdfBlob already reports a missing jsPDF */ });
+  }
+  function soon() { (window.requestIdleCallback || function (f) { setTimeout(f, 1); })(warm, { timeout: 2000 }); }
+  if (document.readyState === 'complete') soon(); else window.addEventListener('load', soon);
+})();
+</script>
 <script src="../src/engine.js"></script>
 <script src="../src/parsers/medtronic.js"></script>
 <script src="../src/parsers/boston.js"></script>
@@ -2572,6 +2622,7 @@ loadSaved();
 <script src="../src/parsers/biotronik.js"></script>
 <script src="../vendor/crmdb-zip.js"></script>
 <script src="../src/crmdb-store.js"></script>
+<script src="../src/crmdb-commit-cadence.js"></script>
 <script>
 /* PDF → CRM form auto-fill. Reuses the form's own update functions so toggles,
    lead rows and pacing-% visibility behave exactly as for manual entry. */
@@ -2762,11 +2813,17 @@ loadSaved();
       return;
     }
 
-    if (typeof pdfjsLib === 'undefined' || !window.Engine){
-      setStatus('Parser scripts did not load (need engine.js + a vendor file beside this page).', 'err'); return;
+    if (!window.Engine){
+      setStatus('Parser scripts did not load (need engine.js beside this page).', 'err'); return;
     }
     setStatus('Reading ' + file.name + ' …');
     try {
+      // pdf.js is fetched on demand — this drop is the first thing on the page that needs it.
+      // Resolves instantly on every drop after the first.
+      await loadPdfJs();
+      if (typeof pdfjsLib === 'undefined'){
+        setStatus('The PDF reader did not load (need vendor/pdf.min.js beside this page).', 'err'); return;
+      }
       // Force the locally-vendored worker (never the CDN). Set here, at point of use, so it can't
       // be missed by script load-order — otherwise pdf.js falls back to a default/CDN worker URL
       // which the Content-Security-Policy (correctly) blocks.
@@ -2826,7 +2883,7 @@ loadSaved();
   var WS = window.CRMWorkspace;
   var supported = !!(WS && WS.supported);
   var slotDate = null, slotName = null, slotLabel = "", slotRoot = null;
-  var syncArmed = false, syncTimer = null;
+  var syncArmed = false;
   var dirty = false;   // edits since the last full report build (json+txt+pdf)
   var patientBtn = document.getElementById('patient-btn');
   var pdMenu = document.getElementById('patient-dropdown');
@@ -3115,50 +3172,35 @@ loadSaved();
   }
   function disarm() {
     syncArmed = false;
-    clearTimeout(syncTimer); syncTimer = null;
-    if (pendingCommit) commitNow();   // don't strand staged edits in memory
+    clearTimeout(saveTimer);                      // the form autosave drives staging; drop it too
+    if (cadence.pending()) cadence.commitNow();   // don't strand staged edits in memory
     setSync('');
   }
 
   /* ---- commit cadence ----
-     Committing is NOT cheap: it re-serializes the entire database (every file CRC-32'd and
-     copied on the main thread), so on a clinic-sized .crmdb it blocks for a few hundred ms.
-     It used to run on the typing debounce — every ~1.5s pause — which is what made the page
-     hitch during a visit, and it got worse as the database grew.
-
-     So the live sync stages report.json into the working copy on every pause (cheap: an
-     in-memory write) and commits at most every 30s. Every deliberate exit — leaving for the
-     Schedule, switching patient, tab-hide, pagehide, Save — still commits immediately, so the
-     30s window is only ever exposed by a hard crash, never by a normal close or navigation. */
-  var COMMIT_EVERY_MS = 30000;
-  var commitTimer = null, pendingCommit = false;
-  function scheduleCommit() {
-    pendingCommit = true;
-    if (commitTimer) return;                  // already counting down — a fresh edit must not restart it
-    commitTimer = setTimeout(function () {
-      commitTimer = null;
-      if (pendingCommit) commitNow();
-    }, COMMIT_EVERY_MS);
-  }
-  // Publish the staged working copy. Used by the cadence timer and by every immediate-exit path.
-  function commitNow() {
-    pendingCommit = false;
-    clearTimeout(commitTimer); commitTimer = null;
-    if (!WS || !WS.flush) return Promise.resolve();
-    return WS.flush().then(function () {
-      setSync('USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    }, function () { setSync('USB sync failed — reconnect', true); });
-  }
-  function writeJsonNow() {
-    clearTimeout(syncTimer); syncTimer = null;
+     The live sync stages report.json into the working copy on every typing pause (cheap: an
+     in-memory write) and publishes at most every 30s, because a commit re-serializes the whole
+     database. Every deliberate exit still commits immediately — see src/crmdb-commit-cadence.js,
+     which owns the timer, the teardown events and the synchronous claim. */
+  var cadence = CRMCadence.create({
+    everyMs: 30000,
+    commit: function () { return (WS && WS.flush) ? WS.flush() : Promise.resolve(); },
+    onCommitted: function () { setSync('USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); },
+    onError: function () { setSync('USB sync failed — reconnect', true); }
+  });
+  // Stage the form into the patient's slot. `json` is the snapshot doSave has already serialized —
+  // passed in rather than re-collected, because the write below lands asynchronously and the form
+  // could have moved on by then.
+  function writeJsonNow(json) {
     if (!syncArmed || !slotRoot || !slotDate || !slotName) return Promise.resolve();
+    if (json == null) json = JSON.stringify(collectFormData(), null, 2);
     return WS.slotDir(slotRoot, slotDate, slotName, true)
-      // deferred: staged now, committed by scheduleCommit's cadence (or sooner by any exit path)
-      .then(function (dir) { return WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2), { defer: true }); })
+      // deferred: staged now, published by the cadence (or sooner by any exit path)
+      .then(function (dir) { return WS.writeFile(dir, 'report.json', json, { defer: true }); })
       .then(function () {
-        scheduleCommit();
+        cadence.stage();
         // "Captured" (not "USB ✓") is the honest word here: the edit is in the working copy but
-        // hasn't been written out yet. commitNow upgrades it to USB ✓ once it has.
+        // hasn't been written out yet. The cadence upgrades it to USB ✓ once it has.
         setSync('Captured ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       })
       .catch(function (e) { setSync('USB sync failed — reconnect', true); });
@@ -3178,44 +3220,37 @@ loadSaved();
       return Promise.all(jobs);
     }).then(function () {
       dirty = false;
-      clearTimeout(syncTimer); syncTimer = null;
+      clearTimeout(saveTimer);   // this rebuild supersedes whatever the autosave was about to stage
       // this flush publishes everything staged by the live sync too, so the cadence timer has
       // nothing left to do — cancel it rather than leaving a redundant commit armed.
-      pendingCommit = false;
-      clearTimeout(commitTimer); commitTimer = null;
+      cadence.cancel();
       setSync('Report saved · USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       return WS.flush ? WS.flush() : null;
     }).catch(function (e) { setSync('USB sync failed — reconnect', true); });
   }
+  // The form's own autosave timer drives the staging now (see doSave), so this listener only has
+  // to notice that something changed — the leave hook uses `dirty` to decide whether a full report
+  // rebuild is owed.
   document.addEventListener('input', function (e) {
     if (e.target && e.target.closest && e.target.closest('.rate-calc')) return;
-    if (!syncArmed) return;
-    dirty = true;
-    clearTimeout(syncTimer);
-    syncTimer = setTimeout(writeJsonNow, 1500);   // cheap live JSON sync while editing
+    if (syncArmed) dirty = true;
   }, true);
-  // Leaving the page, in any of the ways a browser signals it. Each rebuilds the FULL report set
-  // (so the stored report.pdf the Schedule reads is never behind the form) and commits — this is
-  // what keeps the 30s cadence above from ever costing a normal exit. Cheap when idle: `dirty`
-  // stays false and nothing rebuilds, but staged edits still get committed.
-  function leaveHook() {
-    if (syncArmed && dirty) {
-      // Claim the work SYNCHRONOUSLY. All three teardown events can fire for one page exit, and
-      // finalizeReports only clears these in a .then — so without claiming them here, closing the
-      // tab would build the PDF and re-serialize the database three times over.
-      dirty = false;
-      pendingCommit = false;
-      finalizeReports();
-    } else if (pendingCommit) {
-      commitNow();
-    }
-  }
-  // Backgrounding / tab-hide (also fires just before a tab close).
-  document.addEventListener('visibilitychange', function () { if (document.hidden) leaveHook(); });
-  // pagehide is the reliable teardown signal — it covers browser Back out of the generator and a
-  // tab close, which is exactly the path that used to leave the Schedule reading a stale PDF.
-  window.addEventListener('pagehide', leaveHook);
-  window.addEventListener('beforeunload', leaveHook);
+  window.onFormSaved = writeJsonNow;   // the second sink of doSave's single pass over the form
+  // Leaving the page, in any of the ways a browser signals it. Rebuilds the FULL report set (so
+  // the stored report.pdf the Schedule reads is never behind the form) and commits — this is what
+  // keeps the 30s cadence from ever costing a normal exit. Cheap when idle: `dirty` stays false
+  // and nothing rebuilds, but the cadence still commits anything staged.
+  cadence.attachLeaveHooks(function () {
+    if (!(syncArmed && dirty)) return false;   // nothing to rebuild; the cadence commits if pending
+    // Claim the work SYNCHRONOUSLY. All three teardown events can fire for one page exit, and
+    // finalizeReports only clears `dirty` in a .then — so without claiming it here, closing the tab
+    // would build the PDF and re-serialize the database three times over. cancel() does the same
+    // for the cadence, whose commit finalizeReports' own flush makes redundant.
+    dirty = false;
+    cadence.cancel();
+    finalizeReports();
+    return true;
+  });
   // A cleared form must never live-sync over a saved patient. clearForm also reloads the
   // page, so strip the #slot hash first or the same patient would auto-reopen.
   (function () {
@@ -3231,18 +3266,27 @@ loadSaved();
         return origClear.apply(this, arguments);
       };
     }
-    // USB-only mode: while a slot is armed, skip the localStorage autosave entirely —
-    // live sync to the stick is the crash-recovery net, so nothing lands on the machine.
-    var origDoSave = window.doSave;
-    if (typeof origDoSave === 'function') {
-      window.doSave = function () {
-        if (syncArmed && slotRoot && ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted()))) {
+    // While a patient slot is armed, skip the localStorage draft entirely: the slot's own
+    // report.json IS the crash-recovery copy, so the draft is duplicate work — and it is a
+    // SYNCHRONOUS write of PHI on the typing path. In USB-only / encrypted mode not writing it is
+    // the stronger requirement anyway: nothing may land on the machine at all.
+    //
+    // Hooks saveDraft, not doSave: doSave also feeds the live sync, and returning early from it
+    // would silently stop staging to the patient's slot.
+    var origSaveDraft = window.saveDraft;
+    if (typeof origSaveDraft === 'function') {
+      window.saveDraft = function () {
+        if (syncArmed && slotRoot) {
           try { localStorage.removeItem('crm-digital'); } catch (e) {}
-          var ss = document.getElementById('save-status');
-          if (ss) { ss.textContent = 'USB-only'; ss.className = 'save-status saved'; }
+          var el = document.getElementById('save-status');
+          if (el) {
+            el.textContent = ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted()))
+              ? 'USB-only' : 'Saved to patient';
+            el.className = 'save-status saved';
+          }
           return;
         }
-        return origDoSave.apply(this, arguments);
+        return origSaveDraft.apply(this, arguments);
       };
     }
   })();

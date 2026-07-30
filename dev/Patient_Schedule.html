@@ -396,6 +396,7 @@
 
 <script src="../vendor/crmdb-zip.js"></script>
 <script src="../src/crmdb-store.js"></script>
+<script src="../src/crmdb-commit-cadence.js"></script>
 <script>
 (function () {
   "use strict";
@@ -494,13 +495,21 @@
     next = normalize(next);
     var cmp = compareRevision(next, state);
     if (cmp < 0 || (!committed && cmp === 0)) return;
-    clearTimeout(syncTimer);
+    // Drop this tab's pending writes — the remote state supersedes them.
+    clearTimeout(syncTimer); syncTimer = null;
+    clearTimeout(mirrorTimer); mirrorTimer = null;
     var adopt = function () {
       state = next;
       remotePendingRevision = committed ? 0 : revisionOf(next);
       if (!(WS && wsRoot && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted())))) {
         try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
       }
+      // Our own schedule.json may already be STAGED — sitting in the store's journal, which a rebase
+      // replays on top of whatever it adopts. Left alone it would put this tab's superseded copy
+      // straight back over the newer one we just took. Re-staging the adopted state overwrites that
+      // journal entry, so a later replay is a no-op instead of a revert. (Only for a committed
+      // remote: an uncommitted one is rejected by writeDataFile's own revision guard, correctly.)
+      if (committed && dataFileHandle) writeDataFile();
       render();
       if (wsRoot) setWsStatus("Updated from another open schedule tab", "ok");
     };
@@ -524,13 +533,14 @@
       return !providerFilter || (x.r.provider || "Tech") === providerFilter;
     });
   }
-  function save() {
-    remotePendingRevision = 0;
-    state._updatedAt = Math.max(Date.now(), revisionOf(state) + 1);
-    state._updatedBy = TAB_ID;
-    try { localStorage.setItem(REVKEY, String(state._updatedAt)); } catch (e) {}
-    // drop empty day arrays so purge/export stay tidy
-    Object.keys(state.dates).forEach(function (k) { if (!state.dates[k].length) delete state.dates[k]; });
+  // The browser mirror and the cross-tab broadcast: JSON.stringify of the whole schedule, a
+  // synchronous localStorage write, and a structured-clone postMessage. All three used to run on
+  // every keystroke. Nothing reads them until another tab looks or this one reloads, so they
+  // coalesce on a short debounce — forced out by mirrorNow() on every exit and hand-off.
+  var MIRROR_MS = 250;
+  var mirrorTimer = null;
+  function mirrorNow() {
+    clearTimeout(mirrorTimer); mirrorTimer = null;
     // USB-only mode: while the workspace is connected, the stick is the ONLY copy
     if (wsRoot && WS && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted()))) {
       try { localStorage.removeItem(KEY); } catch (e) {}
@@ -538,6 +548,22 @@
       try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
     }
     announceSchedule("state");
+  }
+  function scheduleMirror() {
+    if (mirrorTimer) return;   // already counting down — continuous typing must not push it out
+    mirrorTimer = setTimeout(mirrorNow, MIRROR_MS);
+  }
+  function save() {
+    remotePendingRevision = 0;
+    // Deliberately SYNCHRONOUS, unlike the mirror below: compareRevision/sharedRevision consult
+    // these the instant an edit happens, and a stale revision is exactly how a tab talks itself
+    // into overwriting newer work.
+    state._updatedAt = Math.max(Date.now(), revisionOf(state) + 1);
+    state._updatedBy = TAB_ID;
+    try { localStorage.setItem(REVKEY, String(state._updatedAt)); } catch (e) {}
+    // drop empty day arrays so purge/export stay tidy
+    Object.keys(state.dates).forEach(function (k) { if (!state.dates[k].length) delete state.dates[k]; });
+    scheduleMirror();
     scheduleFileSync();
   }
   var $ = function (id) { return document.getElementById(id); };
@@ -778,7 +804,9 @@
     rows().splice(i, 1); save();
     // remove the patient's files from the database too, then refresh
     if (wsRoot && WS && slot && WS.removeSlotFiles) {
-      WS.removeSlotFiles(wsRoot, curDate, slot).then(function () { if (WS.flush) WS.flush(); render(); });
+      // flushPending, not flush: the row removal above is still sitting on save()'s debounce, and a
+      // bare flush would commit the deleted files without the schedule.json that no longer lists them.
+      WS.removeSlotFiles(wsRoot, curDate, slot).then(function () { flushPending(); render(); });
     } else { render(); }
   });
   window.addRow = function () {
@@ -888,8 +916,7 @@
       moveDayCancel();
       save(); render();
       // Commit schedule.json and the relocated patient folders together before reporting success.
-      clearTimeout(syncTimer);
-      return (dataFileHandle ? writeDataFile() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(function () {
+      return flushPending().then(function () {
         if (wsRoot) {
           var count = (result && result.files) || 0;
           setWsStatus("Moved day to " + target + " — " + count + " patient file" + (count === 1 ? "" : "s") + " followed" +
@@ -980,6 +1007,21 @@
   var dataFileHandle = null;     // virtual handle to schedule.json inside the bundle
   var syncTimer = null, scanTimer = null;
 
+  /* Typing in a row used to commit the entire database — twice — every 400ms: once through the
+     virtual writable handle (which persists on close) and again through an explicit flush. On a
+     clinic-sized .crmdb that is a multi-megabyte round trip per pause, and it is what made this
+     page hitch while filling in notes.
+     Now schedule.json is STAGED into the working copy on that debounce ({ defer: true }, an
+     in-memory write) and published on a cadence, or immediately by any deliberate exit. */
+  var cadence = CRMCadence.create({
+    everyMs: 30000,
+    commit: function () { return (WS && WS.flush) ? WS.flush() : Promise.resolve(); },
+    // Other tabs treat "committed" as permission to reload the shared working copy, so it must
+    // follow a REAL commit — announcing it after a mere staging would point them at stale bytes.
+    onCommitted: function () { announceSchedule("committed"); },
+    onError: function (e) { setStatus("Save failed: " + ((e && e.message) || e), "warn"); }
+  });
+
   if (WS) WS.onPasswordRequest = function (details) {
     return window.prompt((details && details.message) || "Database password:");
   };
@@ -1039,9 +1081,7 @@
       clearTimeout(fallback);
       location.href = url;
     }
-    clearTimeout(syncTimer);
-    var commit = dataFileHandle ? writeDataFile() : (WS && WS.flush ? WS.flush() : Promise.resolve());
-    Promise.resolve(commit).then(go, go);
+    Promise.resolve(flushPending()).then(go, go);
   }
   window.goToReportGen = function (ev) {
     if (ev) ev.preventDefault();
@@ -1119,7 +1159,11 @@
   };
   window.saveDatabase = function () {
     if (!wsRoot || !WS) return;
-    WS.saveNow().catch(function (e) { setStatus("Save failed: " + e.message, "warn"); });
+    // Pressing Save promises the bytes are out — so stage and commit anything still on a debounce
+    // first, or saveNow would serialize a bundle that doesn't have the last edit yet.
+    flushPending()
+      .then(function () { return WS.saveNow(); })
+      .catch(function (e) { setStatus("Save failed: " + e.message, "warn"); });
   };
 
   // schedule.json write path (debounced) — close() flushes the bundle through the store
@@ -1128,19 +1172,33 @@
     clearTimeout(syncTimer);
     syncTimer = setTimeout(writeDataFile, 400);
   }
-  function writeDataFile() {
+  // Stage schedule.json into the working copy. The bytes land in the bundle immediately; PUBLISHING
+  // them re-serializes the whole database, so that waits for the cadence unless opts.commit forces
+  // it now — which every deliberate exit and hand-off does.
+  function writeDataFile(opts) {
     if (!dataFileHandle) return Promise.resolve();
     // A newer revision belongs to another tab. Never let this tab's older in-memory copy replace it.
     if (sharedRevision() > revisionOf(state) || remotePendingRevision >= revisionOf(state)) {
       setWsStatus("Skipped a stale-tab save; waiting for the newer schedule", "warn");
       return Promise.resolve();
     }
-    return dataFileHandle.createWritable().then(function (w) {
+    return dataFileHandle.createWritable({ defer: true }).then(function (w) {
       return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); });
     }).then(function () {
-      // Commit the full working bundle before notifying other tabs, so they can safely refresh it.
-      return (WS && WS.flush ? WS.flush() : Promise.resolve()).then(function () { announceSchedule("committed"); });
+      // announceSchedule("committed") rides on the cadence's onCommitted, so other tabs are only
+      // ever told to reload once the shared bundle really holds these bytes.
+      if (opts && opts.commit) return cadence.commitNow();
+      cadence.stage();
     }).catch(function (e) { setStatus("Save failed: " + e.message, "warn"); });
+  }
+  // Everything staged in this tab, out to the shared copy, now: the browser mirror, the pending
+  // schedule.json write, and the commit. This is the one thing every exit and hand-off needs —
+  // navigating to the Report Generator, moving a day, leaving the station, closing the tab.
+  function flushPending() {
+    mirrorNow();
+    clearTimeout(syncTimer); syncTimer = null;
+    return dataFileHandle ? writeDataFile({ commit: true })
+                          : ((WS && WS.flush) ? WS.flush() : Promise.resolve());
   }
   function loadFromHandle(h, preferNewerLocal) {
     return h.getFile().then(function (f) { return f.text(); }).then(function (txt) {
@@ -1292,7 +1350,7 @@
     pruneRowsBefore(today);
     var fileJob = (wsRoot && WS.pruneFilesBefore) ? WS.pruneFilesBefore(today) : Promise.resolve({ files: 0 });
     fileJob.then(function (res) {
-      save(); if (WS && WS.flush) WS.flush(); render();
+      save(); flushPending(); render();
       setWsStatus("Cleared all past data" + (res && res.files ? " — " + res.files + " file" + (res.files === 1 ? "" : "s") + " removed" : ""), "ok");
       updateMemoryUI();
     });
@@ -1333,9 +1391,16 @@
     });
   })();
 
-  /* flush pending writes if the tab is hidden mid-edit */
-  document.addEventListener("visibilitychange", function () {
-    if (document.hidden && dataFileHandle) { clearTimeout(syncTimer); writeDataFile(); }
+  /* Leaving the page, in every way a browser signals it — tab-hide, Back out of the schedule, tab
+     close. This is what keeps the commit cadence from ever costing a normal exit. */
+  cadence.attachLeaveHooks(function () {
+    mirrorNow();                       // synchronous: the browser copy must not lose the last edit
+    if (!syncTimer) return false;      // nothing waiting to be staged; the cadence commits if it has work
+    // Claim SYNCHRONOUSLY. All three teardown events fire for a single exit, and writeDataFile only
+    // settles in a .then — without nulling the timer here, one close would stage and commit thrice.
+    clearTimeout(syncTimer); syncTimer = null;
+    writeDataFile({ commit: true });
+    return true;
   });
   /* Editing time/patient name changes the slot folder name — without a migration the row
      would point at an empty new folder and orphan the old one. Stash the slot BEFORE the
@@ -1567,8 +1632,9 @@
       ? "Save the database, then clear the schedule from this browser and close the database?"
       : "No database is open — clearing will DELETE the schedule from this browser entirely. Continue?";
     if (!confirm(msg)) return;
-    clearTimeout(syncTimer);
-    var done = (open && WS) ? WS.saveNow() : Promise.resolve();
+    // flushPending first: saveNow serializes the BUNDLE, so an edit still sitting on the debounce
+    // would never reach the file we are about to save and then wipe.
+    var done = (open && WS) ? flushPending().then(function () { return WS.saveNow(); }) : Promise.resolve();
     done.then(function () {
       try { localStorage.removeItem(KEY); } catch (e) {}
       setProviderFilter("");   // don't hand the next user a filtered view
