@@ -492,7 +492,7 @@
 
   global.BOSTON = {
     name: 'Boston Scientific',
-    sig: /boston scientific|latitude|accolade|resonate|emblem|vigilant|altrua|vitalio|formio|proponent|essentio|ingenio|dynagen|inogen|energen|teligen|momentum/i,
+    // no `sig` here — vendor detection lives in engine.js (Engine.VENDORS) so the lists can't drift.
     dropdownModes: DROPDOWN_MODES,
     detectDevice: detectDevice,
     runMap: runMap

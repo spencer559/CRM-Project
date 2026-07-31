@@ -454,7 +454,7 @@
 
   global.MEDTRONIC = {
     name: 'Medtronic',
-    sig: /medtronic|carelink|azure|micra|cobalt|crome|claria|percepta/i,
+    // no `sig` here — vendor detection lives in engine.js (Engine.VENDORS) so the lists can't drift.
     dropdownModes: DROPDOWN_MODES,
     detectDevice: detectDevice,
     runMap: runMap

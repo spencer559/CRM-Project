@@ -9,7 +9,7 @@
      - findRight()     the anchor engine (value to the right of a label)
      - findAllRight()  every label->right match (harness probe)
      - cleaners        toISO / num / MODES
-     - vendor sigs     VENDORS / guessVendor()
+     - vendor sigs     VENDORS / scoreVendors() / guessVendor()
      - small UI utils  esc / toast / wireDrop
 
    Loaded as a plain <script src="engine.js"> (classic, not a module) so
@@ -190,17 +190,73 @@
   }
   var MODES = /^(AAI|AAIR|VVI|VVIR|DDD|DDDR|DDI|DDIR|VDI|VDIR|VDD|VDDR|AOO|VOO|DOO|OOO)$/i;
 
-  /* ---------- vendor signatures (substring match, case-insensitive) ---------- */
+  /* ---------- vendor signatures ----------
+       THIS IS THE ONE LIST. The parser modules deliberately carry no signature of their
+       own — two lists always drift (they did), and only this one is ever consulted.
+
+       Two tiers, because not every brand hit means the report came from that brand:
+         strong — company / remote-monitoring-system names ("Boston Scientific", "CareLink").
+                  These print in the page header or footer.
+         weak   — device family names ("INGENIO", "Azure"). Suggestive, but a family name
+                  can also show up in a lead row or a comparison table.
+       Keep the `strong` alternations as separate tokens (not one blob) — scoreVendors counts
+       how many DISTINCT ones matched. */
   var VENDORS = [
-    { name: 'Medtronic',         sig: /medtronic|carelink|azure|micra|cobalt|crome|claria|percepta/i },
-    { name: 'Abbott / St. Jude', sig: /abbott|st\.?\s*jude|merlin|assurity|ellipse|gallant|aveir|fortify/i },
-    { name: 'Boston Scientific', sig: /boston scientific|latitude|accolade|resonate|emblem|vigilant|altrua/i },
-    { name: 'Biotronik',         sig: /biotronik|home monitoring|edora|enitra|rivacor|acticor|intica/i }
+    { name: 'Medtronic',
+      strong: /medtronic|carelink/i,
+      weak: /azure|micra|cobalt|crome|claria|percepta|evera|visia|primo|viva|amplia|compia|adapta|sensia|advisa|ensura|astra|serena|solara/i },
+    { name: 'Abbott / St. Jude',
+      strong: /abbott|st\.?\s*jude|sjm|merlin/i,
+      weak: /assurity|endurity|accent|ellipse|fortify|quadra|unify|gallant|aveir|entrant|neutrino/i },
+    { name: 'Boston Scientific',
+      strong: /boston scientific|latitude/i,
+      weak: /accolade|resonate|emblem|vigilant|altrua|vitalio|formio|proponent|essentio|ingenio|dynagen|inogen|energen|teligen|momentum|punctua|perciva|autogen|incepta|visionist|valitude|intua|invive|inliven|charisma|cognis|renewal|contak/i },
+    { name: 'Biotronik',
+      strong: /biotronik/i,
+      weak: /home monitoring|edora|enitra|eluna|etrinsa|evia|evity|rivacor|acticor|intica|iperia|ilesto|iforia|entovis/i }
   ];
+
+  /* Score every vendor against a report's text and return them ranked, best first.
+
+     Why scoring and not "first regex that matches": a report names OTHER manufacturers.
+     A Boston LATITUDE report with an Abbott RV lead prints "St. Jude" in its Leads table
+     (boston.js captures foreign leads verbatim, by design), and a first-match search over
+     the whole document just returned whichever vendor happened to sit higher in the array
+     — routing a Boston report to the Abbott parser, which for a PDF doesn't exist.
+
+     The discriminator is PAGE SPREAD. A report's own vendor is in the page furniture, so it
+     repeats on nearly every page; a foreign lead is one cell on one page. The distinct-token
+     term breaks the tie on single-page reports, where spread carries no information: a real
+     Boston report says both "Boston Scientific" AND "LATITUDE", the lead row says one thing. */
+  function scoreVendors(items) {
+    var byPage = {};
+    items.forEach(function (i) { byPage[i.page] = (byPage[i.page] || '') + ' ' + i.str; });
+    var pages = Object.keys(byPage).map(function (k) { return byPage[k]; });
+
+    return VENDORS.map(function (v, order) {
+      var strongPages = 0, weakPages = 0;
+      pages.forEach(function (t) {
+        if (v.strong.test(t)) strongPages++;
+        if (v.weak && v.weak.test(t)) weakPages++;
+      });
+      // distinct strong tokens matched anywhere in the document
+      var all = pages.join(' ');
+      var tokens = v.strong.source.split('|').filter(function (tok) {
+        return new RegExp(tok, 'i').test(all);
+      }).length;
+      return {
+        name: v.name, order: order, strongPages: strongPages, weakPages: weakPages,
+        strongTokens: tokens,
+        score: strongPages * 3 + tokens * 2 + weakPages
+      };
+    }).sort(function (a, b) {
+      return (b.score - a.score) || (a.order - b.order);   // exact tie -> declaration order
+    });
+  }
+
   function guessVendor(items) {
-    var all = items.map(function (i) { return i.str; }).join(' ');
-    var hit = VENDORS.find(function (v) { return v.sig.test(all); });
-    return hit ? hit.name : 'Unknown';
+    var top = scoreVendors(items)[0];
+    return (top && top.score) ? top.name : 'Unknown';
   }
 
   /* ---------- small UI utils ---------- */
@@ -245,6 +301,7 @@
     cmpNum: cmpNum,
     MODES: MODES,
     VENDORS: VENDORS,
+    scoreVendors: scoreVendors,
     guessVendor: guessVendor,
     esc: esc,
     toast: toast,

@@ -176,7 +176,7 @@
 
   global.ABBOTT = {
     name: 'Abbott',
-    sig: /st\.?\s*jude|sjm|merlin|assurity|endurity|accent|ellipse|fortify|quadra|unify|gallant|aveir|abbott/i,
+    // no `sig` here — vendor detection lives in engine.js (Engine.VENDORS) so the lists can't drift.
     dropdownModes: DROPDOWN_MODES,
     detectDevice: detectDevice,
     runLog: runLog

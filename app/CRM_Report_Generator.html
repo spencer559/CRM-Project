@@ -2598,6 +2598,11 @@ loadSaved();
 #pdp-status.err{ color:#b03030; }
 #pdp-status .pdp-dev{ font-family:monospace; font-size:9.5px; color:#778; }
 #pdp-status .pdp-rev{ color:#c87000; font-size:9.5px; }
+/* Vendor override buttons — shown when auto-detection dead-ends or is a close call. */
+#pdp-status .pdp-pick{ display:inline-block; margin-top:3px; color:#556; font-size:9.5px; }
+#pdp-status .pdp-vsel{ font:inherit; margin:0 1px; padding:1px 5px; cursor:pointer; background:#fff;
+  border:1px solid var(--navy-mid); border-radius:3px; color:var(--navy); }
+#pdp-status .pdp-vsel:hover{ background:var(--navy); border-color:var(--navy); color:#fff; }
 /* Dismiss control for the floating import toast; the fixed-position rule below reserves the
    gutter it sits in so long "Verify:" lists don't run underneath it. */
 #pdp-status .pdp-x{ position:absolute; top:3px; right:4px; background:none; border:none;
@@ -2699,7 +2704,10 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   statusEl.addEventListener('mouseenter', pdpStop);
   statusEl.addEventListener('mouseleave', pdpArm);
   statusEl.addEventListener('click', function(e){
-    if (e.target.classList.contains('pdp-x')) pdpClear();
+    if (e.target.classList.contains('pdp-x')) { pdpClear(); return; }
+    // "Parse as: <vendor>" — re-run the last import through a parser the user picked.
+    var forced = e.target.getAttribute && e.target.getAttribute('data-vendor');
+    if (forced) runParse(forced);
   });
 
   // Resolve a parser field key to the matching form control (radio group, #id, or [name]).
@@ -2813,8 +2821,64 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   window.prefillForm = prefillForm;   // exposed for testing
   setTimeout(function(){ window.handleFile = handleFile; }, 0);   // exposed for the USB slot panel
 
-  // vendor name (from Engine.guessVendor) -> parser module
+  // vendor name (from Engine.scoreVendors) -> parser module. Abbott is absent on purpose: their
+  // PDF is a scanned image with no selectable text, so abbott.js only has a .log entry point.
   var PARSERS = { 'Medtronic': window.MEDTRONIC, 'Boston Scientific': window.BOSTON, 'Biotronik': window.BIOTRONIK };
+
+  // The last PDF's extracted text, kept so a forced re-parse costs nothing: by the time the user
+  // clicks an override the File handle may be gone, and re-extracting is the slow part anyway.
+  var LAST_PDF = null;
+
+  /* Vendor override buttons. Auto-detection reads the text of a report that legitimately names
+     OTHER manufacturers (a foreign lead in the inventory table), so it can be wrong — and being
+     wrong used to mean a dead end with no way forward. The status box takes HTML and already has
+     a click delegate, and an 'err' status never auto-clears, so the buttons sit there until used. */
+  function vendorPicker(label, exclude){
+    var btns = Object.keys(PARSERS)
+      .filter(function(v){ return v !== exclude; })
+      .map(function(v){ return '<button type="button" class="pdp-vsel" data-vendor="'+v+'">'+v+'</button>'; });
+    return '<span class="pdp-pick">'+ label +' '+ btns.join(' ') +'</span>';
+  }
+
+  function deadEnd(vendor){
+    var why = /^Abbott/.test(vendor)
+      ? 'Detected <b>Abbott / St. Jude</b>, whose PDF is a scanned image with no selectable text — '
+        + 'use the Merlin <b>.log</b> export instead.'
+      : 'Detected <b>'+ vendor +'</b>, which has no PDF parser.';
+    return why + '<br>' + vendorPicker('Parse as:', null);
+  }
+
+  /* Parse the cached PDF text with a named vendor's parser and fill the form. Shared by the
+     initial auto-route and by the override buttons so both behave identically.
+     offerFrom = the vendor we're not fully confident about; non-null appends a "Not X?" picker. */
+  function runParse(vendor, offerFrom){
+    var parser = PARSERS[vendor];
+    if (!LAST_PDF || !parser) return;
+    try {
+      if (!LAST_PDF.lines) LAST_PDF.lines = Engine.tagSections(Engine.normalize(LAST_PDF.items));
+      var out = parser.runMap(LAST_PDF.lines, {});
+      // Force a clean "New Patient" slate before filling, so nothing from a prior patient
+      // lingers in fields this report doesn't set — UNLESS "Merge" is checked, in which case
+      // keep what the user already entered and only fill blanks / append episodes.
+      var merge = !!(document.getElementById('pdp-merge')||{}).checked;
+      if (!merge && typeof resetFormState === 'function') resetWithRemoteMonitoring();
+      var res = prefillForm(out.RESULT, out.LEADS, out.EPISODES, { merge: merge });
+      if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
+      var dev = (out.RESULT['dev-model']||{}).v || '';
+      var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'
+        + (dev ? '<br><span class="pdp-dev">'+dev+'</span>' : '')
+        + '<br>'+ res.filled +' fields filled.';
+      // whatever outlives the collapse timer: the Verify list, plus the picker if we're unsure
+      var keep = res.review.length ? '<span class="pdp-rev">Verify: '+ res.review.join(', ') +'</span>' : '';
+      if (offerFrom) keep += (keep ? '<br>' : '') + vendorPicker('Not ' + offerFrom + '?', offerFrom);
+      if (keep) msg += '<br>' + keep;
+      setStatus(msg, 'ok', keep);
+    } catch(e){
+      console.error(e);
+      setStatus('Could not parse as <b>'+ vendor +'</b>: '+ e.message
+        + '<br>' + vendorPicker('Try:', vendor), 'err');
+    }
+  }
 
   async function handleFile(file){
     if (!file) return;
@@ -2824,6 +2888,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
     var fname = (file.name || '').toLowerCase();
     if (fname.endsWith('.log') || fname.endsWith('.txt')) {
       if (!window.ABBOTT) { setStatus('Abbott parser (abbott.js) did not load.', 'err'); return; }
+      LAST_PDF = null;                       // a .log supersedes any cached PDF: no stale re-parse
       setStatus('Reading ' + file.name + ' …');
       try {
         // Merlin .log can be UTF-16 (file.text() assumes UTF-8 → null bytes everywhere and
@@ -2867,27 +2932,16 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       var buf = await file.arrayBuffer();
       var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       var items = await Engine.extractItems(pdf);
-      var vendor = Engine.guessVendor(items);
-      var parser = PARSERS[vendor];
-      if (!parser){
-        setStatus('Detected <b>'+vendor+'</b>. Supported vendors: '+ Object.keys(PARSERS).join(', ') +'.', 'err'); return;
-      }
-      var LINES = Engine.tagSections(Engine.normalize(items));
-      var out = parser.runMap(LINES, {});
-      // Force a clean "New Patient" slate before filling, so nothing from a prior patient
-      // lingers in fields this report doesn't set — UNLESS "Merge" is checked, in which case
-      // keep what the user already entered and only fill blanks / append episodes.
-      var merge = !!(document.getElementById('pdp-merge')||{}).checked;
-      if (!merge && typeof resetFormState === 'function') resetWithRemoteMonitoring();
-      var res = prefillForm(out.RESULT, out.LEADS, out.EPISODES, { merge: merge });
-      if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
-      var dev = (out.RESULT['dev-model']||{}).v || '';
-      var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'
-        + (dev ? '<br><span class="pdp-dev">'+dev+'</span>' : '')
-        + '<br>'+ res.filled +' fields filled.';
-      var verify = res.review.length ? '<span class="pdp-rev">Verify: '+ res.review.join(', ') +'</span>' : '';
-      if (verify) msg += '<br>' + verify;
-      setStatus(msg, 'ok', verify);
+      LAST_PDF = { items: items, lines: null, name: file.name };
+      // Ranked, not first-match: a report names other manufacturers (an Abbott lead in a Boston
+      // report's inventory table used to route the whole import to Abbott, which has no PDF
+      // parser — a hard dead end). See Engine.scoreVendors.
+      var ranked = Engine.scoreVendors(items);
+      var vendor = (ranked[0] && ranked[0].score) ? ranked[0].name : 'Unknown';
+      if (!PARSERS[vendor]){ setStatus(deadEnd(vendor), 'err'); return; }
+      // Runner-up close behind: parse with the winner, but keep the override in reach.
+      var close = ranked[1] && ranked[1].score > ranked[0].score * 0.75;
+      runParse(vendor, close ? vendor : null);
     } catch(e){
       console.error(e);
       setStatus('Could not parse: '+ e.message +' (a scanned PDF with no selectable text needs OCR).', 'err');

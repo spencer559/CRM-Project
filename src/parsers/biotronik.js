@@ -214,7 +214,7 @@
 
   global.BIOTRONIK = {
     name: 'Biotronik',
-    sig: /biotronik|home monitoring|edora|enitra|eluna|etrinsa|evia|evity|rivacor|acticor|intica/i,
+    // no `sig` here — vendor detection lives in engine.js (Engine.VENDORS) so the lists can't drift.
     detectDevice: detectDevice,
     runMap: runMap
   };
