@@ -411,6 +411,9 @@
   var MFRS = ["", "Medtronic", "Boston Sci", "Abbott", "Biotronik", "MicroPort", "Other"];
   var DEVS = ["", "PPM", "ICD", "CRT-P", "CRT-D", "ILR", "S-ICD", "Leadless"];
   var CHECKS = ["In-clinic", "Remote", "Pre-op", "Other"];
+  // Remote-monitoring status. This is the SAME field as the Report Generator's Final Session
+  // Summary status dropdown — it travels in the row (r.rm) and that page reads and writes it
+  // there. Keep this list in step with the #rm-status <select> in app/CRM_Report_Generator.html.
   var RMS = ["", "Connected", "Not connected", "External clinic", "N/A"];
   var RM_ISSUES = ["Not connected"];
 

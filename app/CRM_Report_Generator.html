@@ -669,13 +669,22 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     <button class="add-btn" onclick="addRpRow()">+ Add Parameter Change</button>
     </div>
 
+    <!-- Status is the SAME field as the Patient Schedule's "Remote" precharting column: opening a
+         patient pulls the scheduled value in, and changing it here writes straight back. Options
+         must stay in step with RMS in dev/Patient_Schedule.html. -->
     <div class="sub-lbl" style="margin-top:12px;">Remote Monitoring</div>
-    <div class="fg" style="grid-template-columns: 80px 80px 130px;">
-      <div class="field"><span class="lbl">Enrolled</span><select id="rm-enrolled"><option value="">—</option><option>Yes</option><option>No</option></select></div>
-      <div class="field"><span class="lbl">Compliant</span><select id="rm-comply"><option value="">—</option><option>Yes</option><option>No</option></select></div>
+    <div class="fg" style="grid-template-columns: 140px 130px;">
+      <div class="field"><span class="lbl">Status</span>
+        <select id="rm-status" title="Shared with the Patient Schedule’s Remote column">
+          <option value="">—</option>
+          <option>Connected</option>
+          <option>Not connected</option>
+          <option>External clinic</option>
+          <option>N/A</option>
+        </select>
+      </div>
       <div class="field"><span class="lbl">Last Transmission</span><input type="date" id="rm-last"></div>
     </div>
-    <div class="field" style="margin-top:4px;"><span class="lbl">Active Alerts Since Last Visit</span><input type="text" id="rm-active" placeholder="None — or describe"></div>
 
     <div class="sub-lbl" style="margin-top:12px;">Sign-off</div>
     <div class="fg" style="grid-template-columns: 260px 160px;">
@@ -1456,6 +1465,13 @@ function applyFormData(d) {
   if (Array.isArray(d.__leadinfo) && d.__leadinfo.length && typeof setLeadInfoRows === 'function') {
     setLeadInfoRows(d.__leadinfo);
   }
+  // Reports saved before Remote Monitoring became one shared status field carry Enrolled Yes/No
+  // instead. Fold that onto the status dropdown so an old record doesn't open with it blank.
+  var rmSel = document.getElementById('rm-status');
+  if (rmSel && !rmSel.value && d['rm-status'] == null) {
+    if (d['rm-enrolled'] === 'Yes') rmSel.value = 'Connected';
+    else if (d['rm-enrolled'] === 'No') rmSel.value = 'Not connected';
+  }
 
   ss.textContent = 'Form restored';
   ss.className = 'save-status saved';
@@ -1492,6 +1508,23 @@ function resetFormState() {
   if (typeof updateLeadInfoTable  === 'function') updateLeadInfoTable();
   if (typeof updateDynamicAV      === 'function') updateDynamicAV();
   try { localStorage.removeItem('crm-digital'); } catch(e){}
+}
+
+// The import-only reset. Remote Monitoring is precharted — the status comes from the Patient
+// Schedule and the last transmission is looked up by hand — and no vendor PDF or Merlin .log
+// ever fills either one, so wiping them on import only ever destroys work. Everything else
+// still gets the clean "New Patient" slate the auto-fill needs. (Deliberately NOT part of
+// resetFormState: New Patient must clear these too, or the next patient inherits them.)
+function resetWithRemoteMonitoring() {
+  var keep = {};
+  ['rm-status', 'rm-last'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) keep[id] = el.value;
+  });
+  // the wrapped global, so live sync still disarms — not the bare declaration above
+  window.resetFormState();
+  Object.keys(keep).forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.value = keep[id];
+  });
 }
 
 // Clear only the card whose header button was pressed. Controls return to their original HTML
@@ -1534,6 +1567,13 @@ function clearSection(button) {
     rpN = 0; addRpRow(); addRpRow(); addRpRow();
     if (typeof updateReprogTable === 'function') updateReprogTable();
   }
+
+  // Remote-monitoring status is shared with the Patient Schedule, so clearing it here has to
+  // clear it THERE too — otherwise reopening the patient pulls the old status straight back and
+  // the report and the schedule quietly disagree. Its write-back listens on 'change', which a
+  // programmatic reset doesn't emit.
+  var rmSel = section.querySelector('#rm-status');
+  if (rmSel) rmSel.dispatchEvent(new Event('change', { bubbles: true }));
 
   // Programmatic value changes do not emit input events. Emit one from the section so the
   // existing browser autosave and active-patient USB live-sync paths both record the reset.
@@ -1795,7 +1835,7 @@ function buildReportPdfBlob() {
     if (obsYN==='Yes') para('Notes', obsText);
   }
 
-  var rmPairs=[['Enrolled',val('rm-enrolled')],['Compliant',val('rm-comply')],['Last Transmission',usDate(val('rm-last'))],['Active Alerts',val('rm-active')]].filter(function(p){return p[1];});
+  var rmPairs=[['Status',val('rm-status')],['Last Transmission',usDate(val('rm-last'))]].filter(function(p){return p[1];});
   if (rmPairs.length){ h2('Remote Monitoring'); grid(rmPairs); }
 
   var dtPairs=[['Name',val('sig-name')],['Date Completed',usDate(val('sig-date'))]].filter(function(p){return p[1];});
@@ -2077,10 +2117,8 @@ function exportPDF() {
 
     + psec('Remote Monitoring',
         '<div class="row">'
-        + pf('Enrolled', v('rm-enrolled'))
-        + pf('Compliant', v('rm-comply'))
+        + pf('Status', v('rm-status'))
         + pf('Last Transmission', usDate(v('rm-last')))
-        + pf('Active Alerts', v('rm-active'))
         + '</div>'
       )
 
@@ -2466,10 +2504,8 @@ function buildSummaryLines() {
     });
   }
   var rm = [];
-  if (val('rm-enrolled')) rm.push('Enrolled ' + val('rm-enrolled'));
-  if (val('rm-comply'))   rm.push('Compliant ' + val('rm-comply'));
-  if (val('rm-last'))     rm.push('Last Tx: ' + usDate(val('rm-last')));
-  if (val('rm-active'))   rm.push('Alerts: ' + val('rm-active'));
+  if (val('rm-status')) rm.push(val('rm-status'));
+  if (val('rm-last'))   rm.push('Last Tx: ' + usDate(val('rm-last')));
   if (rm.length) f.push('  Remote: ' + rm.join(SEP));
   if (f.length) {
     lines.push('FINAL SESSION SUMMARY');
@@ -2799,7 +2835,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
         var txt = new TextDecoder(enc).decode(abuf);
         var aout = window.ABBOTT.runLog(txt);
         var amerge = !!(document.getElementById('pdp-merge')||{}).checked;
-        if (!amerge && typeof resetFormState === 'function') resetFormState();
+        if (!amerge && typeof resetFormState === 'function') resetWithRemoteMonitoring();
         var ares = prefillForm(aout.RESULT, aout.LEADS, null, { merge: amerge });
         if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
         var adev = (aout.RESULT['dev-model']||{}).v || '';
@@ -2842,7 +2878,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       // lingers in fields this report doesn't set — UNLESS "Merge" is checked, in which case
       // keep what the user already entered and only fill blanks / append episodes.
       var merge = !!(document.getElementById('pdp-merge')||{}).checked;
-      if (!merge && typeof resetFormState === 'function') resetFormState();
+      if (!merge && typeof resetFormState === 'function') resetWithRemoteMonitoring();
       var res = prefillForm(out.RESULT, out.LEADS, out.EPISODES, { merge: merge });
       if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
       var dev = (out.RESULT['dev-model']||{}).v || '';
@@ -3303,7 +3339,10 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       : 'Clear all fields and start over?')) return;
     // resetFormState is wrapped to disarm + blank the fields; it leaves the slot vars intact.
     if (typeof window.resetFormState === 'function') window.resetFormState();
-    if (armedPatient) { arm(); dirty = true; }   // re-arm the SAME patient; leaving now re-saves the cleared report
+    // Re-arm the SAME patient; leaving now re-saves the cleared report. The remote-monitoring
+    // status is precharted rather than entered here, so redoing the report pulls it back from
+    // the schedule instead of making the tech look it up again.
+    if (armedPatient) { arm(); dirty = true; pullRmFromSchedule(); }
   };
 
   // Called by the auto-fill importer right after it fills the form. The importer runs
@@ -3316,6 +3355,84 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
     arm();                       // re-arm so later edits sync AND leaving finalizes (see goToSchedule)
     return finalizeReports();    // write json+txt+pdf now so the Schedule reflects the import immediately
   };
+
+  /* ---- Remote monitoring status: ONE value, shared with the Patient Schedule ----------------
+     The schedule's "Remote" precharting column and this page's Final Session Summary status
+     dropdown are the same field. schedule.json inside the .crmdb holds the shared copy, so:
+       · opening a patient pulls its scheduled value into the form, and
+       · changing it here writes back to that patient's schedule row.
+     A schedule row is matched by slot name (time + patient), the same key the slot folders use. */
+  var RG_TAB_ID = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  var SCHED_REVKEY = 'patientSchedRevisionV1';   // the schedule's revision stamp (a timestamp, no PHI)
+  var schedChannel = null;
+  try { if (typeof BroadcastChannel !== 'undefined') schedChannel = new BroadcastChannel('patientScheduleSyncV1'); } catch (e) {}
+
+  function rmStatusEl() { return document.getElementById('rm-status'); }
+  function readSchedule() {
+    if (!slotRoot) return Promise.reject(new Error('no database'));
+    return slotRoot.getFileHandle('schedule.json')
+      .then(function (fh) { return fh.getFile(); })
+      .then(function (f) { return f.text(); })
+      .then(function (t) { return JSON.parse(t || '{}'); });
+  }
+  function scheduleRowFor(sched, dt, slot) {
+    var day = (sched && sched.dates && sched.dates[dt]) || [];
+    for (var i = 0; i < day.length; i++) {
+      if (day[i] && WS.slotName(day[i].time, day[i].pt) === slot) return day[i];
+    }
+    return null;
+  }
+  // Schedule → form, on open. The schedule wins when it has a value (that's where precharting
+  // happens); when it's blank but the report already carries one, seed the schedule instead so
+  // the two never disagree.
+  function pullRmFromSchedule() {
+    var el = rmStatusEl();
+    if (!el || !slotRoot || !slotDate || !slotName) return Promise.resolve();
+    return readSchedule().then(function (sched) {
+      var row = scheduleRowFor(sched, slotDate, slotName);
+      if (!row) return;
+      var fromSched = String(row.rm || '');
+      if (fromSched) {
+        if (el.value === fromSched) return;
+        el.value = fromSched;
+        // A programmatic value change fires no 'input' event, so the live sync would never
+        // notice it — mark the report owed a rebuild or the pulled status dies with the page.
+        if (syncArmed) dirty = true;
+        return;
+      }
+      if (el.value) return pushRmToSchedule();
+    }).catch(function () {});   // no schedule.json yet, or an unreadable one — leave the form as-is
+  }
+  // Form → schedule, on change. Stages schedule.json the same way the schedule page does
+  // (deferred write + flush), then bumps the revision so an open schedule tab treats this as
+  // newer than its own copy instead of putting the old value straight back.
+  function pushRmToSchedule() {
+    var el = rmStatusEl();
+    if (!el || !slotRoot || !slotDate || !slotName) return Promise.resolve();
+    var v = el.value || '';
+    return readSchedule().then(function (sched) {
+      var row = scheduleRowFor(sched, slotDate, slotName);
+      if (!row || String(row.rm || '') === v) return;   // not on the schedule, or already agrees
+      row.rm = v;
+      sched._updatedAt = Math.max(Date.now(), Number(sched._updatedAt || 0) + 1);
+      sched._updatedBy = RG_TAB_ID;
+      var text = JSON.stringify(sched, null, 2);
+      return slotRoot.getFileHandle('schedule.json', { create: true })
+        .then(function (fh) { return fh.createWritable({ defer: true }); })
+        .then(function (w) { return w.write(text).then(function () { return w.close(); }); })
+        .then(function () { return WS.flush ? WS.flush() : null; })
+        .then(function () {
+          try { localStorage.setItem(SCHED_REVKEY, String(sched._updatedAt)); } catch (e) {}
+          // "committed" is only honest after the flush above — it tells a schedule tab the shared
+          // working copy really holds these bytes and it may reload.
+          if (schedChannel) { try { schedChannel.postMessage({ kind: 'committed', sender: RG_TAB_ID, state: sched }); } catch (e) {} }
+        });
+    }).catch(function () {});
+  }
+  (function () {
+    var el = rmStatusEl();
+    if (el) el.addEventListener('change', function () { pushRmToSchedule(); });
+  })();
 
   /* ---- open a patient slot ---- */
   function openSlot(dt, slot, label, allowReset) {
@@ -3336,7 +3453,8 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
         if (allowReset && typeof resetFormState === 'function') resetFormState();
         arm();
         toast('New record for ' + (label || slot) + ' — report.json will be created as you type', 'ok');
-      });
+      })
+      .then(pullRmFromSchedule);   // both paths: the precharted status follows the patient in
   }
   function switchTo(dt, slot, label) {
     if (!confirm('Open ' + (label || slot) + ' from the USB?\n\nThe current form will be replaced.')) return;
