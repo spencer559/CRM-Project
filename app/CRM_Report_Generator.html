@@ -84,6 +84,11 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
 .json-dd-item:active { background: var(--navy-lt); color: var(--navy); }
+/* ☰ items that open a flyout: the caret points the way the submenu expands (left — the ☰ sits
+   at the right edge of the bar, so leftward is where the room is). */
+.json-dd-item.json-dd-sub { display: flex; align-items: center; gap: 7px; }
+.json-dd-sub .sub-caret { color: #99a; font-size: 8px; flex: none; }
+.json-dd-sub[aria-expanded="true"] { background: var(--navy-lt); color: var(--navy); }
 /* Discards the current patient — coloured like the button it replaced, so it doesn't read as
    just another neutral row next to "Clear Fields". */
 .json-dd-item.json-dd-danger { color: #b03030; }
@@ -317,8 +322,8 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
      open before anchoring the next one to the item just clicked, so the submenu appears in place
      of this one rather than on top of it. -->
 <div id="main-dropdown" class="json-dd" style="display:none; min-width:168px;" onclick="event.stopPropagation()" role="menu">
-  <button class="json-dd-item" role="menuitem" onclick="toggleExportMenu(event)">Export</button>
-  <button class="json-dd-item" role="menuitem" onclick="toggleImportMenu(event)">Import</button>
+  <button class="json-dd-item json-dd-sub" role="menuitem" aria-haspopup="menu" aria-expanded="false" onclick="subExportMenu(event)"><span class="sub-caret" aria-hidden="true">&#9666;</span>Export</button>
+  <button class="json-dd-item json-dd-sub" role="menuitem" aria-haspopup="menu" aria-expanded="false" onclick="subImportMenu(event)"><span class="sub-caret" aria-hidden="true">&#9666;</span>Import</button>
   <button class="json-dd-item" role="menuitem" onclick="closeMenus(); clearFieldsKeepPatient();" title="Blank the form but keep the current patient selected — redo their report from scratch">Clear Fields</button>
   <button class="json-dd-item json-dd-danger" role="menuitem" onclick="closeMenus(); clearForm();">New Patient</button>
 </div>
@@ -2237,7 +2242,48 @@ function closeMenus() {
   document.querySelectorAll('.json-dd').forEach(function(m){ m.style.display = 'none'; });
   var mb = document.getElementById('menu-btn');
   if (mb) mb.setAttribute('aria-expanded', 'false');
+  document.querySelectorAll('.json-dd-sub[aria-expanded="true"]').forEach(function(b){ b.setAttribute('aria-expanded', 'false'); });
 }
+// Flyout submenus of the ☰ menu (Export / Import). Unlike toggleMenu this does NOT closeMenus —
+// the parent stays open, the child expands out beside it, and only the sibling flyout is closed,
+// so exactly one is showing at a time. The outside-click / Escape paths still tear everything
+// down through closeMenus.
+function openSubMenu(e, id, build) {
+  e.stopPropagation();
+  var dd = document.getElementById(id), item = e.currentTarget;
+  var parent = document.getElementById('main-dropdown');
+  if (!dd || !parent) return;
+  if (dd.style.display === 'block') {   // tapping the same row again folds just the flyout
+    dd.style.display = 'none';
+    item.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  ['export-dropdown', 'import-dropdown'].forEach(function (other) {
+    if (other === id) return;
+    var o = document.getElementById(other);
+    if (o) o.style.display = 'none';
+  });
+  parent.querySelectorAll('.json-dd-sub[aria-expanded="true"]').forEach(function(b){ b.setAttribute('aria-expanded', 'false'); });
+  if (build) build();
+  var pr = parent.getBoundingClientRect(), ir = item.getBoundingClientRect();
+  // Show before measuring (a display:none element has no size), then place it: out to the LEFT
+  // of the parent menu — the ☰ hangs at the right edge of the bar, so leftward is where the room
+  // is — top-aligned with the tapped row. When a narrow viewport leaves no room on the left
+  // (e.g. the embedded panel), fall through to the right of the parent, then clamp on-screen.
+  dd.style.left = '0px'; dd.style.right = 'auto'; dd.style.display = 'block';
+  var vw = document.documentElement.clientWidth, vh = window.innerHeight;
+  var w = dd.offsetWidth, h = dd.offsetHeight, pad = 8, gap = 4;
+  var left = pr.left - w - gap;
+  if (left < pad) left = pr.right + gap;
+  left = Math.max(pad, Math.min(left, vw - w - pad));
+  var top = ir.top - 4;                  // -4: optical alignment with the row's own padding
+  if (top + h > vh - pad) top = Math.max(pad, vh - h - pad);
+  dd.style.left = Math.round(left) + 'px';
+  dd.style.top = Math.round(top) + 'px';
+  item.setAttribute('aria-expanded', 'true');
+}
+function subExportMenu(e){ openSubMenu(e, 'export-dropdown', function () { if (window.buildExportExtra) window.buildExportExtra(); }); }
+function subImportMenu(e){ openSubMenu(e, 'import-dropdown', function () { if (window.buildImportMenu) window.buildImportMenu(); }); }
 /* `build` fills the menu and MUST run before it is measured — the width is whatever the longest
    patient name makes it, so positioning an empty menu would place it by the wrong width. */
 function toggleMenu(e, id, build) {
@@ -2268,8 +2314,6 @@ function toggleMenu(e, id, build) {
   dd.style.left = Math.round(Math.max(pad, Math.min(left, vw - w - pad))) + 'px';
 }
 function togglePatientMenu(e){ toggleMenu(e, 'patient-dropdown', function () { if (window.buildPatientMenu) window.buildPatientMenu(); }); }
-function toggleImportMenu(e){ toggleMenu(e, 'import-dropdown', function () { if (window.buildImportMenu) window.buildImportMenu(); }); }
-function toggleExportMenu(e){ toggleMenu(e, 'export-dropdown', function () { if (window.buildExportExtra) window.buildExportExtra(); }); }
 function toggleFilesMenu(e){ toggleMenu(e, 'files-dropdown', function () { if (window.buildFilesMenu) window.buildFilesMenu(); }); }
 // closeMenus (called by toggleMenu) has already cleared aria-expanded, so read the result back.
 function toggleMainMenu(e){
