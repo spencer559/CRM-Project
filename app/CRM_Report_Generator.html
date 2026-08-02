@@ -3491,6 +3491,7 @@ window.ensureReportPdfBuilder = function () {
     syncArmed = true;
     dirty = false;   // freshly opened patient — no unsaved report changes yet
     setSync('Live sync on');
+    postHost({ type: 'crm:slot-ready', date: slotDate, slot: slotName });
     updateFilesBtn();
     // USB-only: the slot's report.json is the recovery copy — drop the browser one
     if ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted())) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }

@@ -1615,7 +1615,24 @@
     // Refreshed again rather than trusting the menu: a click inside the frame doesn't reach this
     // document, so the menu can sit open while the tech keeps typing, and the bytes behind these
     // rows can go stale between opening the menu and picking a file.
+    if (String(name).toLowerCase() === "report.pdf" && (!panel || panel.date !== curDate || panel.slot !== slot)) {
+      setWsStatus("Rebuilding this patient's generated report…");
+      rebuildStoredGeneratedReport(slot, function (error) {
+        if (error) { setWsStatus("Could not rebuild report.pdf: " + error, "warn"); return; }
+        setWsStatus("Generated report ready", "ok");
+        readPatientFile(slot, name);
+      });
+      return;
+    }
     withPanelFilesFresh(slot, function () { readPatientFile(slot, name); });
+  }
+  function validateGeneratedPdf(file) {
+    if (!file || file.size < 16) return Promise.reject(new Error("the generated file is empty"));
+    return Promise.all([file.slice(0, 5).text(), file.slice(Math.max(0, file.size - 64)).text()])
+      .then(function (parts) {
+        if (parts[0] !== "%PDF-" || parts[1].indexOf("%%EOF") < 0) throw new Error("the generated file is incomplete");
+        return file;
+      });
   }
   function readPatientFile(slot, name) {
     WS.slotDir(wsRoot, curDate, slot, false)
@@ -1624,7 +1641,10 @@
       .then(function (file) {
         // PDFs go to the page-snapping in-app viewer (one wheel flick = one page, fit to the
         // window); everything else keeps the plain browser tab.
-        if (/\.pdf$/i.test(name)) { openPdfInViewer(file, name, "../app/PDF_Viewer.html"); return; }
+        if (/\.pdf$/i.test(name)) {
+          var checked = String(name).toLowerCase() === "report.pdf" ? validateGeneratedPdf(file) : Promise.resolve(file);
+          return checked.then(function (validFile) { openPdfInViewer(validFile, name, "../app/PDF_Viewer.html"); });
+        }
         var url = URL.createObjectURL(file);
         window.open(url, "_blank");
         setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
@@ -1691,6 +1711,7 @@
   var panel = null;          // { date, slot, tr, frame, ready }
   var panelSeq = 0;          // pairs a crm:finalized reply with the request that asked for it
   var panelPending = {};     // token -> callback
+  var reportBuild = null;    // temporary hidden generator used by Schedule-only report opens
 
   function slotOf(r) { return (WS && r) ? WS.slotName(r.time, r.pt) : ""; }
 
@@ -1735,6 +1756,31 @@
     setTimeout(function () { fire(false, 'Report generation timed out'); }, 6000);
     try { panel.frame.contentWindow.postMessage({ type: "crm:finalize", token: token }, location.origin); }
     catch (e) { fire(); }
+  }
+
+  // A generated report opened from the Schedule still has to be rebuilt from report.json even
+  // when its visible CRM panel is closed. Use a short-lived same-origin generator frame to load
+  // that patient's form, publish a verified report.pdf, and then disappear. Programmer PDFs never
+  // take this path because they are source documents and must remain byte-for-byte unchanged.
+  function rebuildStoredGeneratedReport(slot, after) {
+    if (reportBuild && reportBuild.finish) reportBuild.finish('Another report was opened');
+    var frame = document.createElement('iframe');
+    var token = 'r' + (++panelSeq), done = false;
+    frame.hidden = true;
+    frame.setAttribute('aria-hidden', 'true');
+    frame.src = '../app/CRM_Report_Generator.html?embed=1#slot=' + encodeURIComponent(curDate) + '/' + encodeURIComponent(slot);
+    var job = { frame: frame, slot: slot, token: token, sent: false, timer: null, finish: finish };
+    reportBuild = job;
+    function finish(error) {
+      if (done) return;
+      done = true;
+      clearTimeout(job.timer);
+      if (reportBuild === job) reportBuild = null;
+      if (frame.parentNode) frame.parentNode.removeChild(frame);
+      after(error || '');
+    }
+    job.timer = setTimeout(function () { finish('Report generation timed out'); }, 10000);
+    document.body.appendChild(frame);
   }
 
   // Take on whatever the frame has published. Each document holds its OWN copy of the working
@@ -2005,8 +2051,19 @@
     // Origin proves it's our own deployment; source proves it's the frame we opened rather than
     // any other window that happens to share the origin.
     if (ev.origin !== location.origin) return;
-    if (!panel || !panel.frame || ev.source !== panel.frame.contentWindow) return;
     var m = ev.data || {};
+    if (reportBuild && reportBuild.frame && ev.source === reportBuild.frame.contentWindow) {
+      if (m.type === 'crm:slot-ready' && m.date === curDate && m.slot === reportBuild.slot && !reportBuild.sent) {
+        reportBuild.sent = true;
+        var rebuildOrigin = location.origin === 'null' ? '*' : location.origin;
+        try { reportBuild.frame.contentWindow.postMessage({ type: 'crm:finalize', token: reportBuild.token }, rebuildOrigin); }
+        catch (e) { reportBuild.finish(e.message || 'Could not start report generation'); }
+      } else if (m.type === 'crm:finalized' && m.token === reportBuild.token) {
+        reportBuild.finish(m.error || '');
+      }
+      return;
+    }
+    if (!panel || !panel.frame || ev.source !== panel.frame.contentWindow) return;
     if (m.type === "crm:ready") { panel.ready = true; panel.sharedWorkspace = !!m.sharedWorkspace; return; }
     if (m.type === "crm:status") {
       var el = panel.tr.querySelector("[data-panel-sync]");
