@@ -26,6 +26,25 @@ body { background: var(--bg); color: var(--text); font: 12px/1.4 "Segoe UI", sys
 .bar button { flex: none; background: #262b33; color: var(--text); border: 1px solid var(--border);
               border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
 .bar button:hover { border-color: #58a6ff; }
+/* Contents sidebar: the PDF's own outline when it has one, page thumbnails otherwise. Fixed
+   beside the scroller; opening it narrows the pages, which re-fit themselves (see refit). */
+:root { --toc-w: 232px; }
+#toc { position: fixed; left: 0; top: var(--bar); bottom: 0; width: var(--toc-w); z-index: 5;
+       overflow-y: auto; background: #1b1f24; border-right: 1px solid var(--border);
+       padding: 8px 6px; display: none; }
+body.toc-open #toc { display: block; }
+body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
+.toc-item { display: block; width: 100%; text-align: left; background: none; border: none;
+            color: var(--text); font: inherit; padding: 5px 8px; border-radius: 5px;
+            cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toc-item:hover { background: #262b33; }
+.toc-item.active { background: #2b3a55; color: #9ecbff; }
+.toc-item .toc-pg { float: right; color: var(--muted); font-size: 10px; padding-left: 6px; }
+.toc-thumb { display: flex; flex-direction: column; align-items: center; gap: 3px;
+             padding: 7px 4px; white-space: normal; }
+.toc-thumb canvas { background: #fff; border: 1px solid var(--border); border-radius: 2px; }
+.toc-thumb.active canvas { outline: 2px solid #58a6ff; }
+.toc-thumb .toc-pg { float: none; padding: 0; }
 #pages { position: fixed; inset: var(--bar) 0 0 0; overflow-y: auto;
          scroll-snap-type: y mandatory; }
 .page { display: flex; align-items: center; justify-content: center;
@@ -39,6 +58,7 @@ body { background: var(--bg); color: var(--text); font: 12px/1.4 "Segoe UI", sys
 </head>
 <body>
 <div class="bar">
+  <button type="button" id="tocBtn" title="Contents — the PDF's bookmarks, or page thumbnails" aria-expanded="false" hidden>Contents</button>
   <span class="name" id="name">PDF</span>
   <span class="pager" id="pager"></span>
   <span class="spacer"></span>
@@ -46,6 +66,7 @@ body { background: var(--bg); color: var(--text); font: 12px/1.4 "Segoe UI", sys
   <button type="button" id="downloadBtn" hidden>Download</button>
   <button type="button" onclick="window.close()" title="Close (Esc)">&#10005;</button>
 </div>
+<div id="toc" role="navigation" aria-label="Contents"></div>
 <div id="pages"></div>
 <div id="status">Waiting for the document&hellip;</div>
 
@@ -103,10 +124,11 @@ body { background: var(--bg); color: var(--text); font: 12px/1.4 "Segoe UI", sys
     pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise.then(function (d) {
       doc = d; total = d.numPages;
       statusEl.hidden = true;
-      $("chromeBtn").hidden = $("downloadBtn").hidden = false;
+      $("chromeBtn").hidden = $("downloadBtn").hidden = $("tocBtn").hidden = false;
       buildShells();
       layout();
       updatePager();
+      buildToc();
     }).catch(function (e) {
       showStatus("Could not open " + docName + ": " + e.message);
     });
@@ -172,21 +194,139 @@ body { background: var(--bg); color: var(--text); font: 12px/1.4 "Segoe UI", sys
     if (s.rendered) { s.canvas.width = 0; s.canvas.height = 0; s.rendered = false; }
   }
 
+  // The fit is a function of the scroller's size, so anything that changes it — a window resize,
+  // the Contents sidebar opening — re-lays-out and re-renders, keeping the page you were on.
+  function refit() {
+    var page = current;
+    shells.forEach(function (s, n) { release(n + 1); });
+    layout();
+    goTo(page);
+  }
   var resizeTimer = null;
   window.addEventListener("resize", function () {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function () {
-      var page = current;
-      shells.forEach(function (s, n) { release(n + 1); });
-      layout();
-      goTo(page);                                    // keep the page you were on, at the new fit
-    }, 150);
+    resizeTimer = setTimeout(refit, 150);
   });
+
+  /* ---- contents sidebar ------------------------------------------------------------------
+     The PDF's own outline when it carries one (programmer exports often bookmark their
+     sections), page thumbnails otherwise — a heading TOC can't be conjured from a PDF that
+     doesn't declare one, and thumbnails are what you actually scan for an EGM strip anyway. */
+  var tocEl = $("toc"), tocBtn = $("tocBtn");
+  var tocEntries = [];        // outline mode: [{ page, el }] sorted by page, for the highlight
+  var tocThumbs = [];         // thumbnail mode: one per page
+  var tocMode = null, lastHighlighted = 0;
+
+  function toggleToc(open) {
+    var want = (open !== undefined) ? open : !document.body.classList.contains("toc-open");
+    document.body.classList.toggle("toc-open", want);
+    tocBtn.setAttribute("aria-expanded", want ? "true" : "false");
+    refit();                  // the scroller just changed width — pages need a new fit
+    if (want) highlightToc(true);
+  }
+  tocBtn.addEventListener("click", function () { toggleToc(); });
+
+  // An outline destination names a page indirectly; resolve to a 1-based number, null on any
+  // of the malformed shapes real-world PDFs produce.
+  function outlinePage(dest) {
+    return Promise.resolve(typeof dest === "string" ? doc.getDestination(dest) : dest)
+      .then(function (d) { return (d && d[0]) ? doc.getPageIndex(d[0]) : null; })
+      .then(function (i) { return (i == null) ? null : i + 1; })
+      .catch(function () { return null; });
+  }
+  function buildToc() {
+    doc.getOutline().then(function (outline) {
+      var flat = [];
+      (function walk(items, depth) {
+        (items || []).forEach(function (it) {
+          flat.push({ title: it.title, dest: it.dest, depth: depth });
+          walk(it.items, depth + 1);
+        });
+      })(outline, 0);
+      if (!flat.length) { buildThumbToc(); return; }
+      Promise.all(flat.map(function (f) { return outlinePage(f.dest); })).then(function (pages) {
+        tocMode = "outline"; tocEl.innerHTML = "";
+        tocEntries = [];
+        flat.forEach(function (f, n) {
+          if (pages[n] == null) return;
+          var b = document.createElement("button");
+          b.type = "button"; b.className = "toc-item";
+          b.style.paddingLeft = (8 + f.depth * 14) + "px";
+          b.title = f.title;
+          b.innerHTML = '<span class="toc-pg">' + pages[n] + "</span>";
+          b.insertBefore(document.createTextNode(f.title), b.firstChild);
+          b.addEventListener("click", function () { goTo(pages[n]); });
+          tocEl.appendChild(b);
+          tocEntries.push({ page: pages[n], el: b });
+        });
+        tocEntries.sort(function (a, b) { return a.page - b.page; });
+        // A real outline is worth screen space; thumbnails are opt-in via the button.
+        if (window.innerWidth > 900) toggleToc(true);
+      });
+    }).catch(function () { buildThumbToc(); });
+  }
+  var thumbIo = null;
+  function buildThumbToc() {
+    tocMode = "thumbs"; tocEl.innerHTML = "";
+    tocThumbs = [];
+    if (thumbIo) thumbIo.disconnect();
+    // Rendered on approach and kept: a thumbnail is a few KB, and re-rendering on every pass
+    // would cost more scrolling jank than it saves.
+    thumbIo = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) renderThumb(+en.target.dataset.i); });
+    }, { root: tocEl, rootMargin: "120% 0px" });
+    for (var i = 1; i <= total; i++) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "toc-item toc-thumb"; b.dataset.i = i;
+      var c = document.createElement("canvas");
+      c.width = 0; c.height = 0;
+      b.appendChild(c);
+      var lbl = document.createElement("span");
+      lbl.className = "toc-pg"; lbl.textContent = i;
+      b.appendChild(lbl);
+      (function (p) { b.addEventListener("click", function () { goTo(p); }); })(i);
+      tocEl.appendChild(b);
+      tocThumbs.push({ el: b, canvas: c, done: false });
+      thumbIo.observe(b);
+    }
+  }
+  function renderThumb(i) {
+    var t = tocThumbs[i - 1];
+    if (!t || t.done || !doc) return;
+    t.done = true;                                   // claimed; a failure just leaves it blank
+    doc.getPage(i).then(function (page) {
+      var v1 = page.getViewport({ scale: 1 });
+      var vp = page.getViewport({ scale: 150 / v1.width });
+      t.canvas.width = Math.floor(vp.width); t.canvas.height = Math.floor(vp.height);
+      t.canvas.style.width = Math.floor(vp.width) + "px";
+      return page.render({ canvasContext: t.canvas.getContext("2d"), viewport: vp }).promise
+        .then(function () { page.cleanup(); });
+    }).catch(function () {});
+  }
+  // Track the reading position: the outline entry you are inside, or the thumbnail of the
+  // current page. `force` re-asserts after a toggle even though the page didn't change.
+  function highlightToc(force) {
+    if (!tocMode || (!force && current === lastHighlighted)) return;
+    lastHighlighted = current;
+    if (tocMode === "outline") {
+      var active = null;
+      tocEntries.forEach(function (e) {
+        if (e.page <= current) active = e;
+        e.el.classList.remove("active");
+      });
+      if (active) { active.el.classList.add("active"); active.el.scrollIntoView({ block: "nearest" }); }
+    } else {
+      tocThumbs.forEach(function (t, n) { t.el.classList.toggle("active", n + 1 === current); });
+      var cur = tocThumbs[current - 1];
+      if (cur) cur.el.scrollIntoView({ block: "nearest" });
+    }
+  }
 
   /* ---- paging ---- */
   function updatePager() {
     current = Math.min(total, Math.max(1, Math.round(scroller.scrollTop / (pageH || 1)) + 1));
     $("pager").textContent = total ? current + " / " + total : "";
+    highlightToc();
   }
   scroller.addEventListener("scroll", updatePager);
   function goTo(p) {
