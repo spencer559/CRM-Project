@@ -1,10 +1,10 @@
 /* crmdb-store.js — shared persistence engine for the .crmdb container model.
  *
- * Drop-in replacement for src/workspace.js: it exposes the SAME window.CRMWorkspace API
- * both the Patient Schedule and CRM Report Generator already call (connect, slotDir,
- * writeFile, readText, listFiles, moveSlot, slotName, stored, permission, forget,
- * usbOnly …) — but instead of driving a live folder tree through the File System Access
- * directory API, everything reads and writes an in-memory bundle:
+ * This is what backs window.CRMWorkspace — the API both the Patient Schedule and the CRM
+ * Report Generator call (connect, slotDir, writeFile, readText, listFiles, moveSlot,
+ * slotName, stored, permission, forget, usbOnly …). Rather than drive a live folder tree
+ * through the File System Access directory API (which iPadOS doesn't have at all), every
+ * one of those reads and writes an in-memory bundle:
  *
  *     bundle : Map<path, Blob>     e.g. "schedule.json", "patients/2026-07-13/0800_JS/report.pdf"
  *

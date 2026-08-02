@@ -42,7 +42,10 @@ Supported inputs:
 
 ```
 index.html                          Public landing page (self-contained static page, single file)
+_headers                            Cloudflare Pages security headers (frame-ancestors, HSTS, nosniff…)
 assets/                             Background images for the landing pages
+auth/
+  signin.html                       Sign-in landing for the Cloudflare Access gate on /dev/*
 app/
   CRM_Report_Generator.html         THE ACTIVE APP — edit this one
   Mileage_Calculator.html           Mileage log → expense-form .xlsx (fully self-contained)
@@ -50,12 +53,14 @@ app/
 dev/
   index.html                        Developer deck (Cloudflare Access gates /dev/*)
   dashboard.html                    Command-center dashboard (single file)
+  Patient_Schedule.html             Daily clinic schedule — the .crmdb's other page (see below)
+  crmdb-container-design.md         Design note for the .crmdb container (written before the migration)
 mileage-backend/
   src/worker.js  wrangler.toml      Cloudflare Worker + D1 sync backend
   schema.sql  DEPLOY.md             (see DEPLOY.md for one-time setup)
 src/
   crmdb-store.js                    Shared .crmdb database engine (CRMWorkspace API over an in-memory bundle; see below)
-  workspace.js                      LEGACY live-folder workspace — no longer included by any page (kept for git history)
+  crmdb-commit-cadence.js           WHEN a staged edit gets published — the shared commit timer + teardown hooks
   engine.js                         Shared PDF extraction engine + anchor helpers + cleaners
   parsers/
     medtronic.js                    Medtronic PDF parser  → window.MEDTRONIC.runMap(LINES, META)
@@ -70,6 +75,10 @@ vendor/
 tools/
   CIED PDF Extraction Harness.html  Dump a PDF's text items (parser authoring/debugging)
   CIED_Medtronic_Parser_Preview_v2.html   Older preview harness
+tests/
+  run.js                            Test runner — one child process per *.test.js (see Testing)
+  *.test.js                         Node tests for the .crmdb engine + vendor detection
+package.json                        No dependencies and no build step — it exists to give `npm test` an entrypoint
 ```
 
 **Path conventions:** the app lives in `app/`, so its includes are relative — `../src/engine.js`,
@@ -526,8 +535,10 @@ localStorage, and forgets the connection.
 - **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
 - **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
 - **Patient Schedule** (full-name day sheet, print view, walk-away wipe) behind the `/dev/` gate — now backed by the `.crmdb` container (below) with per-database Memory retention, an All-patients overview, and manual PDF attach.
-- **`.crmdb` single-file database (Jul 2026):** the shared USB workspace was rebuilt from a live folder tree into one portable ZIP (`schedule.crmdb`) so the Schedule **and** the CRM Report Generator work on **iPad** as well as desktop. New `src/crmdb-store.js` (CRMWorkspace API over an in-memory bundle + IndexedDB cross-page copy + desktop file-handle autosave / iPad share-sheet save) and `vendor/crmdb-zip.js` (dependency-free, CSP-safe ZIP). Verified headlessly in Node: bundle round-trips (valid zip per `unzip -t`), slot moves/renames, file counts, retention pruning, per-database `retentionDays` persistence, delete-with-files, and the two-page handoff sequence. Browser click-through (iPad share sheet, desktop reconnect) still to be confirmed on real hardware.
+- **`.crmdb` single-file database (Jul 2026):** the shared USB workspace was rebuilt from a live folder tree into one portable ZIP (`schedule.crmdb`) so the Schedule **and** the CRM Report Generator work on **iPad** as well as desktop. New `src/crmdb-store.js` (CRMWorkspace API over an in-memory bundle + IndexedDB cross-page copy + desktop file-handle autosave / iPad share-sheet save) and `vendor/crmdb-zip.js` (dependency-free, CSP-safe ZIP). Verified headlessly in Node: bundle round-trips (valid zip per `unzip -t`), slot moves/renames, file counts, retention pruning, per-database `retentionDays` persistence, delete-with-files, and the two-page handoff sequence. Browser click-through (iPad share sheet, desktop reconnect) has since been confirmed on real hardware.
 - **Vendor detection rewritten (Jul 2026):** a Boston Scientific report carrying an **Abbott / St. Jude RV lead** was detected as Abbott and refused to import — `guessVendor` joined every page into one string and took the *first* matching signature, and `boston.js` reads the Leads table verbatim by design, so one foreign lead row decided the routing (Abbott sits higher in the list, and Abbott has no PDF parser → hard dead end). `Engine.scoreVendors` now ranks vendors by **page spread**: a report's own brand repeats in the page furniture on every page, a foreign lead is one cell on one page. The importer also gained a **"Parse as:" override** (buttons in the status box that re-parse the cached text) so no misdetect can wall off the auto-fill again, the Abbott dead end now points at the Merlin `.log` export, and the parsers' dead `sig` regexes — which had drifted a full 10 Boston families ahead of the engine — are gone. Covered by `tests/vendor-detect.test.js`.
+- **Latency overhaul (Jul 2026):** committing re-serialized the **whole** database and wrote it into the shared IndexedDB working copy, and both pages did that on their typing debounce — so every ~1.5s pause cost a multi-megabyte round trip, and it got worse the bigger the `.crmdb` grew. Four changes, all of them about *when* and *how much*: (1) an edit now **stages** into the in-memory bundle (`{ defer: true }` on `writeFile` / `createWritable`), which is free; (2) new `src/crmdb-commit-cadence.js` owns **when** staged edits publish — at most once every 30s, plus an immediate commit on every deliberate exit (patient switch, Save, tab-hide, pagehide, unload). Continuous typing can't starve it, because `stage()` deliberately does *not* restart an in-flight timer; and one page exit is **one** commit even though a browser fires up to three teardown events for it, so a page that claims its own teardown work isn't doubled up. The cadence window is therefore only ever exposed by a hard crash, never a normal close. (3) a commit costs the **delta** rather than the whole database — unchanged entries are carried by reference instead of re-deflated; (4) `CRMDB.readBlob` reads a container we wrote ourselves **by reference** — nothing but the central directory is parsed and each entry comes back as a `blob.slice()` view, so a page load holds one copy of the database instead of the two or three `read()` materialized. Anything unfamiliar (a DEFLATE entry, a layout whose local headers don't tile) falls back to `read()`. Covered by `tests/crmdb-commit-cadence.test.js`, `crmdb-commit-cost.test.js`, `crmdb-deferred-write.test.js`, `crmdb-zero-copy-read.test.js`.
+- **Remote-monitoring status shared between the two pages (Jul 2026):** the Schedule's **Remote** precharting column and the Report Generator's Final Session Summary **Status** dropdown are one field, not two — it travels in the schedule row (`r.rm`) inside `schedule.json`. Opening a patient pulls the precharted value into the form (the schedule wins, since that's where precharting happens; if it's blank and the report has a value, the schedule is seeded instead so the two never disagree), and changing it in the report writes back, bumps `schedule.json`'s revision stamp and broadcasts a `committed` message — otherwise an open Schedule tab would treat its own copy as newer and put the old value straight back. Covered by `tests/crmdb-schedule-rm-share.test.js`. **Coupling to keep in mind:** the `RMS` list in `dev/Patient_Schedule.html` and the `#rm-status` `<select>` in `app/CRM_Report_Generator.html` must stay in step (both carry a comment saying so).
 - **Site passover (Jul 2026):** dashboard data-file snapshot/restore whitelisted to dashboard-owned keys (a full-localStorage mirror was writing the CRM PHI autosave into exports); tally + mileage "Add day" switched to local dates (UTC `toISOString` rolled evening entries to tomorrow); Mileage Calculator got a CSP matching the other pages; `mileage-backend/.wrangler/` untracked and git-ignored.
 
 **Known gaps / TODO ideas:**
@@ -545,15 +556,35 @@ localStorage, and forgets the connection.
 
 - **Manual:** open `app/CRM_Report_Generator.html` locally (or on the Pages site) and drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
 - **PDF authoring:** use `tools/CIED PDF Extraction Harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parser under `src/parsers/`.
-- **Node tests:** `node tests/crmdb-encryption.test.js` (password round-trips),
-  `node tests/crmdb-multitab.test.js` (two tabs sharing one working copy — the journal/revision-CAS
-  guard), `node tests/crmdb-freshness.test.js` (a stale station cache must never overwrite a newer
-  OneDrive file) and `node tests/crmdb-selfwrite.test.js` (the other direction: this station's own
-  saves — including one interrupted by navigation — must never be *mistaken* for another station's,
-  while a real foreign edit still raises the conflict prompt). No npm install: `crmdb-store.js`
-  exports itself under `module.exports`, a fresh `require` is a fresh "tab" (or a fresh page load),
-  and the tests ship a ~40-line in-memory IndexedDB shim to keep the repo dependency-free. Each
-  fails loudly against the store it was written for.
+- **Node tests:** `npm test` (or `node tests/run.js`) runs the whole suite. The runner gives each
+  `tests/*.test.js` its **own child process** on purpose — every file installs its own fake
+  `window` / `document` / `indexedDB` into the Node global scope and re-`require`s
+  `src/crmdb-store.js` to simulate a separate tab, so they cannot share a process without
+  contaminating each other. Run a single file directly (`node tests/crmdb-multitab.test.js`) when
+  you're iterating on one.
+
+  | Test | What it pins down |
+  |---|---|
+  | `crmdb-encryption` | password round-trips |
+  | `crmdb-multitab` | two tabs sharing one working copy — the journal/revision-CAS guard |
+  | `crmdb-freshness` | a stale station cache must never overwrite a newer OneDrive file |
+  | `crmdb-selfwrite` | the other direction: this station's own saves — including one interrupted by navigation — must never be *mistaken* for another station's, while a real foreign edit still raises the conflict prompt |
+  | `crmdb-handoff` | the two-page handoff: what one page commits, the other reads |
+  | `crmdb-deferred-write` | a staged (`{ defer: true }`) write costs no serialization, and is readable immediately |
+  | `crmdb-commit-cadence` | *when* staged edits publish — typing can't starve the cadence, one page exit is one commit across all three teardown events, an idle exit costs nothing |
+  | `crmdb-commit-cost` | a commit re-deflates only what changed, not the whole database |
+  | `crmdb-zero-copy-read` | `readBlob` hands back `blob.slice()` views, and falls back to `read()` on any layout it didn't write |
+  | `crmdb-schedule-rm-share` | the remote-status field stays one value across both pages |
+  | `vendor-detect` | `Engine.scoreVendors` / `guessVendor` — a foreign lead row can't outvote the report's own brand |
+
+  No npm install: `crmdb-store.js` exports itself under `module.exports`, a fresh `require` is a
+  fresh "tab" (or a fresh page load), and the tests ship a ~40-line in-memory IndexedDB shim to keep
+  the repo dependency-free. Each fails loudly against the store it was written for.
+
+  One thing to know when writing a *timing* test here: `setTimeout` has a ~15.6ms floor on Windows,
+  so a loop of `await wait(4)` takes roughly four times as long as it reads. Derive any bound on
+  "how many times did this fire" from a measured `Date.now()` delta rather than from the nominal
+  delay — see the top case in `crmdb-commit-cadence.test.js`.
 - **Headless checks:** the parser logic is plain JS and can be exercised in Node by `eval`-ing the vendor file (with `globalThis.window = globalThis`) and feeding it a reconstructed `LINES` array (PDF) or raw `.log` text — the fastest way to verify a change against a sample before clicking through the form. UI-logic changes can be checked with jsdom (load the app HTML, stub `IntersectionObserver`, drive the functions).
 
 ### To add a new vendor

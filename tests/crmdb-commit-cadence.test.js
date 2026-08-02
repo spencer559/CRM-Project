@@ -104,13 +104,24 @@ function makeCadence(everyMs) {
 }
 
 async function cadenceUnit() {
-  /* ---- typing must not publish, and must not starve the cadence ---- */
+  /* ---- typing must not publish, and must not starve the cadence ----
+     The upper bound is DERIVED from the clock, not hard-coded: setTimeout has a ~15.6ms floor on
+     Windows, so 25 x wait(4) runs ~390ms there and ~100ms on a fast-timer platform. A fixed count
+     only ever held on the latter. What the case actually guards is the shape — the cadence keeps
+     publishing on schedule under continuous typing (never starved), and no more than about one
+     publish per window (not one per keystroke, which is what a restarting timer would give). */
   resetListeners();
-  const A = makeCadence(60);
+  const EVERY = 60;
+  const A = makeCadence(EVERY);
   const c = A.cadence;
-  for (let i = 0; i < 25; i++) { c.stage(); await wait(4); }   // ~100ms of continuous typing
+  const t0 = Date.now();
+  for (let i = 0; i < 25; i++) { c.stage(); await wait(4); }   // continuous typing
+  const elapsed = Date.now() - t0;
+  const most = Math.ceil(elapsed / EVERY) + 1;                 // +1 for window-boundary alignment
   assert.ok(A.commits >= 1, "continuous typing starved the cadence — it never published");
-  assert.ok(A.commits <= 3, "cadence published " + A.commits + " times in ~100ms at a 60ms interval");
+  assert.ok(A.commits <= most,
+    "cadence published " + A.commits + " times across " + elapsed + "ms of typing at a " +
+    EVERY + "ms interval (at most " + most + " expected) — it is restarting per keystroke");
   c.cancel();   // don't leave a timer running into the cases below
 
   /* ---- one exit is one commit, across all three teardown events ---- */
