@@ -261,7 +261,29 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   textarea { background: #fff !important; height: auto !important; overflow: visible !important; }
   .dt td textarea { height: auto !important; min-height: 0 !important; overflow: visible !important; }
 }
+
+/* EMBEDDED — the Patient Schedule hosts this page in a same-origin iframe in an inline panel
+   under a patient's row. The form, the slot routing and every .crmdb write are identical; only
+   the chrome differs. The host's panel header already names the patient and carries the collapse
+   and "Full page" controls, so the identity block here is duplication, and a "Schedule" button
+   would navigate the frame into the very page that owns it (goToSchedule posts a message to the
+   host instead — see the embed block in the slot script). The app-shell layout needs no change:
+   its fixed app-bar and sidebar resolve against the FRAME's viewport, which is the panel. */
+.embedded .app-bar > svg,
+.embedded .app-bar-title,
+.embedded .app-bar .divider,
+.embedded .btn-schedule { display: none; }
 </style>
+<script>
+/* Set before first paint so the embedded chrome above applies without a flash of the full page.
+   `window.parent !== window` is deliberate: ?embed=1 typed into a top-level tab is not an embed,
+   and the exits below must never post to a parent that is really this window. */
+(function () {
+  var embedded = /(?:^|[?&])embed=1(?:&|$)/.test(location.search) && window.parent !== window;
+  window.CRM_EMBED = embedded;
+  if (embedded) document.documentElement.classList.add('embedded');
+})();
+</script>
 </head>
 <body>
 
@@ -274,7 +296,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   <div class="divider"></div>
   <span class="save-status" id="save-status">No data saved</span>
   <div class="app-bar-actions">
-    <button class="btn btn-ghost" onclick="goToSchedule()" title="Open the Patient Schedule (developer sign-in)">
+    <button class="btn btn-ghost btn-schedule" onclick="goToSchedule()" title="Open the Patient Schedule (developer sign-in)">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Schedule
     </button>
@@ -2972,6 +2994,9 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   "use strict";
   var WS = window.CRMWorkspace;
   var supported = !!(WS && WS.supported);
+  // Hosted in the Schedule's inline panel (?embed=1). Resolved in <head> so the chrome rules
+  // land before first paint; re-read here rather than re-tested so both agree on one answer.
+  var EMBED = window.CRM_EMBED === true;
   var slotDate = null, slotName = null, slotLabel = "", slotRoot = null;
   var syncArmed = false;
   var dirty = false;   // edits since the last full report build (json+txt+pdf)
@@ -3211,6 +3236,9 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
     return s;
   })();
   function setSync(msg, isErr) {
+    // Mirror into the host's panel header: embedded, this line sits inside a scrolling frame and
+    // the user should not have to hunt for "is my work saved".
+    postHost({ type: 'crm:status', text: msg || '', warn: !!isErr });
     if (!msg) { syncEl.style.display = 'none'; return; }
     syncEl.style.display = '';
     syncEl.style.color = isErr ? '#b03030' : '';
@@ -3241,13 +3269,42 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   // Navigate to the Schedule only AFTER the working copy is flushed, so the files just
   // written here are guaranteed to be in the shared bundle the Schedule page reads.
   window.goToSchedule = function () {
-    var go = function () { location.href = '../dev/Patient_Schedule.html'; };
+    // Embedded, the Schedule is the page around us: ask it to collapse the panel instead of
+    // navigating the frame into it. Either way the exit finalizes first, below.
+    var go = EMBED
+      ? function () { postHost({ type: 'crm:collapse' }); }
+      : function () { location.href = '../dev/Patient_Schedule.html'; };
     // Rebuild the FULL report set (json+txt+pdf) whenever a patient is selected, so leaving
     // always assigns an up-to-date PDF to that patient — even if the form wasn't edited this
     // visit (e.g. opened an older json-only slot and just reviewed it). Not gated on `dirty`:
     // finalizeReports is idempotent and (re)creates any of the three that are missing.
     (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(go, go);
   };
+
+  /* ---- embedded host protocol -----------------------------------------------------------
+     Same-origin messages with the Schedule that hosts this frame. Deliberately tiny: the two
+     documents already share everything that matters through the .crmdb working copy (journal +
+     revision CAS in crmdb-store.js) and the patientScheduleSyncV1 BroadcastChannel, which work
+     across frames untouched. All this adds is the chrome the store can't express — "I'm up",
+     "here's my sync line", "collapse me", and "finish writing before you let go of me". */
+  function postHost(msg) {
+    if (!EMBED) return;
+    try { window.parent.postMessage(msg, location.origin); } catch (e) {}
+  }
+  if (EMBED) {
+    window.addEventListener('message', function (ev) {
+      // Both checks matter: the origin proves it's our own deployment, the source proves it's the
+      // host frame rather than some other window that happens to share the origin.
+      if (ev.origin !== location.origin || ev.source !== window.parent) return;
+      var m = ev.data || {};
+      if (m.type !== 'crm:finalize') return;
+      // The host is about to close or replace this panel. Same work the standalone page does when
+      // it navigates away — rebuild json+txt+pdf and publish — so the row's files are current
+      // before the frame goes. The token lets the host match the reply to its own request.
+      var reply = function () { postHost({ type: 'crm:finalized', token: m.token }); };
+      (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(reply, reply);
+    });
+  }
   // the store reports autosave / unsaved / errors through the USB-sync indicator
   if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateFilesBtn(); };
 
@@ -3891,6 +3948,10 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   }
   setPatientBtn();
   updateFilesBtn();
+  // The frame is alive and listening. The slot itself loads asynchronously (WS.stored above) and
+  // reports itself through crm:status, so the host enables its header controls on this and lets
+  // the status line fill in when the patient lands.
+  postHost({ type: 'crm:ready' });
 })();
 </script>
 </body>

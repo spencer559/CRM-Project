@@ -1,6 +1,9 @@
+# Framing is same-origin, not denied outright: the Patient Schedule embeds the CRM Report
+# Generator in an inline panel under a patient's row. Third-party framing stays blocked, so
+# the clickjacking protection this header exists for is unchanged.
 /*
-  X-Frame-Options: DENY
-  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: frame-ancestors 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()

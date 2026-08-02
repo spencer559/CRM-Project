@@ -204,6 +204,31 @@
                    color:var(--muted); padding:7px; cursor:pointer; font:inherit; font-size:.74rem; }
   .file-menu-add:hover { color:var(--accent); border-color:var(--accent); }
   .fnone { color:var(--muted); font-size:.78rem; }
+  /* ---- inline CRM report panel ----
+     "Open" expands the Report Generator in a same-origin frame directly beneath the patient's
+     row instead of navigating away, so the day stays on screen while you chart. The frame is a
+     whole app shell (its own fixed app-bar and section sidebar) laid out against the panel, so
+     it gets a fixed height and scrolls internally rather than growing the page to a scroll no
+     one can navigate.
+     The panel sticks to the LEFT EDGE of the horizontal scroller rather than to the table: the
+     table is table-layout:fixed with a 1138px minimum, so without this, scrolling sideways to
+     reach the delete column would drag the open form off screen with it. Its width is measured
+     from .twrap in sizePanel() — a vw calculation would have to guess at the vertical scrollbar
+     and would overflow by exactly that much. Print needs no rule: the print stylesheet already
+     hides .panel wholesale and prints #printView instead. */
+  tr.crm-panel-row > td { padding:0 0 10px; }
+  .crm-panel { position:sticky; left:0; background:var(--panel2); border:1px solid var(--border);
+               border-radius:9px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.45); }
+  .crm-panel-hdr { display:flex; align-items:center; gap:9px; padding:6px 9px;
+                   background:var(--panel); border-bottom:1px solid var(--border); }
+  .crm-panel-pt { font-weight:600; font-size:.84rem; min-width:0; overflow:hidden;
+                  text-overflow:ellipsis; white-space:nowrap; }
+  .crm-panel-slot { flex:0 0 auto; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+                    font-size:.68rem; color:var(--muted); }
+  .crm-panel-sync { margin-left:auto; flex:0 0 auto; font-size:.72rem; color:var(--green); }
+  .crm-panel-sync.warn { color:var(--amber); }
+  .crm-panel-hdr button { flex:0 0 auto; padding:4px 9px; font-size:.72rem; border-radius:6px; }
+  .crm-frame { display:block; width:100%; height:min(70vh,620px); border:0; background:#d0d6df; }
   /* ---- All-patients overview modal ---- */
   .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:400; display:none;
                    align-items:flex-start; justify-content:center; padding:44px 16px; }
@@ -733,7 +758,18 @@
     $("dayLabel").textContent = dt.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
     $("schedDate").value = curDate;
     renderProviderControl();
-    var tb = $("schedBody"); tb.innerHTML = "";
+    var tb = $("schedBody");
+    // The open report panel is an <iframe>, and detaching an iframe from the document reloads it —
+    // which would throw away whatever is being typed into the form. So this rebuild goes AROUND
+    // the panel row instead of through it: keep that one node attached, drop every other child,
+    // and insert the new rows before or after it. panelAnchor() also decides whether the panel
+    // still has a row to belong to, and closes it if not.
+    var keep = panelAnchor();
+    var kid = tb.firstChild;
+    while (kid) { var next = kid.nextSibling; if (kid !== keep) tb.removeChild(kid); kid = next; }
+    // With `keep` the only child left, inserting before it lays down the rows above the panel in
+    // order; once we have emitted the panel's own appointment, the rest append after it.
+    var place = keep ? function (node) { tb.insertBefore(node, keep); } : function (node) { tb.appendChild(node); };
     visibleRows().forEach(function (x) {
       var r = x.r, i = x.i;
       var tr = document.createElement("tr");
@@ -752,7 +788,7 @@
         '<td class="fbadges" data-fslot="' + i + '"><span class="fnone">&mdash;</span></td>' +
         '<td class="row-spacer"></td>' +
         '<td class="del"><button title="Remove" data-del="' + i + '">&#10005;</button></td>';
-      tb.appendChild(tr);
+      place(tr);
 
       // Notes live on their own full-width row beneath the appointment.
       var ntr = document.createElement("tr");
@@ -761,7 +797,10 @@
         '<td class="notes-cell" colspan="13">' +
           '<textarea rows="1" placeholder="Notes &mdash; post-shock, ERI watch, needs interpreter&hellip;" data-i="' + i + '" data-f="notes">' + esc(r.notes) + '</textarea>' +
         '</td>';
-      tb.appendChild(ntr);
+      place(ntr);
+      // This is the patient the panel is open on: it already sits right after these two rows, so
+      // everything from here on belongs below it.
+      if (keep && panel && slotOf(r) === panel.slot) place = function (node) { tb.appendChild(node); };
     });
     tb.querySelectorAll("td.notes-cell textarea").forEach(autoGrow);   // size each note to its content
     renderCounts();
@@ -1425,6 +1464,11 @@
     if (!r || !WS || !oldSlot) return;
     var newSlot = WS.slotName(r.time, r.pt);
     if (oldSlot === newSlot) return;
+    // The open panel is routed to the OLD slot, and the frame would keep writing its report there
+    // — recreating the folder moveSlot is in the middle of emptying. Close it first; reopening
+    // lands on the new slot. (No re-render happens on a time/name edit, so panelAnchor never sees
+    // this case.)
+    if (panel && panel.date === curDate && panel.slot === oldSlot) closePanel();
     // Keep the baseline current: a time/patient field can fire several change events in one
     // focus (editing the hour then the minute, using the steppers, etc.). Updating preSlot to
     // the new slot — instead of deleting it — lets each successive edit relocate the files from
@@ -1450,10 +1494,15 @@
       var r = rs[+td.dataset.cslot], b = td.querySelector(".crm-link");
       if (!r || !b) return;
       var slot = WS ? WS.slotName(r.time, r.pt) : "";
+      var open = !!panel && panel.date === curDate && panel.slot === slot;
       b.dataset.crm = slot;
       b.disabled = !wsRoot || !r.time || !String(r.pt || "").trim();
-      b.title = b.disabled ? "Enter a time and patient name, then open a database" : "Open this patient in the CRM Report Generator";
-      b.setAttribute("aria-label", "Open " + (r.pt || "this patient") + " in the CRM Report Generator");
+      b.textContent = open ? "Close" : "Open";
+      b.setAttribute("aria-expanded", open ? "true" : "false");
+      b.title = b.disabled ? "Enter a time and patient name, then open a database"
+              : open ? "Close this patient's report"
+                     : "Open this patient's report below their row";
+      b.setAttribute("aria-label", (open ? "Close" : "Open") + " the CRM report for " + (r.pt || "this patient"));
     });
     if (!wsRoot) {
       cells.forEach(function (td) { td.innerHTML = '<span class="fnone">&mdash;</span>'; });
@@ -1541,11 +1590,149 @@
       })
       .catch(function (e) { setWsStatus("Could not open " + name + ": " + e.message, "warn"); });
   }
+  /* ---------- inline CRM report panel ----------------------------------------------------
+     "Open" expands the Report Generator under the patient's row instead of navigating to it, so
+     the day stays on screen while you chart. It is the same page at the same #slot route, hosted
+     in a same-origin frame: the .crmdb store already treats two live documents as the everyday
+     Schedule + Report Generator pair (per-document journal + revision CAS in crmdb-store.js,
+     covered by tests/crmdb-multitab.test.js), and patientScheduleSyncV1 already carries the
+     shared "rm" field between them. So the data path is untouched — what travels over
+     postMessage is only the chrome the store can't express: ready, sync line, collapse, and
+     "finish writing before I let go of you".
+     The panel is keyed by SLOT, never by row index: indexes shift as rows are added, deleted and
+     filtered, while the slot key (time + name) is already the identity the slot folders, the
+     files column and the report generator itself all use. */
+  var panel = null;          // { date, slot, tr, frame, ready }
+  var panelSeq = 0;          // pairs a crm:finalized reply with the request that asked for it
+  var panelPending = {};     // token -> callback
+
+  function slotOf(r) { return (WS && r) ? WS.slotName(r.time, r.pt) : ""; }
+
+  // The row the open panel belongs under, or null — and the decision of whether it still has one.
+  // render() calls this BEFORE it rebuilds: if the patient has left the view (day changed, row
+  // deleted, provider filter applied, or the time/name edited into a different slot) the panel has
+  // nothing to hang from. That teardown can't wait for the frame to finish writing — the rebuild
+  // is happening now — but detaching the frame fires pagehide inside it, and its own leave hook
+  // finalizes on exactly that signal, the same as closing the tab used to.
+  function panelAnchor() {
+    if (!panel) return null;
+    if (panel.date !== curDate) { destroyPanel(); return null; }
+    var here = visibleRows().some(function (x) { return slotOf(x.r) === panel.slot; });
+    if (!here) { destroyPanel(); return null; }
+    return panel.tr;
+  }
+
+  // Pinned to the left edge of the table's horizontal scroller, the panel's width has to be that
+  // scroller's visible width — not the table's (at least 1138px) and not a vw calculation, which
+  // would include the page's vertical scrollbar and overflow by exactly that much.
+  function sizePanel() {
+    if (!panel) return;
+    var wrap = document.querySelector(".twrap"), el = panel.tr.querySelector(".crm-panel");
+    if (wrap && el) el.style.width = wrap.clientWidth + "px";
+  }
+
+  // Ask the frame to rebuild json+txt+pdf and publish, then run `after`. Bounded for the same
+  // reason navigateToReportGenerator is: a frame that never answers must not strand the click.
+  function finalizePanel(after) {
+    if (!panel || !panel.ready) { after(); return; }
+    var token = "f" + (++panelSeq), done = false;
+    var fire = function () { if (done) return; done = true; delete panelPending[token]; after(); };
+    panelPending[token] = fire;
+    setTimeout(fire, 2500);
+    try { panel.frame.contentWindow.postMessage({ type: "crm:finalize", token: token }, location.origin); }
+    catch (e) { fire(); }
+  }
+
+  function destroyPanel() {
+    if (!panel) return;
+    var tr = panel.tr;
+    panel = null;
+    window.removeEventListener("resize", sizePanel);
+    if (tr && tr.parentNode) tr.parentNode.removeChild(tr);
+  }
+  // Deliberate close: let the frame finish this patient's report set first — the same ordering the
+  // standalone page uses when you switch patients — then drop it and refresh the row's badges.
+  function closePanel(after) {
+    if (!panel) { if (after) after(); return; }
+    finalizePanel(function () { destroyPanel(); scanSlots(); if (after) after(); });
+  }
+
+  // The frame ingests the shared working copy once, at load. The schedule's own edits are STAGED
+  // (deferred writes published on the commit cadence), so without this the report would open
+  // against a schedule.json that predates the row it belongs to — the patient wouldn't be found,
+  // and the shared Remote-monitoring status would have nothing to write back to. The full-page
+  // navigation has always flushed before handing off (see navigateToReportGenerator); the panel
+  // owes the same guarantee, with the same bounded fallback so a stalled write can't eat the click.
+  function openPanel(r, i) {
+    if (!wsRoot || !slotOf(r)) return;
+    var done = false;
+    var go = function () { if (done) return; done = true; clearTimeout(fallback); insertPanel(r, i); };
+    var fallback = setTimeout(go, 1800);
+    Promise.resolve(flushPending()).then(go, go);
+  }
+
+  function insertPanel(r, i) {
+    var slot = slotOf(r);
+    var cell = document.querySelector('td.crm-cell[data-cslot="' + i + '"]');
+    if (!wsRoot || !slot || !cell) return;
+    var apptTr = cell.parentNode, notesTr = apptTr.nextSibling;
+    var url = "../app/CRM_Report_Generator.html?embed=1#slot=" + curDate + "/" + slot;
+    var tr = document.createElement("tr");
+    tr.className = "crm-panel-row";
+    tr.innerHTML =
+      '<td colspan="13">' +
+        '<div class="crm-panel">' +
+          '<div class="crm-panel-hdr">' +
+            '<span class="crm-panel-pt">' + esc(r.pt || "This patient") + '</span>' +
+            '<span class="crm-panel-slot">' + esc(slot) + '</span>' +
+            '<span class="crm-panel-sync" data-panel-sync></span>' +
+            '<button type="button" data-panel-full title="Open this patient in the full-page Report Generator">Full page</button>' +
+            '<button type="button" data-panel-close title="Close this report">Close</button>' +
+          '</div>' +
+          '<iframe class="crm-frame" title="CRM Report Generator for ' + esc(r.pt || slot) + '" src="' + esc(url) + '"></iframe>' +
+        '</div>' +
+      '</td>';
+    // Immediately after the notes row, so the appointment, its notes and its report read as one
+    // block — the same way .notes-row already extends .appt-row.
+    apptTr.parentNode.insertBefore(tr, notesTr ? notesTr.nextSibling : null);
+    panel = { date: curDate, slot: slot, tr: tr, frame: tr.querySelector("iframe"), ready: false };
+    window.addEventListener("resize", sizePanel);
+    sizePanel();
+    scanSlots();
+  }
+
+  // One panel at a time: opening a different patient finalizes the outgoing one first.
+  function togglePanel(i) {
+    var r = rows()[i];
+    if (!r) return;
+    if (panel && panel.date === curDate && panel.slot === slotOf(r)) { closePanel(); return; }
+    closePanel(function () { openPanel(r, i); });
+  }
+
+  window.addEventListener("message", function (ev) {
+    // Origin proves it's our own deployment; source proves it's the frame we opened rather than
+    // any other window that happens to share the origin.
+    if (ev.origin !== location.origin) return;
+    if (!panel || !panel.frame || ev.source !== panel.frame.contentWindow) return;
+    var m = ev.data || {};
+    if (m.type === "crm:ready") { panel.ready = true; return; }
+    if (m.type === "crm:status") {
+      var el = panel.tr.querySelector("[data-panel-sync]");
+      if (el) { el.textContent = m.text || ""; el.className = "crm-panel-sync" + (m.warn ? " warn" : ""); }
+      return;
+    }
+    if (m.type === "crm:finalized") { var cb = panelPending[m.token]; if (cb) cb(); return; }
+    // The frame's own exit path already finalized before sending this — don't make it do it twice.
+    if (m.type === "crm:collapse") { destroyPanel(); scanSlots(); return; }
+  });
+
   $("schedBody").addEventListener("click", function (ev) {
     var crm = ev.target.closest(".crm-link[data-crm]");
-    if (crm && !crm.disabled) {
-      var url = "../app/CRM_Report_Generator.html#slot=" + curDate + "/" + crm.dataset.crm;
-      navigateToReportGenerator(url);
+    if (crm && !crm.disabled) { togglePanel(+crm.closest("td.crm-cell").dataset.cslot); return; }
+    if (ev.target.closest("[data-panel-close]")) { closePanel(); return; }
+    if (ev.target.closest("[data-panel-full]") && panel) {
+      var url = "../app/CRM_Report_Generator.html#slot=" + panel.date + "/" + panel.slot;
+      finalizePanel(function () { destroyPanel(); navigateToReportGenerator(url); });
       return;
     }
     var trigger = ev.target.closest(".files-trigger[data-files-slot]");
