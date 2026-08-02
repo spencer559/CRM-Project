@@ -1532,7 +1532,7 @@
     return 2;
   }
   function renderSlotCell(td, slot) {
-    WS.slotDir(wsRoot, curDate, slot, false)
+    return WS.slotDir(wsRoot, curDate, slot, false)
       .then(function (dir) { return WS.listFiles(dir); })
       .catch(function () { return []; })
       .then(function (files) {
@@ -1580,6 +1580,12 @@
     menu.style.left = left + "px"; menu.style.top = top + "px";
   }
   function openPatientFile(slot, name) {
+    // Refreshed again rather than trusting the menu: a click inside the frame doesn't reach this
+    // document, so the menu can sit open while the tech keeps typing, and the bytes behind these
+    // rows can go stale between opening the menu and picking a file.
+    withPanelFilesFresh(slot, function () { readPatientFile(slot, name); });
+  }
+  function readPatientFile(slot, name) {
     WS.slotDir(wsRoot, curDate, slot, false)
       .then(function (dir) { return dir.getFileHandle(name); })
       .then(function (fh) { return fh.getFile(); })
@@ -1633,14 +1639,39 @@
 
   // Ask the frame to rebuild json+txt+pdf and publish, then run `after`. Bounded for the same
   // reason navigateToReportGenerator is: a frame that never answers must not strand the click.
+  // The bound is generous because the first PDF of a session also pays for loading jsPDF, and
+  // this is the wait that decides whether the files the schedule then reads are the current ones.
   function finalizePanel(after) {
     if (!panel || !panel.ready) { after(); return; }
     var token = "f" + (++panelSeq), done = false;
     var fire = function () { if (done) return; done = true; delete panelPending[token]; after(); };
     panelPending[token] = fire;
-    setTimeout(fire, 2500);
+    setTimeout(fire, 6000);
     try { panel.frame.contentWindow.postMessage({ type: "crm:finalize", token: token }, location.origin); }
     catch (e) { fire(); }
+  }
+
+  // Take on whatever the frame has published. Each document holds its OWN copy of the working
+  // bundle and only picks up the other's commits when it next rebases, so without this the
+  // schedule keeps reading the files as they were when it last committed — which is why an open
+  // patient could show "No files" while their report sat finished in the shared copy.
+  // adoptShared replays this document's own staged edits on top, so nothing local is lost.
+  function adoptWorkingCopy(after) {
+    if (!WS || !WS.reloadWorkingCopy) { after(); return; }
+    WS.reloadWorkingCopy().then(after, after);
+  }
+
+  // Everything that has to be true before the schedule can honestly show this patient's files
+  // while their report is open in the panel. The live sync only STAGES report.json (deferred,
+  // published on the 30s cadence), and report.txt/report.pdf aren't rebuilt by typing at all —
+  // only by finalizing. So: finalize the frame, which rebuilds all three and publishes them, then
+  // adopt the result here. For any other patient this is a no-op and the click is immediate.
+  function withPanelFilesFresh(slot, after) {
+    if (!panel || panel.date !== curDate || panel.slot !== slot) { after(); return; }
+    setWsStatus("Updating this patient's report…");
+    finalizePanel(function () {
+      adoptWorkingCopy(function () { setWsStatus("Report up to date", "ok"); after(); });
+    });
   }
 
   function destroyPanel() {
@@ -1654,7 +1685,12 @@
   // standalone page uses when you switch patients — then drop it and refresh the row's badges.
   function closePanel(after) {
     if (!panel) { if (after) after(); return; }
-    finalizePanel(function () { destroyPanel(); scanSlots(); if (after) after(); });
+    // Adopt before scanSlots, or the badge would be drawn from a copy that predates the report
+    // the frame just wrote — the row would read "No files" the instant after it was finished.
+    finalizePanel(function () {
+      destroyPanel();
+      adoptWorkingCopy(function () { scanSlots(); if (after) after(); });
+    });
   }
 
   // The frame ingests the shared working copy once, at load. The schedule's own edits are STAGED
@@ -1736,7 +1772,21 @@
       return;
     }
     var trigger = ev.target.closest(".files-trigger[data-files-slot]");
-    if (trigger && wsRoot) openFileMenu(trigger);
+    if (trigger && wsRoot) {
+      var fslot = trigger.dataset.filesSlot, menu = $("fileMenu");
+      // Second click on the same trigger just closes — don't pay for a round trip to shut a menu.
+      if (!menu.hidden && menu.dataset.slot === fslot) { closeFileMenu(); return; }
+      // Redraw the cell from the refreshed copy before listing, so the badge and the menu agree
+      // and neither is a snapshot from before the report was finished. renderSlotCell replaces
+      // the cell's markup, so the menu is anchored to the NEW trigger, not the one just clicked.
+      var td = trigger.parentNode;
+      withPanelFilesFresh(fslot, function () {
+        Promise.resolve(renderSlotCell(td, fslot)).then(function () {
+          var fresh = td.querySelector(".files-trigger");
+          if (fresh) openFileMenu(fresh);
+        });
+      });
+    }
   });
   $("fileMenu").addEventListener("click", function (ev) {
     var add = ev.target.closest("[data-add]");
