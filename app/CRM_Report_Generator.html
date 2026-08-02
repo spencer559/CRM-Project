@@ -1887,7 +1887,16 @@ function buildReportPdfBlob() {
   var dtPairs=[['Name',val('sig-name')],['Date Completed',usDate(val('sig-date'))]].filter(function(p){return p[1];});
   if (dtPairs.length){ h2('Device Technician'); grid(dtPairs); }
 
-  return doc.output('blob');
+  // Validate the bytes before a file named report.pdf is published. pdf.js reports a vague
+  // "Invalid PDF structure" for empty or truncated input; failing here preserves the last
+  // known-good report and lets the save path report the actual generation failure.
+  var out = doc.output('arraybuffer');
+  var bytes = new Uint8Array(out || new ArrayBuffer(0));
+  var headerOk = bytes.length >= 8 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2d;
+  var tail = '';
+  for (var bi = Math.max(0, bytes.length - 32); bi < bytes.length; bi++) tail += String.fromCharCode(bytes[bi]);
+  if (!headerOk || tail.indexOf('%%EOF') < 0) throw new Error('The PDF generator produced incomplete output');
+  return new Blob([out], { type: 'application/pdf' });
 }
 
 function savePDF() {
@@ -2779,12 +2788,15 @@ window.loadScriptOnce = (function () {
   };
 })();
 window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); };
+window.ensureReportPdfBuilder = function () {
+  return loadScriptOnce('../vendor/jspdf.umd.min.js')
+    .then(function () { return loadScriptOnce('../vendor/jspdf.plugin.autotable.min.js'); });
+};
 // Warm jsPDF as soon as the page is idle. It has to be PRESENT, not merely loadable, by the time
 // anything builds a report — the timeout keeps a busy page from starving the callback.
 (function () {
   function warm() {
-    loadScriptOnce('../vendor/jspdf.umd.min.js')
-      .then(function () { return loadScriptOnce('../vendor/jspdf.plugin.autotable.min.js'); })
+    window.ensureReportPdfBuilder()
       .catch(function () { /* buildReportPdfBlob already reports a missing jsPDF */ });
   }
   function soon() { (window.requestIdleCallback || function (f) { setTimeout(f, 1); })(warm, { timeout: 2000 }); }
@@ -3463,10 +3475,12 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       // database, and the host asks every time the Files menu is opened. When nothing has been
       // edited since the last finalize of THIS patient, there is provably nothing to rebuild and
       // nothing new for the host to adopt — so say so and let it skip both.
-      var reply = function (changed) { postHost({ type: 'crm:finalized', token: m.token, changed: changed !== false }); };
+      var reply = function (changed, error) {
+        postHost({ type: 'crm:finalized', token: m.token, changed: changed !== false, error: error || '' });
+      };
       if (syncArmed && !dirty && finalizedKey && finalizedKey === slotKey()) { reply(false); return; }
       (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve()))
-        .then(function () { reply(true); }, function () { reply(true); });
+        .then(function () { reply(true); }, function (e) { reply(false, (e && e.message) || 'Could not rebuild the generated PDF'); });
     });
   }
   // the store reports autosave / unsaved / errors through the USB-sync indicator
@@ -3525,10 +3539,16 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   // changed. Returns a promise that resolves once the shared copy is flushed.
   function finalizeReports() {
     if (!syncArmed || !slotRoot || !slotDate || !slotName) return (WS && WS.flush) ? WS.flush() : Promise.resolve();
-    return WS.slotDir(slotRoot, slotDate, slotName, true).then(function (dir) {
+    // The embedded panel can become usable before the idle-time jsPDF preload finishes. Join that
+    // load before rebuilding, or JSON/TXT could be marked current while a bad report.pdf survives.
+    var builderReady = window.ensureReportPdfBuilder ? window.ensureReportPdfBuilder() : Promise.resolve();
+    return builderReady.then(function () { return WS.slotDir(slotRoot, slotDate, slotName, true); }).then(function (dir) {
       var jobs = [WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2))];
       if (typeof buildSummaryLines === 'function') jobs.push(WS.writeFile(dir, 'report.txt', buildSummaryLines().join('\n')));
-      if (typeof buildReportPdfBlob === 'function') { var pdf = buildReportPdfBlob(); if (pdf) jobs.push(WS.writeFile(dir, 'report.pdf', pdf)); }
+      if (typeof buildReportPdfBlob !== 'function') throw new Error('PDF generator is unavailable');
+      var pdf = buildReportPdfBlob();
+      if (!pdf) throw new Error('PDF generator is unavailable');
+      jobs.push(WS.writeFile(dir, 'report.pdf', pdf));
       return Promise.all(jobs);
     }).then(function () {
       dirty = false;
@@ -3539,7 +3559,10 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       cadence.cancel();
       setSync('Report saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       return WS.flush ? WS.flush() : null;
-    }).catch(function (e) { setSync('Sync failed — reconnect', true); });
+    }).catch(function (e) {
+      setSync('Report save failed: ' + ((e && e.message) || 'unknown error'), true);
+      throw e;
+    });
   }
   // The form's own autosave timer drives the staging now (see doSave), so this listener only has
   // to notice that something changed — the leave hook uses `dirty` to decide whether a full report
@@ -4051,7 +4074,8 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
     m.appendChild(headerEl(slotLabel || slotName));
     var holder = document.createElement('div');
     m.appendChild(holder);
-    WS.slotDir(slotRoot, slotDate, slotName, false)
+    var builderReady = window.ensureReportPdfBuilder ? window.ensureReportPdfBuilder() : Promise.resolve();
+    builderReady.then(function () { return WS.slotDir(slotRoot, slotDate, slotName, false); })
       .then(function (dir) { return WS.listFiles(dir); })
       .catch(function () { return []; })
       .then(function (files) {
@@ -4105,7 +4129,8 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   };
   function saveAll() {
     toast('Saving to USB…', '');
-    WS.slotDir(slotRoot, slotDate, slotName, true).then(function (dir) {
+    var builderReady = window.ensureReportPdfBuilder ? window.ensureReportPdfBuilder() : Promise.resolve();
+    builderReady.then(function () { return WS.slotDir(slotRoot, slotDate, slotName, true); }).then(function (dir) {
       var jobs = [
         WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2)),
         WS.writeFile(dir, 'report.txt', buildSummaryLines().join('\n'))

@@ -1721,14 +1721,18 @@
   // reason navigateToReportGenerator is: a frame that never answers must not strand the click.
   // The bound is generous because the first PDF of a session also pays for loading jsPDF, and
   // this is the wait that decides whether the files the schedule then reads are the current ones.
-  // `after(changed)` — false means the frame had nothing to rebuild, so there is also nothing new
-  // for us to adopt. Anything else (including the timeout, which knows nothing) assumes changed.
+  // `after(changed, error)` — false means the frame had nothing to rebuild. A timeout is an error,
+  // so file opening stops instead of handing stale or incomplete bytes to the PDF viewer.
   function finalizePanel(after) {
     if (!panel || !panel.ready) { after(true); return; }
     var token = "f" + (++panelSeq), done = false;
-    var fire = function (changed) { if (done) return; done = true; delete panelPending[token]; after(changed !== false); };
+    var fire = function (changed, error) {
+      if (done) return;
+      done = true; delete panelPending[token];
+      after(changed !== false, error || '');
+    };
     panelPending[token] = fire;
-    setTimeout(fire, 6000);
+    setTimeout(function () { fire(false, 'Report generation timed out'); }, 6000);
     try { panel.frame.contentWindow.postMessage({ type: "crm:finalize", token: token }, location.origin); }
     catch (e) { fire(); }
   }
@@ -1751,7 +1755,8 @@
   function withPanelFilesFresh(slot, after) {
     if (!panel || panel.date !== curDate || panel.slot !== slot) { after(); return; }
     setWsStatus("Updating this patient's report…");
-    finalizePanel(function (changed) {
+    finalizePanel(function (changed, error) {
+      if (error) { setWsStatus('Could not rebuild this report: ' + error, 'warn'); return; }
       // Nothing was rebuilt, so our copy is already whatever the frame has — skip the re-ingest.
       // This is what makes opening the Files menu twice in a row cost nothing the second time.
       if (!changed) { setWsStatus("Report up to date", "ok"); after(); return; }
@@ -1778,7 +1783,8 @@
     if (!panel) { if (after) after(); return; }
     // Adopt before scanSlots, or the badge would be drawn from a copy that predates the report
     // the frame just wrote — the row would read "No files" the instant after it was finished.
-    finalizePanel(function (changed) {
+    finalizePanel(function (changed, error) {
+      if (error) setWsStatus('Could not rebuild this report: ' + error, 'warn');
       var sharedWorkspace = !!(panel && panel.sharedWorkspace);
       destroyPanel();
       if (!changed) { scanSlots(); if (after) after(); return; }
@@ -2007,7 +2013,7 @@
       if (el) { el.textContent = m.text || ""; el.className = "crm-panel-sync" + (m.warn ? " warn" : ""); }
       return;
     }
-    if (m.type === "crm:finalized") { var cb = panelPending[m.token]; if (cb) cb(m.changed); return; }
+    if (m.type === "crm:finalized") { var cb = panelPending[m.token]; if (cb) cb(m.changed, m.error); return; }
     // The frame's own exit path already finalized before sending this — don't make it do it twice.
     if (m.type === "crm:collapse") { destroyPanel(); scanSlots(); return; }
   });
