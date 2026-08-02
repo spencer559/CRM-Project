@@ -89,6 +89,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .json-dd-item.json-dd-sub { display: flex; align-items: center; gap: 7px; }
 .json-dd-sub .sub-caret { color: #99a; font-size: 8px; flex: none; }
 .json-dd-sub[aria-expanded="true"] { background: var(--navy-lt); color: var(--navy); }
+.json-dd-item.json-dd-back { color: var(--navy); font-weight: 700; border-bottom: 1px solid var(--border); }
 /* Discards the current patient — coloured like the button it replaced, so it doesn't read as
    just another neutral row next to "Clear Fields". */
 .json-dd-item.json-dd-danger { color: #b03030; }
@@ -280,6 +281,16 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
    script) and the button itself goes. The app-shell layout needs no change — its fixed app-bar
    and sidebar resolve against the FRAME's viewport, which is the panel. */
 .embedded .btn-schedule { display: none; }
+/* A split-view frame is wide enough for the form but not for a desktop menu plus a side flyout.
+   The script turns Export/Import into drill-in panels below 1200px; give those panels a bounded,
+   scrollable footprint so long patient-file lists stay inside the iframe. */
+@media (max-width: 1199px) {
+  .embedded #main-dropdown .sub-caret { transform: rotate(180deg); }
+  .embedded #export-dropdown, .embedded #import-dropdown {
+    min-width: 0 !important; width: min(240px, calc(100vw - 16px));
+    max-height: calc(100vh - 60px); overflow-y: auto;
+  }
+}
 </style>
 <script>
 /* Set before first paint so the embedded chrome above applies without a flash of the full page.
@@ -2266,6 +2277,34 @@ function openSubMenu(e, id, build) {
   parent.querySelectorAll('.json-dd-sub[aria-expanded="true"]').forEach(function(b){ b.setAttribute('aria-expanded', 'false'); });
   if (build) build();
   var pr = parent.getBoundingClientRect(), ir = item.getBoundingClientRect();
+  var oldBack = dd.querySelector('[data-submenu-back]');
+  if (oldBack) oldBack.parentNode.removeChild(oldBack);
+  // Inside a narrow embedded frame, a side flyout either overlaps the parent or gets clamped
+  // against the iframe edge. Drill into the submenu in the parent's footprint instead, with an
+  // explicit way back. The full-page generator keeps its faster desktop flyout behavior.
+  var compact = window.CRM_EMBED === true && document.documentElement.clientWidth < 1200;
+  if (compact) {
+    var back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'json-dd-item json-dd-back';
+    back.setAttribute('data-submenu-back', '');
+    back.innerHTML = '<span aria-hidden="true">&#9666;</span> Main menu';
+    back.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      dd.style.display = 'none';
+      parent.style.display = 'block';
+      item.setAttribute('aria-expanded', 'false');
+    });
+    dd.insertBefore(back, dd.firstChild);
+    dd.style.left = '0px'; dd.style.right = 'auto'; dd.style.display = 'block';
+    var cvw = document.documentElement.clientWidth, cpad = 8, cw = dd.offsetWidth;
+    var cleft = Math.max(cpad, Math.min(pr.right - cw, cvw - cw - cpad));
+    dd.style.left = Math.round(cleft) + 'px';
+    dd.style.top = Math.round(Math.max(cpad, pr.top)) + 'px';
+    parent.style.display = 'none';
+    item.setAttribute('aria-expanded', 'true');
+    return;
+  }
   // Show before measuring (a display:none element has no size), then place it: out to the LEFT
   // of the parent menu — the ☰ hangs at the right edge of the bar, so leftward is where the room
   // is — top-aligned with the tapped row. When a narrow viewport leaves no room on the left
