@@ -38,12 +38,13 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
   display: flex; align-items: center; gap: 14px;
   box-shadow: 0 1px 5px rgba(0,0,0,.1);
 }
-.app-bar-title { font-family: Arial, Helvetica, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--navy); white-space: nowrap; }
-.divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
 .save-status { font-size: 10px; color: #999; white-space: nowrap; }
 .save-status.saved { color: var(--green); }
 .save-status.dirty { color: #c87000; }
 .app-bar-actions { margin-left: auto; display: flex; gap: 7px; align-items: center; }
+/* Icon-only trigger for the ☰ menu — square-ish so it reads as an icon, not a labelled button. */
+.app-menu-btn { padding: 5px 8px; }
+.app-menu-btn svg { display: block; }
 .btn { padding: 5px 12px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; border-radius: 3px; border: 1px solid var(--border); cursor: pointer; font-family: Arial, Helvetica, sans-serif; transition: background .1s, color .1s; display: flex; align-items: center; gap: 5px; }
 .btn-primary { background: var(--navy); color: #fff; border-color: var(--navy); }
 .btn-primary:hover { background: #162e4d; }
@@ -81,6 +82,10 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; }
 .json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
 .json-dd-item:active { background: var(--navy-lt); color: var(--navy); }
+/* Discards the current patient — coloured like the button it replaced, so it doesn't read as
+   just another neutral row next to "Clear Fields". */
+.json-dd-item.json-dd-danger { color: #b03030; }
+.json-dd-item.json-dd-danger:hover, .json-dd-item.json-dd-danger:active { background: #fdf0f0; color: #b03030; }
 /* Files ▸ rows: a fixed-width kind tag keeps the filenames aligned in a column. The grab cursor
    is the only affordance that these drag out to an upload target. */
 .json-dd-item.file-row { display: flex; align-items: baseline; gap: 8px; cursor: grab; }
@@ -235,7 +240,6 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   .field textarea { font-size: 16px; }
   /* app bar: tighter and horizontally scrollable so every action stays reachable */
   .app-bar { padding: 0 8px; gap: 8px; overflow-x: auto; }
-  .app-bar-title { font-size: 11px; }
   .app-bar .btn { padding: 5px 9px; font-size: 9.5px; flex-shrink: 0; }
   /* auto-fill panel flows inline at the top of the form (full width, not floated) */
   #pdf-drop-panel { position: static; width: auto; margin: 0 0 14px; box-shadow: none; }
@@ -264,14 +268,10 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 /* EMBEDDED — the Patient Schedule hosts this page in a same-origin iframe in an inline panel
    under a patient's row. The form, the slot routing and every .crmdb write are identical; only
-   the chrome differs. The host's panel header already names the patient and carries the collapse
-   and "Full page" controls, so the identity block here is duplication, and a "Schedule" button
-   would navigate the frame into the very page that owns it (goToSchedule posts a message to the
-   host instead — see the embed block in the slot script). The app-shell layout needs no change:
-   its fixed app-bar and sidebar resolve against the FRAME's viewport, which is the panel. */
-.embedded .app-bar > svg,
-.embedded .app-bar-title,
-.embedded .app-bar .divider,
+   the chrome differs: a "Schedule" button would navigate the frame into the very page that owns
+   it, so goToSchedule posts a message to the host instead (see the embed block in the slot
+   script) and the button itself goes. The app-shell layout needs no change — its fixed app-bar
+   and sidebar resolve against the FRAME's viewport, which is the panel. */
 .embedded .btn-schedule { display: none; }
 </style>
 <script>
@@ -289,23 +289,20 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- APP BAR -->
 <header class="app-bar">
-  <svg width="34" height="20" viewBox="0 0 36 22" fill="none" aria-hidden="true" style="flex-shrink:0">
-    <polyline points="0,11 5,11 7,5 9,17 11,3 13,19 15,11 20,11 21,8 22,14 23,11 36,11" stroke="#1e3a5f" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
-  </svg>
-  <div class="app-bar-title">CRM Interrogation — Digital Form</div>
-  <div class="divider"></div>
+  <!-- Who you are working on comes first, then how recently their work was saved. Everything that
+       ACTS on the form lives on the right: the per-patient Files menu, and one ☰ menu holding the
+       rest so the bar stays readable on the iPad. -->
+  <button class="btn btn-ghost" id="patient-btn" onclick="togglePatientMenu(event)">Patient List <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   <span class="save-status" id="save-status">No data saved</span>
   <div class="app-bar-actions">
     <button class="btn btn-ghost btn-schedule" onclick="goToSchedule()" title="Open the Patient Schedule (developer sign-in)">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Schedule
     </button>
-    <button class="btn btn-ghost" id="patient-btn" onclick="togglePatientMenu(event)">Patient List <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-    <button class="btn btn-ghost" onclick="clearFieldsKeepPatient()" title="Blank the form but keep the current patient selected — redo their report from scratch">Clear Fields</button>
-    <button class="btn btn-danger" onclick="clearForm()">New Patient</button>
-    <button class="btn btn-ghost" onclick="toggleImportMenu(event)">Import <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-    <button class="btn btn-primary" onclick="toggleExportMenu(event)">Export <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="btn btn-ghost" id="files-btn" onclick="toggleFilesMenu(event)" disabled title="This patient's saved files — open the programmer report while you fill in the rest">Files <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button class="btn btn-ghost app-menu-btn" id="menu-btn" onclick="toggleMainMenu(event)" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Export, import and form actions">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
   </div>
 </header>
 
@@ -314,6 +311,15 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 <div id="patient-dropdown" class="json-dd" style="display:none; min-width:240px; max-height:60vh; overflow:auto;" onclick="event.stopPropagation()"></div>
 <div id="import-dropdown" class="json-dd" style="display:none; min-width:240px;" onclick="event.stopPropagation()"></div>
 <div id="files-dropdown" class="json-dd" style="display:none; min-width:250px; max-height:60vh; overflow:auto;" onclick="event.stopPropagation()"></div>
+<!-- The ☰ menu. Export and Import open their own menus from here: toggleMenu closes whatever is
+     open before anchoring the next one to the item just clicked, so the submenu appears in place
+     of this one rather than on top of it. -->
+<div id="main-dropdown" class="json-dd" style="display:none; min-width:168px;" onclick="event.stopPropagation()" role="menu">
+  <button class="json-dd-item" role="menuitem" onclick="toggleExportMenu(event)">Export</button>
+  <button class="json-dd-item" role="menuitem" onclick="toggleImportMenu(event)">Import</button>
+  <button class="json-dd-item" role="menuitem" onclick="closeMenus(); clearFieldsKeepPatient();" title="Blank the form but keep the current patient selected — redo their report from scratch">Clear Fields</button>
+  <button class="json-dd-item json-dd-danger" role="menuitem" onclick="closeMenus(); clearForm();">New Patient</button>
+</div>
 <div id="export-dropdown" class="json-dd" style="display:none; min-width:200px;" onclick="event.stopPropagation()">
   <button class="json-dd-item" onclick="savePDF()">PDF (save file)</button>
   <button class="json-dd-item" onclick="exportSummary()">.txt</button>
@@ -2227,6 +2233,8 @@ function exportJSON() {
 // ── JSON menu (Import / Export) ──
 function closeMenus() {
   document.querySelectorAll('.json-dd').forEach(function(m){ m.style.display = 'none'; });
+  var mb = document.getElementById('menu-btn');
+  if (mb) mb.setAttribute('aria-expanded', 'false');
 }
 function toggleMenu(e, id) {
   e.stopPropagation();
@@ -2247,6 +2255,12 @@ function togglePatientMenu(e){ toggleMenu(e, 'patient-dropdown'); if (window.bui
 function toggleImportMenu(e){ toggleMenu(e, 'import-dropdown'); if (window.buildImportMenu) window.buildImportMenu(); }
 function toggleExportMenu(e){ toggleMenu(e, 'export-dropdown'); if (window.buildExportExtra) window.buildExportExtra(); }
 function toggleFilesMenu(e){ toggleMenu(e, 'files-dropdown'); if (window.buildFilesMenu) window.buildFilesMenu(); }
+// closeMenus (called by toggleMenu) has already cleared aria-expanded, so read the result back.
+function toggleMainMenu(e){
+  toggleMenu(e, 'main-dropdown');
+  var open = document.getElementById('main-dropdown').style.display === 'block';
+  e.currentTarget.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
 document.addEventListener('click', closeMenus);
 
 function importJSON() {
@@ -3312,7 +3326,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   function arm() {
     syncArmed = true;
     dirty = false;   // freshly opened patient — no unsaved report changes yet
-    setSync('USB sync ON' + (WS.usbOnly && WS.usbOnly() ? ' · USB-only' : ''));
+    setSync('Live sync on');
     updateFilesBtn();
     // USB-only: the slot's report.json is the recovery copy — drop the browser one
     if ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted())) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
@@ -3332,8 +3346,8 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   var cadence = CRMCadence.create({
     everyMs: 30000,
     commit: function () { return (WS && WS.flush) ? WS.flush() : Promise.resolve(); },
-    onCommitted: function () { setSync('USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); },
-    onError: function () { setSync('USB sync failed — reconnect', true); }
+    onCommitted: function () { setSync('Saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); },
+    onError: function () { setSync('Sync failed — reconnect', true); }
   });
   // Stage the form into the patient's slot. `json` is the snapshot doSave has already serialized —
   // passed in rather than re-collected, because the write below lands asynchronously and the form
@@ -3346,11 +3360,11 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       .then(function (dir) { return WS.writeFile(dir, 'report.json', json, { defer: true }); })
       .then(function () {
         cadence.stage();
-        // "Captured" (not "USB ✓") is the honest word here: the edit is in the working copy but
-        // hasn't been written out yet. The cadence upgrades it to USB ✓ once it has.
+        // "Captured" (not "Saved") is the honest word here: the edit is in the working copy but
+        // hasn't been written out yet. The cadence upgrades it to Saved once it has.
         setSync('Captured ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       })
-      .catch(function (e) { setSync('USB sync failed — reconnect', true); });
+      .catch(function (e) { setSync('Sync failed — reconnect', true); });
   }
   // Build the full report set (report.json + report.txt + report.pdf) from the current form and
   // write it into the patient's slot, so the Schedule always shows every front — JSON, TXT and
@@ -3371,9 +3385,9 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       // this flush publishes everything staged by the live sync too, so the cadence timer has
       // nothing left to do — cancel it rather than leaving a redundant commit armed.
       cadence.cancel();
-      setSync('Report saved · USB ✓ ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      setSync('Report saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       return WS.flush ? WS.flush() : null;
-    }).catch(function (e) { setSync('USB sync failed — reconnect', true); });
+    }).catch(function (e) { setSync('Sync failed — reconnect', true); });
   }
   // The form's own autosave timer drives the staging now (see doSave), so this listener only has
   // to notice that something changed — the leave hook uses `dirty` to decide whether a full report
@@ -3425,12 +3439,11 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       window.saveDraft = function () {
         if (syncArmed && slotRoot) {
           try { localStorage.removeItem('crm-digital'); } catch (e) {}
+          // The draft label has nothing left to say once a patient is live — the sync line beside
+          // it is already reporting this patient's last save, with a time on it. Two labels
+          // competing for the same fact is what made the bar hard to read.
           var el = document.getElementById('save-status');
-          if (el) {
-            el.textContent = ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted()))
-              ? 'USB-only' : 'Saved to patient';
-            el.className = 'save-status saved';
-          }
+          if (el) { el.textContent = ''; el.className = 'save-status'; }
           return;
         }
         return origSaveDraft.apply(this, arguments);
@@ -3651,7 +3664,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
             pdMenu.appendChild(item('USB-only mode: ' + (WS.usbOnly() ? 'ON' : 'OFF') + ' — click to toggle', function () {
               WS.setUsbOnly(!WS.usbOnly());
               if (WS.usbOnly()) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
-              if (syncArmed) setSync('USB sync ON' + (WS.usbOnly() ? ' · USB-only' : ''));
+              if (syncArmed) setSync('Live sync on');
               toast('USB-only mode ' + (WS.usbOnly() ? 'ON — no browser autosave while a patient is active' : 'OFF — browser autosave restored'), 'ok');
             }, true));
             pdMenu.appendChild(item('Disconnect workspace', doDisconnect, true));
@@ -3702,7 +3715,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       WS.slotDir(slotRoot, slotDate, slotName, true)
         .then(function (dir) { return WS.writeFile(dir, file.name, file); })
         .then(function () { return WS.flush ? WS.flush() : null; })
-        .then(function () { setSync('USB: copied ' + file.name + ' ✓'); })
+        .then(function () { setSync('Copied ' + file.name); })
         .catch(function (e) { toast('Could not copy ' + file.name + ' to the USB: ' + e.message, 'err'); });
     });
   })();
