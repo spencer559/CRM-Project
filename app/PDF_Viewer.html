@@ -224,6 +224,14 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     shells.forEach(function (s, n) { release(n + 1); });
     layout();
     goTo(page);
+    // Opening Contents changes the available width without moving the current page out of the
+    // observer's intersection area. Because its canvas was just released, no new observer event
+    // is guaranteed to redraw it. Explicitly warm the current page and its nearby snap targets
+    // after cancelled render tasks have settled.
+    requestAnimationFrame(function () {
+      var center = current;
+      for (var i = Math.max(1, center - 2); i <= Math.min(total, center + 2); i++) render(i);
+    });
   }
   var resizeTimer = null;
   window.addEventListener("resize", function () {

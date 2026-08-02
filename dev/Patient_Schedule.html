@@ -1818,14 +1818,16 @@
     populatePanelViewer(false);
     tr.querySelector("[data-panel-view]").addEventListener("change", function () { panelViewFile(this.value); });
     scanSlots();
-    // Once the new row has participated in layout, place its appointment at the top of the page.
-    // Scrolling the window directly (instead of scrollIntoView) leaves the table's horizontal
-    // position untouched for narrower workstation screens.
+    // Once the new row has participated in layout, place its appointment at the top of the
+    // schedule viewport. The body is intentionally locked; .main-scroll owns vertical scrolling.
+    // Moving that container directly also leaves .twrap's horizontal position untouched.
     requestAnimationFrame(function () {
       if (!panel || panel.tr !== tr || !apptTr.isConnected) return;
-      var top = Math.max(0, window.scrollY + apptTr.getBoundingClientRect().top);
+      var scroller = document.querySelector(".main-scroll");
+      if (!scroller) return;
+      var top = Math.max(0, scroller.scrollTop + apptTr.getBoundingClientRect().top - scroller.getBoundingClientRect().top);
       var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      window.scrollTo({ top: top, behavior: reduced ? "auto" : "smooth" });
+      scroller.scrollTo({ top: top, behavior: reduced ? "auto" : "smooth" });
     });
   }
 
