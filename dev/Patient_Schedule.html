@@ -1619,14 +1619,19 @@
     if (/\.pdf$/i.test(name) && !viewer) return;
     if (String(name).toLowerCase() === "report.pdf" && (!panel || panel.date !== curDate || panel.slot !== slot)) {
       setWsStatus("Rebuilding this patient's generated report…");
-      rebuildStoredGeneratedReport(slot, function (error) {
+      rebuildStoredGeneratedReport(slot, function (error, generatedPdf) {
         if (error) {
           failPdfViewer(viewer, "Could not rebuild report.pdf: " + error);
           setWsStatus("Could not rebuild report.pdf: " + error, "warn");
           return;
         }
-        setWsStatus("Generated report ready", "ok");
-        readPatientFile(slot, name, viewer);
+        validateGeneratedPdf(generatedPdf).then(function (validPdf) {
+          setWsStatus("Generated report ready", "ok");
+          completePdfViewer(viewer, validPdf);
+        }).catch(function (e) {
+          failPdfViewer(viewer, "Could not open report.pdf: " + e.message);
+          setWsStatus("Could not open report.pdf: " + e.message, "warn");
+        });
       });
       return;
     }
@@ -1814,13 +1819,13 @@
     frame.src = '../app/CRM_Report_Generator.html?embed=1#slot=' + encodeURIComponent(curDate) + '/' + encodeURIComponent(slot);
     var job = { frame: frame, slot: slot, token: token, sent: false, timer: null, finish: finish };
     reportBuild = job;
-    function finish(error) {
+    function finish(error, pdf) {
       if (done) return;
       done = true;
       clearTimeout(job.timer);
       if (reportBuild === job) reportBuild = null;
       if (frame.parentNode) frame.parentNode.removeChild(frame);
-      after(error || '');
+      after(error || '', pdf || null);
     }
     job.timer = setTimeout(function () { finish('Report generation timed out'); }, 10000);
     document.body.appendChild(frame);
@@ -2099,10 +2104,10 @@
       if (m.type === 'crm:slot-ready' && m.date === curDate && m.slot === reportBuild.slot && !reportBuild.sent) {
         reportBuild.sent = true;
         var rebuildOrigin = location.origin === 'null' ? '*' : location.origin;
-        try { reportBuild.frame.contentWindow.postMessage({ type: 'crm:finalize', token: reportBuild.token }, rebuildOrigin); }
+        try { reportBuild.frame.contentWindow.postMessage({ type: 'crm:finalize', token: reportBuild.token, includePdf: true }, rebuildOrigin); }
         catch (e) { reportBuild.finish(e.message || 'Could not start report generation'); }
       } else if (m.type === 'crm:finalized' && m.token === reportBuild.token) {
-        reportBuild.finish(m.error || '');
+        reportBuild.finish(m.error || '', m.pdf || null);
       }
       return;
     }

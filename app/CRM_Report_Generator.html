@@ -3475,12 +3475,12 @@ window.ensureReportPdfBuilder = function () {
       // database, and the host asks every time the Files menu is opened. When nothing has been
       // edited since the last finalize of THIS patient, there is provably nothing to rebuild and
       // nothing new for the host to adopt — so say so and let it skip both.
-      var reply = function (changed, error) {
-        postHost({ type: 'crm:finalized', token: m.token, changed: changed !== false, error: error || '' });
+      var reply = function (changed, error, pdf) {
+        postHost({ type: 'crm:finalized', token: m.token, changed: changed !== false, error: error || '', pdf: pdf || null });
       };
       if (syncArmed && !dirty && finalizedKey && finalizedKey === slotKey()) { reply(false); return; }
       (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve()))
-        .then(function () { reply(true); }, function (e) { reply(false, (e && e.message) || 'Could not rebuild the generated PDF'); });
+        .then(function (pdf) { reply(true, '', m.includePdf ? pdf : null); }, function (e) { reply(false, (e && e.message) || 'Could not rebuild the generated PDF'); });
     });
   }
   // the store reports autosave / unsaved / errors through the USB-sync indicator
@@ -3542,6 +3542,7 @@ window.ensureReportPdfBuilder = function () {
     if (!syncArmed || !slotRoot || !slotDate || !slotName) return (WS && WS.flush) ? WS.flush() : Promise.resolve();
     // The embedded panel can become usable before the idle-time jsPDF preload finishes. Join that
     // load before rebuilding, or JSON/TXT could be marked current while a bad report.pdf survives.
+    var finalizedPdf = null;
     var builderReady = window.ensureReportPdfBuilder ? window.ensureReportPdfBuilder() : Promise.resolve();
     return builderReady.then(function () { return WS.slotDir(slotRoot, slotDate, slotName, true); }).then(function (dir) {
       var jobs = [WS.writeFile(dir, 'report.json', JSON.stringify(collectFormData(), null, 2))];
@@ -3549,6 +3550,7 @@ window.ensureReportPdfBuilder = function () {
       if (typeof buildReportPdfBlob !== 'function') throw new Error('PDF generator is unavailable');
       var pdf = buildReportPdfBlob();
       if (!pdf) throw new Error('PDF generator is unavailable');
+      finalizedPdf = pdf;
       jobs.push(WS.writeFile(dir, 'report.pdf', pdf));
       return Promise.all(jobs);
     }).then(function () {
@@ -3559,7 +3561,8 @@ window.ensureReportPdfBuilder = function () {
       // nothing left to do — cancel it rather than leaving a redundant commit armed.
       cadence.cancel();
       setSync('Report saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-      return WS.flush ? WS.flush() : null;
+      var flushed = WS.flush ? WS.flush() : Promise.resolve();
+      return Promise.resolve(flushed).then(function () { return finalizedPdf; });
     }).catch(function (e) {
       setSync('Report save failed: ' + ((e && e.message) || 'unknown error'), true);
       throw e;
