@@ -1590,11 +1590,40 @@
       .then(function (dir) { return dir.getFileHandle(name); })
       .then(function (fh) { return fh.getFile(); })
       .then(function (file) {
+        // PDFs go to the page-snapping in-app viewer (one wheel flick = one page, fit to the
+        // window); everything else keeps the plain browser tab.
+        if (/\.pdf$/i.test(name)) { openPdfInViewer(file, name, "../app/PDF_Viewer.html"); return; }
         var url = URL.createObjectURL(file);
         window.open(url, "_blank");
         setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
       })
       .catch(function (e) { setWsStatus("Could not open " + name + ": " + e.message, "warn"); });
+  }
+
+  /* ---------- in-app PDF viewer handoff --------------------------------------------------
+     The viewer opens as its own TAB (the schedule/panel keeps the screen), but its CSP —
+     connect-src 'none', like every page here — means it cannot fetch a blob URL. So the bytes
+     travel by postMessage instead: this page holds the File under a one-shot id, the viewer
+     announces itself with that id, and the reply transfers the ArrayBuffer (zero-copy). The
+     File stays in the map so a refreshed viewer tab can ask again while this page lives. */
+  var pdfViewerDocs = {};
+  window.addEventListener("message", function (ev) {
+    if (ev.origin !== location.origin) return;
+    var m = ev.data || {};
+    if (m.type !== "pdfviewer:ready" || !pdfViewerDocs[m.id] || !ev.source) return;
+    var src = ev.source;
+    pdfViewerDocs[m.id].arrayBuffer().then(function (buf) {
+      try { src.postMessage({ type: "pdfviewer:doc", id: m.id, buf: buf }, location.origin, [buf]); } catch (e) {}
+    });
+  });
+  function openPdfInViewer(file, name, viewerPath) {
+    var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    pdfViewerDocs[id] = file;
+    var w = window.open(viewerPath + "#id=" + id + "&name=" + encodeURIComponent(name), "_blank");
+    if (!w) {
+      delete pdfViewerDocs[id];
+      setWsStatus("Your browser blocked the viewer tab for " + name + " — allow pop-ups for this page.", "warn");
+    }
   }
   /* ---------- inline CRM report panel ----------------------------------------------------
      "Open" expands the Report Generator under the patient's row instead of navigating to it, so

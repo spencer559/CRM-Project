@@ -3876,8 +3876,33 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   // runs on iPad). The File is resolved up front in buildFilesMenu so this can be.
   // getFile() re-assigns the MIME by extension, so a PDF renders inline in the browser's viewer
   // instead of downloading — which is the point: read the programmer report while filling the form.
+  /* In-app PDF viewer handoff — same shape as the Schedule's. The viewer tab's CSP can't fetch
+     a blob URL (connect-src 'none'), so it announces itself by id and the bytes go over by
+     postMessage as a transferred ArrayBuffer. The File stays mapped so a refreshed viewer tab
+     can re-ask while this page lives. */
+  var pdfViewerDocs = {};
+  window.addEventListener('message', function (ev) {
+    if (ev.origin !== location.origin) return;
+    var m = ev.data || {};
+    if (m.type !== 'pdfviewer:ready' || !pdfViewerDocs[m.id] || !ev.source) return;
+    var src = ev.source;
+    pdfViewerDocs[m.id].arrayBuffer().then(function (buf) {
+      try { src.postMessage({ type: 'pdfviewer:doc', id: m.id, buf: buf }, location.origin, [buf]); } catch (e) {}
+    });
+  });
+  function openPdfInViewer(file, name) {
+    var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    pdfViewerDocs[id] = file;
+    var w = window.open('PDF_Viewer.html#id=' + id + '&name=' + encodeURIComponent(name), '_blank');
+    if (!w) { delete pdfViewerDocs[id]; toast('Your browser blocked the viewer tab for ' + name + ' — allow pop-ups for this page.', 'err'); }
+    return w;
+  }
+  window.openPdfInViewer = openPdfInViewer;   // public: any block with a PDF Blob can use the snap viewer
   function openStoredFile(file, name) {
     name = name || file.name;
+    // PDFs go to the page-snapping in-app viewer (one wheel flick = one page, fit to the
+    // window); everything else keeps the plain browser tab.
+    if (/\.pdf$/i.test(name)) return !!openPdfInViewer(file, name);
     var url = URL.createObjectURL(file);
     var w = window.open(url, '_blank');
     if (!w) toast('Your browser blocked the new tab for ' + name + ' — allow pop-ups for this page.', 'err');

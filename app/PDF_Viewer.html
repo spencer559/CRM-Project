@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- Same PHI stance as the rest of the app: connect-src 'none' means nothing on this page can
+     reach a network. The document arrives by postMessage from the page that opened this tab
+     (window-to-window messaging is not a CSP fetch), and pdf.js runs entirely on the vendored
+     files beside this page. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF</title>
+<style>
+/* One job: read a programmer report one page at a time. Every page is scaled to fit the window
+   and the scroller snaps per page, so a wheel flick always lands flush on the next page — the
+   thing Chrome's own viewer can't do outside Presentation mode. */
+:root { --bar: 38px; --bg: #23272e; --bar-bg: #16191d; --text: #dfe5ec; --muted: #8b949e; --border: #3a4048; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--text); font: 12px/1.4 "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+.bar { position: fixed; top: 0; left: 0; right: 0; height: var(--bar); z-index: 10;
+       display: flex; align-items: center; gap: 10px; padding: 0 10px;
+       background: var(--bar-bg); border-bottom: 1px solid var(--border); }
+.bar .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.bar .pager { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar .spacer { margin-left: auto; }
+.bar button { flex: none; background: #262b33; color: var(--text); border: 1px solid var(--border);
+              border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+.bar button:hover { border-color: #58a6ff; }
+#pages { position: fixed; inset: var(--bar) 0 0 0; overflow-y: auto;
+         scroll-snap-type: y mandatory; }
+.page { display: flex; align-items: center; justify-content: center;
+        scroll-snap-align: start; scroll-snap-stop: always; }
+.page canvas { background: #fff; box-shadow: 0 3px 18px rgba(0,0,0,.5); }
+#status { position: fixed; inset: var(--bar) 0 0 0; display: flex; align-items: center;
+          justify-content: center; text-align: center; color: var(--muted); font-size: 13px;
+          padding: 20px; white-space: pre-line; }
+#status[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="name" id="name">PDF</span>
+  <span class="pager" id="pager"></span>
+  <span class="spacer"></span>
+  <button type="button" id="chromeBtn" title="Open this PDF in Chrome's own viewer (continuous scrolling)" hidden>Chrome viewer</button>
+  <button type="button" id="downloadBtn" hidden>Download</button>
+  <button type="button" onclick="window.close()" title="Close (Esc)">&#10005;</button>
+</div>
+<div id="pages"></div>
+<div id="status">Waiting for the document&hellip;</div>
+
+<script src="../vendor/pdf.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var scroller = $("pages"), statusEl = $("status");
+
+  // #id=…&name=… — id pairs this tab with the File the opener is holding for it; name is only
+  // cosmetic (title + download name) so it rides the hash rather than another message.
+  var params = {};
+  (location.hash || "").replace(/^#/, "").split("&").forEach(function (kv) {
+    var i = kv.indexOf("=");
+    if (i > 0) params[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1));
+  });
+  var docName = params.name || "PDF";
+  document.title = docName;
+  $("name").textContent = docName;
+
+  function showStatus(msg) { statusEl.textContent = msg; statusEl.hidden = false; }
+
+  if (typeof pdfjsLib === "undefined") {
+    showStatus("The PDF renderer did not load (vendor/pdf.min.js is missing beside this page).");
+    return;
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "../vendor/pdf.worker.min.js";
+
+  var doc = null, total = 0, current = 1;
+  var shells = [];           // one per page: { el, canvas, rendered, task }
+  var pageH = 0, pageW = 0;
+
+  /* ---- receiving the document -----------------------------------------------------------
+     The opener holds the File under our id and answers our "ready" with the bytes as a
+     transferred ArrayBuffer. If this tab was refreshed (opener map gone) or opened directly,
+     the timeout below explains how to get back. */
+  window.addEventListener("message", function (ev) {
+    if (ev.origin !== location.origin) return;
+    var m = ev.data || {};
+    if (m.type !== "pdfviewer:doc" || m.id !== params.id || !m.buf) return;
+    clearTimeout(waitTimer);
+    open(m.buf);
+  });
+  var waitTimer = setTimeout(function () {
+    showStatus("No document arrived.\nReopen this file from the Schedule's Files menu or the Report Generator.");
+  }, 5000);
+  try {
+    if (window.opener && params.id) window.opener.postMessage({ type: "pdfviewer:ready", id: params.id }, location.origin);
+    else showStatus("This viewer shows PDFs opened from the Schedule or the Report Generator.\nOpen one from a patient's Files menu.");
+  } catch (e) { /* opener gone — the timeout message covers it */ }
+
+  function open(buf) {
+    // isEvalSupported false: this page's CSP has no 'unsafe-eval', and pdf.js is happy without it.
+    pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise.then(function (d) {
+      doc = d; total = d.numPages;
+      statusEl.hidden = true;
+      $("chromeBtn").hidden = $("downloadBtn").hidden = false;
+      buildShells();
+      layout();
+      updatePager();
+    }).catch(function (e) {
+      showStatus("Could not open " + docName + ": " + e.message);
+    });
+  }
+
+  /* ---- layout & virtualised rendering ---------------------------------------------------
+     Every page wrapper is exactly one scroller-viewport tall — that is what makes mandatory
+     snap read as "one flick, one page". Canvases only exist near the viewport: a programmer
+     report can run past a hundred pages, and keeping every rendered canvas alive would cost
+     several megabytes each. The observer renders what approaches and releases what leaves. */
+  var io = null;
+  function buildShells() {
+    scroller.innerHTML = ""; shells = [];
+    if (io) io.disconnect();
+    io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        var i = +en.target.dataset.i;
+        if (en.isIntersecting) render(i); else release(i);
+      });
+    }, { root: scroller, rootMargin: "150% 0px" });
+    for (var i = 1; i <= total; i++) {
+      var el = document.createElement("div");
+      el.className = "page"; el.dataset.i = i;
+      var canvas = document.createElement("canvas");
+      canvas.width = 0; canvas.height = 0;   // a default canvas is 300x150 — 120 pages of that is real memory
+      el.appendChild(canvas);
+      scroller.appendChild(el);
+      shells.push({ el: el, canvas: canvas, rendered: false, task: null });
+      io.observe(el);
+    }
+  }
+  function layout() {
+    pageH = scroller.clientHeight; pageW = scroller.clientWidth;
+    shells.forEach(function (s) { s.el.style.height = pageH + "px"; });
+  }
+  function render(i) {
+    var s = shells[i - 1];
+    if (!s || s.rendered || s.task || !doc) return;
+    s.task = true;                                   // claimed before the first await
+    doc.getPage(i).then(function (page) {
+      var v1 = page.getViewport({ scale: 1 });
+      // Fit the whole page inside the viewport with a small breathing margin.
+      var scale = Math.min((pageW - 20) / v1.width, (pageH - 16) / v1.height);
+      var vp = page.getViewport({ scale: scale });
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      s.canvas.width = Math.floor(vp.width * dpr);
+      s.canvas.height = Math.floor(vp.height * dpr);
+      s.canvas.style.width = Math.floor(vp.width) + "px";
+      s.canvas.style.height = Math.floor(vp.height) + "px";
+      var task = page.render({ canvasContext: s.canvas.getContext("2d"), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+      s.task = task;
+      return task.promise.then(function () {
+        s.rendered = true; s.task = null;
+        page.cleanup();                              // parsed page content; the canvas keeps the pixels
+      });
+    }).catch(function () { s.task = null; });        // cancelled by a release/resize — it'll re-enter
+  }
+  function release(i) {
+    var s = shells[i - 1];
+    if (!s) return;
+    if (s.task && s.task.cancel) { try { s.task.cancel(); } catch (e) {} }
+    s.task = null;
+    if (s.rendered) { s.canvas.width = 0; s.canvas.height = 0; s.rendered = false; }
+  }
+
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      var page = current;
+      shells.forEach(function (s, n) { release(n + 1); });
+      layout();
+      goTo(page);                                    // keep the page you were on, at the new fit
+    }, 150);
+  });
+
+  /* ---- paging ---- */
+  function updatePager() {
+    current = Math.min(total, Math.max(1, Math.round(scroller.scrollTop / (pageH || 1)) + 1));
+    $("pager").textContent = total ? current + " / " + total : "";
+  }
+  scroller.addEventListener("scroll", updatePager);
+  function goTo(p) {
+    p = Math.min(total, Math.max(1, p));
+    scroller.scrollTop = (p - 1) * pageH;
+    updatePager();
+  }
+  window.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") { window.close(); return; }
+    if (!doc) return;
+    var next = { "PageDown": 1, "ArrowDown": 1, "ArrowRight": 1, " ": 1, "PageUp": -1, "ArrowUp": -1, "ArrowLeft": -1 }[ev.key];
+    if (ev.key === " " && ev.shiftKey) next = -1;
+    if (ev.key === "Home") { ev.preventDefault(); goTo(1); return; }
+    if (ev.key === "End") { ev.preventDefault(); goTo(total); return; }
+    if (!next) return;
+    ev.preventDefault();
+    goTo(current + next);
+  });
+
+  /* ---- escape hatches ---- */
+  // pdf.js keeps the original bytes; getData() hands them back so neither button needs a second
+  // copy of the document held around just in case.
+  $("chromeBtn").addEventListener("click", function () {
+    if (!doc) return;
+    doc.getData().then(function (bytes) {
+      var url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      window.open(url + "#view=Fit", "_blank");
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    });
+  });
+  $("downloadBtn").addEventListener("click", function () {
+    if (!doc) return;
+    doc.getData().then(function (bytes) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      a.download = docName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    });
+  });
+
+  // The lesson from the importer applies here too: a pdf.js document holds every parsed page
+  // (and the worker holds a copy) until it is destroyed.
+  window.addEventListener("pagehide", function () { if (doc) { try { doc.destroy(); } catch (e) {} doc = null; } });
+})();
+</script>
+</body>
+</html>
