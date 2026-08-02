@@ -135,16 +135,22 @@ async function run() {
   /* 2. A save already in flight must not hold up the next handoff. */
   {
     const { h, seed } = await station(150);
+    const writesBefore = h.writes;
     await writeSched(seed, { v: "FIRST" });
-    seed.flush();                              // deliberately not awaited: still writing the file
+    await seed.flush();
+    await new Promise((r) => setTimeout(r, 5)); // let the slow file write become the active one
 
     await writeSched(seed, { v: "SECOND" });
     const t = Date.now();
     await seed.flush();
+    await writeSched(seed, { v: "THIRD" });
+    await seed.flush();
     const flushMs = Date.now() - t;
     assert.ok(flushMs < 100, "a handoff queued behind an in-flight file write (took " + flushMs + "ms)");
-    assert.strictEqual((await schedOfBundle()).v, "SECOND");
+    assert.strictEqual((await schedOfBundle()).v, "THIRD");
     await seed._fileIdle();
+    assert.strictEqual(h.writes, writesBefore + 2,
+      "slow storage should write the active snapshot and only the newest pending snapshot");
   }
 
   /* 3. The file still catches up: a page that verifies itself finishes a write the previous page

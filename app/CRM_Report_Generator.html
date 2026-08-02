@@ -3008,6 +3008,10 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       if (offerFrom) keep += (keep ? '<br>' : '') + vendorPicker('Not ' + offerFrom + '?', offerFrom);
       if (keep) msg += '<br>' + keep;
       setStatus(msg, 'ok', keep);
+      // A confident parse exposes no vendor-override controls, so the extracted page/item graph can
+      // be released immediately. Ambiguous and failed detections retain it only while re-parse is
+      // still an action the user can take.
+      if (!offerFrom) LAST_PDF = null;
     } catch(e){
       console.error(e);
       setStatus('Could not parse as <b>'+ vendor +'</b>: '+ e.message
@@ -3121,6 +3125,30 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   // Hosted in the Schedule's inline panel (?embed=1). Resolved in <head> so the chrome rules
   // land before first paint; re-read here rather than re-tested so both agree on one answer.
   var EMBED = window.CRM_EMBED === true;
+  var HOST_WORKSPACE = !!(EMBED && window.CRMWorkspaceUsesHost && WS);
+  var previousWsCallbacks = HOST_WORKSPACE ? {
+    onStatus: WS.onStatus, onPasswordRequest: WS.onPasswordRequest, onConflict: WS.onConflict
+  } : null;
+  var installedWsCallbacks = {};
+  function installWorkspaceCallback(name, fn, includePrevious) {
+    if (!WS) return;
+    var previous = previousWsCallbacks && previousWsCallbacks[name];
+    var installed = includePrevious && typeof previous === 'function' ? function () {
+      try { previous.apply(null, arguments); } catch (e) {}
+      return fn.apply(null, arguments);
+    } : fn;
+    installedWsCallbacks[name] = installed;
+    WS[name] = installed;
+  }
+  function workspaceRoot() {
+    if (HOST_WORKSPACE && WS.currentRoot) return Promise.resolve(WS.currentRoot());
+    return WS.stored();
+  }
+  if (HOST_WORKSPACE) window.addEventListener('pagehide', function () {
+    Object.keys(installedWsCallbacks).forEach(function (name) {
+      if (WS[name] === installedWsCallbacks[name]) WS[name] = previousWsCallbacks[name] || null;
+    });
+  });
   var slotDate = null, slotName = null, slotLabel = "", slotRoot = null;
   var syncArmed = false;
   var dirty = false;   // edits since the last full report build (json+txt+pdf)
@@ -3141,7 +3169,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   var pendingPasswordResolve = null;
   var CARET = ' <svg width="8" height="8" viewBox="0 0 10 10" fill="none" style="margin-left:1px"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-  if (WS) WS.onPasswordRequest = function (details) {
+  if (WS) installWorkspaceCallback('onPasswordRequest', function (details) {
     if (!parseHash()) return window.prompt((details && details.message) || 'Database password:');
     return new Promise(function (resolve) {
       pendingPasswordResolve = resolve;
@@ -3152,11 +3180,11 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       if (dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = details && details.retry ? 'Try again' : 'Unlock database'; }
       setTimeout(function () { if (dbPasswordInput) dbPasswordInput.focus(); }, 0);
     });
-  };
+  }, false);
 
   // Reconnect conflict: the shared database file changed on another device AND this browser holds
   // unsaved edits. Same three-way choice as the Schedule page — never guess which copy wins.
-  if (WS) WS.onConflict = function (details) {
+  if (WS) installWorkspaceCallback('onConflict', function (details) {
     return new Promise(function (resolve) {
       var name = (details && details.fileName) || 'the database';
       var when = '';
@@ -3182,7 +3210,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       back.appendChild(box);
       document.body.appendChild(back);
     });
-  };
+  }, false);
 
   function escT(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function item(label, fn, dim) {
@@ -3298,7 +3326,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       return;
     }
     if (dbUnlockBtn) { dbUnlockBtn.disabled = true; dbUnlockBtn.textContent = 'Unlocking…'; }
-    WS.stored().then(function (root) { return activateHandoffRoot(root, true); }).then(function (ok) {
+    workspaceRoot().then(function (root) { return activateHandoffRoot(root, true); }).then(function (ok) {
       if (!ok && dbUnlockBtn) { dbUnlockBtn.disabled = false; dbUnlockBtn.textContent = 'Try unlock again'; }
     }).catch(function (e) {
       showDatabaseGuard('The patient database could not be unlocked: ' + ((e && e.message) || 'Unknown error'));
@@ -3442,7 +3470,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
     });
   }
   // the store reports autosave / unsaved / errors through the USB-sync indicator
-  if (WS) WS.onStatus = function (msg, cls) { setSync(msg, cls === 'warn'); updateFilesBtn(); };
+  if (WS) installWorkspaceCallback('onStatus', function (msg, cls) { setSync(msg, cls === 'warn'); updateFilesBtn(); }, true);
 
   /* ---- live sync core ---- */
   function arm() {
@@ -3738,7 +3766,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
     pdMenu.innerHTML = '';
     if (!supported) { pdMenu.appendChild(noteEl('USB workspace needs Chrome or Edge on desktop.')); return; }
     pdMenu.appendChild(noteEl('Loading…'));
-    WS.stored().then(function (root) {
+    workspaceRoot().then(function (root) {
       pdMenu.innerHTML = '';
       if (!root) {
         pdMenu.appendChild(item('Open database…', connectFlow));
@@ -3920,14 +3948,17 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
      postMessage as a transferred ArrayBuffer. The File stays mapped so a refreshed viewer tab
      can re-ask while this page lives. */
   var pdfViewerDocs = {};
+  var pdfViewerSends = {};
   window.addEventListener('message', function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
     if (m.type !== 'pdfviewer:ready' || !pdfViewerDocs[m.id] || !ev.source) return;
-    var src = ev.source;
+    var src = ev.source, sendKey = m.id + ':' + (m.instance || 'legacy');
+    if (pdfViewerSends[sendKey]) return;
+    pdfViewerSends[sendKey] = true;
     pdfViewerDocs[m.id].arrayBuffer().then(function (buf) {
       try { src.postMessage({ type: 'pdfviewer:doc', id: m.id, buf: buf }, location.origin, [buf]); } catch (e) {}
-    });
+    }).catch(function () { delete pdfViewerSends[sendKey]; });
   });
   function openPdfInViewer(file, name) {
     var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -4098,7 +4129,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
     if (h) openSlot(h.date, h.slot, '', allowReset);
   }
   if (supported) {
-    WS.stored().then(function (root) {
+    workspaceRoot().then(function (root) {
       if (!root) { updateFilesBtn(); showDatabaseGuard(handoffFailureMessage()); return; }
       return activateHandoffRoot(root, false);
     }).catch(function (e) { showDatabaseGuard('The patient database could not be opened: ' + ((e && e.message) || 'Unknown error')); });
@@ -4110,10 +4141,10 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   }
   setPatientBtn();
   updateFilesBtn();
-  // The frame is alive and listening. The slot itself loads asynchronously (WS.stored above) and
+  // The frame is alive and listening. The slot itself loads asynchronously (workspaceRoot above) and
   // reports itself through crm:status, so the host enables its header controls on this and lets
   // the status line fill in when the patient lands.
-  postHost({ type: 'crm:ready' });
+  postHost({ type: 'crm:ready', sharedWorkspace: HOST_WORKSPACE });
 })();
 </script>
 </body>

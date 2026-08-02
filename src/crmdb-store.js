@@ -23,6 +23,17 @@
 (function () {
   "use strict";
 
+  // The inline Report Generator is a same-origin child of the Schedule. Reuse the host's live
+  // workspace instead of ingesting a second complete database bundle into the iframe. Standalone
+  // pages and cross-origin/locked-down embeds keep the independent-store path unchanged.
+  try {
+    if (typeof window !== "undefined" && window.CRM_EMBED === true && window.parent !== window && window.parent.CRMWorkspace) {
+      window.CRMWorkspace = window.parent.CRMWorkspace;
+      window.CRMWorkspaceUsesHost = true;
+      return;
+    }
+  } catch (e) {}
+
   var FOLDER = "CRM Toolkit";                 // kept for message continuity
   var DEFAULT_NAME = "schedule.crmdb";
   var hasFSopen = typeof window !== "undefined" && !!window.showOpenFilePicker;
@@ -709,9 +720,22 @@
   // reason to block on a multi-megabyte OneDrive write. Losing it to a page teardown is safe — the
   // signature written before the write identifies it on the next open, and catchUpFile finishes the
   // job when a page comes back.
+  var pendingBackgroundWrite = null, backgroundWriteQueued = false;
   function writeToFileInBackground(c, loud) {
     if (!c || !c.blob || !fileHandle || !canAutosave) return;
-    enqueueFile(function () { return writeThroughToFile(c.blob, c.seq, { loud: !!loud }); });
+    // Every blob is a complete database snapshot. If OneDrive is slower than the edit cadence,
+    // intermediate snapshots have no value yet retain one database-sized Blob each. Keep only the
+    // newest pending snapshot; the active write finishes, then the queue catches up once.
+    pendingBackgroundWrite = { blob: c.blob, seq: c.seq, loud: !!loud };
+    if (backgroundWriteQueued) return;
+    backgroundWriteQueued = true;
+    enqueueFile(function drainBackgroundWrites() {
+      var next = pendingBackgroundWrite;
+      pendingBackgroundWrite = null;
+      if (!next) { backgroundWriteQueued = false; return false; }
+      return writeThroughToFile(next.blob, next.seq, { loud: next.loud })
+        .then(drainBackgroundWrites, drainBackgroundWrites);
+    });
   }
 
   // Flush the working copy to IndexedDB immediately, and start (but don't await) the file write —
@@ -1179,6 +1203,21 @@
     out.sort(function (a, b) { return a.name.localeCompare(b.name); });
     return Promise.resolve(out);
   }
+  // One-pass index for the Schedule's Files column. Calling listFiles once per patient makes a
+  // redraw O(visible patients * every file in the database); grouping the current date here makes
+  // it O(every file + visible patients) without changing the virtual-handle API used elsewhere.
+  function filesBySlot(date) {
+    var pre = "patients/" + String(date || "") + "/", out = {};
+    bundle.forEach(function (_blob, path) {
+      if (path.indexOf(pre) !== 0) return;
+      var rest = path.slice(pre.length), slash = rest.indexOf("/");
+      if (slash <= 0 || rest.indexOf("/", slash + 1) !== -1) return;
+      var slot = rest.slice(0, slash), name = rest.slice(slash + 1);
+      (out[slot] = out[slot] || []).push(name);
+    });
+    Object.keys(out).forEach(function (slot) { out[slot].sort(function (a, b) { return a.localeCompare(b); }); });
+    return out;
+  }
   function removeFile(root, date, slot, name) {
     var had = bdel(slotPrefix(date, slot) + name);
     if (had) persist();
@@ -1265,6 +1304,7 @@
     moveSlot: moveSlot,
     moveDate: moveDate,
     listFiles: listFiles,
+    filesBySlot: filesBySlot,
     readText: readText,
     writeFile: writeFile,
     removeFile: removeFile,
@@ -1284,6 +1324,7 @@
     lockSession: function () { clearSessionKey(); return true; },
     isEncrypted: function () { return !!protection; },
     isOpen: function () { return opened; },
+    currentRoot: function () { return opened ? ROOT : null; },
     // Filename of the bound database, or null when nothing is open. Browsers do NOT
     // expose the parent folder path through the File System Access API, so this is the
     // filename only (e.g. "schedule.crmdb") — the most a web page is allowed to know.

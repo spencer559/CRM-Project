@@ -107,7 +107,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   }
   pdfjsLib.GlobalWorkerOptions.workerSrc = "../vendor/pdf.worker.min.js";
 
-  var doc = null, total = 0, current = 1;
+  var doc = null, total = 0, current = 1, tearingDown = false;
   var shells = [];           // one per page: { el, canvas, rendered, task }
   var pageH = 0, pageW = 0;
 
@@ -116,6 +116,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
      transferred ArrayBuffer. If this tab was refreshed (opener map gone) or opened directly,
      the timeout below explains how to get back. */
   var receivedDocument = false;
+  var viewerInstance = Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
@@ -130,14 +131,14 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   }, 5000);
   var targetOrigin = location.origin === "null" ? "*" : location.origin;
   try {
-    if (host && params.id) host.postMessage({ type: "pdfviewer:ready", id: params.id }, targetOrigin);
+    if (host && params.id) host.postMessage({ type: "pdfviewer:ready", id: params.id, instance: viewerInstance }, targetOrigin);
     else showStatus("This viewer shows PDFs opened from the Schedule or the Report Generator.\nOpen one from a patient's Files menu.");
   } catch (e) { /* host gone — the timeout message covers it */ }
 
   // Repeat until the document arrives. This closes the small timing window created while the
   // schedule promotes an inline report into the full-screen split layout.
   var readyTimer = setInterval(function () {
-    try { if (host && params.id) host.postMessage({ type: "pdfviewer:ready", id: params.id }, targetOrigin); }
+    try { if (host && params.id) host.postMessage({ type: "pdfviewer:ready", id: params.id, instance: viewerInstance }, targetOrigin); }
     catch (e) {}
   }, 500);
   setTimeout(function () { clearInterval(readyTimer); }, 5000);
@@ -171,7 +172,9 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
         var i = +en.target.dataset.i;
         if (en.isIntersecting) render(i); else release(i);
       });
-    }, { root: scroller, rootMargin: "150% 0px" });
+    // Embedded split view values memory more than an extra page of look-ahead. A smaller margin
+    // keeps the current page and its neighbors ready without holding five full-resolution canvases.
+    }, { root: scroller, rootMargin: (EMBED ? "60% 0px" : "100% 0px") });
     for (var i = 1; i <= total; i++) {
       var el = document.createElement("div");
       el.className = "page"; el.dataset.i = i;
@@ -189,32 +192,39 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   }
   function render(i) {
     var s = shells[i - 1];
-    if (!s || s.rendered || s.task || !doc) return;
-    s.task = true;                                   // claimed before the first await
+    if (!s || s.rendered || s.task || !doc || tearingDown) return;
+    var claim = {}, renderTask = null;
+    s.task = claim;                                  // unique ownership across the first await
     doc.getPage(i).then(function (page) {
+      if (s.task !== claim) { try { page.cleanup(); } catch (e) {} return; }
       var v1 = page.getViewport({ scale: 1 });
       // Fit the whole page inside the viewport with a small breathing margin.
       var scale = Math.min((pageW - 20) / v1.width, (pageH - 16) / v1.height);
       var vp = page.getViewport({ scale: scale });
-      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // A 2x portrait page can exceed 10 MB before the browser's GPU copy. In the split pane 1.5x
+      // remains crisp at normal reading size and cuts pixel memory by roughly forty-four percent.
+      var dpr = Math.min(window.devicePixelRatio || 1, EMBED ? 1.5 : 2);
       s.canvas.width = Math.floor(vp.width * dpr);
       s.canvas.height = Math.floor(vp.height * dpr);
       s.canvas.style.width = Math.floor(vp.width) + "px";
       s.canvas.style.height = Math.floor(vp.height) + "px";
-      var task = page.render({ canvasContext: s.canvas.getContext("2d"), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
-      s.task = task;
-      return task.promise.then(function () {
-        s.rendered = true; s.task = null;
+      renderTask = page.render({ canvasContext: s.canvas.getContext("2d"), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+      s.task = renderTask;
+      return renderTask.promise.then(function () {
+        if (s.task === renderTask) { s.rendered = true; s.task = null; }
         page.cleanup();                              // parsed page content; the canvas keeps the pixels
       });
-    }).catch(function () { s.task = null; });        // cancelled by a release/resize — it'll re-enter
+    }).catch(function () {
+      if (s.task === claim || s.task === renderTask) s.task = null;
+    });                                              // cancelled by a release/resize — it'll re-enter
   }
   function release(i) {
     var s = shells[i - 1];
     if (!s) return;
     if (s.task && s.task.cancel) { try { s.task.cancel(); } catch (e) {} }
     s.task = null;
-    if (s.rendered) { s.canvas.width = 0; s.canvas.height = 0; s.rendered = false; }
+    if (s.canvas.width || s.canvas.height) { s.canvas.width = 0; s.canvas.height = 0; }
+    s.rendered = false;
   }
 
   // The fit is a function of the scroller's size, so anything that changes it — a window resize,
@@ -229,8 +239,8 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     // is guaranteed to redraw it. Explicitly warm the current page and its nearby snap targets
     // after cancelled render tasks have settled.
     requestAnimationFrame(function () {
-      var center = current;
-      for (var i = Math.max(1, center - 2); i <= Math.min(total, center + 2); i++) render(i);
+      var center = current, radius = EMBED ? 1 : 2;
+      for (var i = Math.max(1, center - radius); i <= Math.min(total, center + radius); i++) render(i);
     });
   }
   var resizeTimer = null;
@@ -301,10 +311,13 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     tocMode = "thumbs"; tocEl.innerHTML = "";
     tocThumbs = [];
     if (thumbIo) thumbIo.disconnect();
-    // Rendered on approach and kept: a thumbnail is a few KB, and re-rendering on every pass
-    // would cost more scrolling jank than it saves.
+    // Render on approach and release after leaving the buffered sidebar viewport. Long programmer
+    // reports otherwise accumulate one permanent canvas per page merely from browsing Contents.
     thumbIo = new IntersectionObserver(function (entries) {
-      entries.forEach(function (en) { if (en.isIntersecting) renderThumb(+en.target.dataset.i); });
+      entries.forEach(function (en) {
+        var i = +en.target.dataset.i;
+        if (en.isIntersecting) renderThumb(i); else releaseThumb(i);
+      });
     }, { root: tocEl, rootMargin: "120% 0px" });
     for (var i = 1; i <= total; i++) {
       var b = document.createElement("button");
@@ -317,22 +330,37 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
       b.appendChild(lbl);
       (function (p) { b.addEventListener("click", function () { goTo(p); }); })(i);
       tocEl.appendChild(b);
-      tocThumbs.push({ el: b, canvas: c, done: false });
+      tocThumbs.push({ el: b, canvas: c, done: false, task: null });
       thumbIo.observe(b);
     }
   }
   function renderThumb(i) {
     var t = tocThumbs[i - 1];
-    if (!t || t.done || !doc) return;
-    t.done = true;                                   // claimed; a failure just leaves it blank
+    if (!t || t.done || t.task || !doc) return;
+    var claim = {}, renderTask = null;
+    t.task = claim;                                  // unique ownership while getPage is pending
     doc.getPage(i).then(function (page) {
+      if (t.task !== claim) { try { page.cleanup(); } catch (e) {} return; }
       var v1 = page.getViewport({ scale: 1 });
       var vp = page.getViewport({ scale: 150 / v1.width });
       t.canvas.width = Math.floor(vp.width); t.canvas.height = Math.floor(vp.height);
       t.canvas.style.width = Math.floor(vp.width) + "px";
-      return page.render({ canvasContext: t.canvas.getContext("2d"), viewport: vp }).promise
-        .then(function () { page.cleanup(); });
-    }).catch(function () {});
+      renderTask = page.render({ canvasContext: t.canvas.getContext("2d"), viewport: vp });
+      t.task = renderTask;
+      return renderTask.promise.then(function () {
+        if (t.task === renderTask) { t.done = true; t.task = null; }
+        page.cleanup();
+      });
+    }).catch(function () {
+      if (t.task === claim || t.task === renderTask) { t.task = null; t.done = false; }
+    });
+  }
+  function releaseThumb(i) {
+    var t = tocThumbs[i - 1];
+    if (!t) return;
+    if (t.task && t.task.cancel) { try { t.task.cancel(); } catch (e) {} }
+    t.task = null; t.done = false;
+    t.canvas.width = 0; t.canvas.height = 0;
   }
   // Track the reading position: the outline entry you are inside, or the thumbnail of the
   // current page. `force` re-asserts after a toggle even though the page didn't change.
@@ -376,6 +404,21 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     ev.preventDefault();
     goTo(current + next);
   });
+
+  // Removing a split-view iframe should release its pdf.js worker, parsed document, render tasks,
+  // and GPU-backed canvases immediately instead of waiting for Chrome's next garbage collection.
+  function teardownViewer() {
+    if (tearingDown) return;
+    tearingDown = true;
+    clearTimeout(waitTimer); clearTimeout(resizeTimer); clearInterval(readyTimer);
+    if (io) io.disconnect();
+    if (thumbIo) thumbIo.disconnect();
+    shells.forEach(function (_s, n) { release(n + 1); });
+    tocThumbs.forEach(function (_t, n) { releaseThumb(n + 1); });
+    var oldDoc = doc; doc = null;
+    if (oldDoc && oldDoc.destroy) { try { oldDoc.destroy(); } catch (e) {} }
+  }
+  window.addEventListener("pagehide", function (ev) { if (!ev.persisted) teardownViewer(); });
 
   /* ---- escape hatches ---- */
   // pdf.js keeps the original bytes; getData() hands them back so neither button needs a second

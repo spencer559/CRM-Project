@@ -1530,9 +1530,13 @@
       cells.forEach(function (td) { td.innerHTML = '<span class="fnone">&mdash;</span>'; });
       return;
     }
+    var indexedFiles = (WS.filesBySlot && wsRoot) ? WS.filesBySlot(curDate) : null;
     cells.forEach(function (td) {
       var r = rs[+td.dataset.fslot];
-      if (r) renderSlotCell(td, WS.slotName(r.time, r.pt));
+      if (r) {
+        var slot = WS.slotName(r.time, r.pt);
+        renderSlotCell(td, slot, indexedFiles ? (indexedFiles[slot] || []) : null);
+      }
     });
   }
   function chipLabel(name) {
@@ -1553,15 +1557,18 @@
     if (isProgrammerReport(name)) return 1;
     return 2;
   }
-  function renderSlotCell(td, slot) {
-    return WS.slotDir(wsRoot, curDate, slot, false)
-      .then(function (dir) { return WS.listFiles(dir); })
-      .catch(function () { return []; })
-      .then(function (files) {
-        files.sort(function (a, b) {
-          return (chipOrder(a.name) - chipOrder(b.name)) || a.name.localeCompare(b.name);
+  function renderSlotCell(td, slot, knownNames) {
+    var namesPromise = knownNames !== null && knownNames !== undefined
+      ? Promise.resolve(knownNames.slice())
+      : WS.slotDir(wsRoot, curDate, slot, false)
+          .then(function (dir) { return WS.listFiles(dir); })
+          .then(function (files) { return files.map(function (fh) { return fh.name; }); })
+          .catch(function () { return []; });
+    return namesPromise.then(function (allNames) {
+        allNames.sort(function (a, b) {
+          return (chipOrder(a) - chipOrder(b)) || a.localeCompare(b);
         });
-        slotFiles[slot] = files.map(function (fh) { return fh.name; }).filter(isScheduleReport);
+        slotFiles[slot] = allNames.filter(isScheduleReport);
         var names = slotFiles[slot];
         var hasProgrammerReport = names.some(isProgrammerReport);
         var hasGeneratedReport = names.some(function (n) { return n.toLowerCase() === "report.pdf"; });
@@ -1632,15 +1639,25 @@
      announces itself with that id, and the reply transfers the ArrayBuffer (zero-copy). The
      File stays in the map so a refreshed viewer tab can ask again while this page lives. */
   var pdfViewerDocs = {};
-  function sendPdfViewerDoc(id, target) {
+  var pdfViewerSends = {};
+  function clearPdfViewerSendState(id) {
+    Object.keys(pdfViewerSends).forEach(function (k) { if (k.indexOf(id + ":") === 0) delete pdfViewerSends[k]; });
+  }
+  function sendPdfViewerDoc(id, target, instance) {
     var file = pdfViewerDocs[id];
     if (!file || !target) return;
+    // Ready messages repeat until delivery. Key the in-flight/read work by this viewer-page
+    // instance so one large PDF is materialized once, while refreshes can still request it again.
+    var sendKey = id + ":" + (instance || "legacy");
+    if (pdfViewerSends[sendKey]) return;
+    pdfViewerSends[sendKey] = true;
     file.arrayBuffer().then(function (buf) {
       // Opaque file:// origins cannot be used as a targetOrigin. Hosted copies still use the
       // exact same-origin value; the wildcard is only a local-file compatibility fallback.
       var targetOrigin = location.origin === "null" ? "*" : location.origin;
       target.postMessage({ type: "pdfviewer:doc", id: id, buf: buf }, targetOrigin, [buf]);
     }).catch(function (e) {
+      delete pdfViewerSends[sendKey];
       setWsStatus("Could not send the PDF to the viewer: " + e.message, "warn");
     });
   }
@@ -1648,14 +1665,14 @@
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
     if (m.type !== "pdfviewer:ready" || !pdfViewerDocs[m.id] || !ev.source) return;
-    sendPdfViewerDoc(m.id, ev.source);
+    sendPdfViewerDoc(m.id, ev.source, m.instance);
   });
   function openPdfInViewer(file, name, viewerPath) {
     var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     pdfViewerDocs[id] = file;
     var w = window.open(viewerPath + "#id=" + id + "&name=" + encodeURIComponent(name), "_blank");
     if (!w) {
-      delete pdfViewerDocs[id];
+      delete pdfViewerDocs[id]; clearPdfViewerSendState(id);
       setWsStatus("Your browser blocked the viewer tab for " + name + " — allow pop-ups for this page.", "warn");
     }
   }
@@ -1738,6 +1755,7 @@
       // Nothing was rebuilt, so our copy is already whatever the frame has — skip the re-ingest.
       // This is what makes opening the Files menu twice in a row cost nothing the second time.
       if (!changed) { setWsStatus("Report up to date", "ok"); after(); return; }
+      if (panel && panel.sharedWorkspace) { setWsStatus("Report up to date", "ok"); after(); return; }
       adoptWorkingCopy(function () { setWsStatus("Report up to date", "ok"); after(); });
     });
   }
@@ -1745,7 +1763,10 @@
   function destroyPanel() {
     if (!panel) return;
     var tr = panel.tr;
-    if (panel.viewDocId) delete pdfViewerDocs[panel.viewDocId];   // the viewer frame dies with the row
+    if (panel.viewDocId) {
+      delete pdfViewerDocs[panel.viewDocId];   // the viewer frame dies with the row
+      clearPdfViewerSendState(panel.viewDocId);
+    }
     document.body.classList.remove("crm-split-open");
     panel = null;
     window.removeEventListener("resize", sizePanel);
@@ -1758,8 +1779,10 @@
     // Adopt before scanSlots, or the badge would be drawn from a copy that predates the report
     // the frame just wrote — the row would read "No files" the instant after it was finished.
     finalizePanel(function (changed) {
+      var sharedWorkspace = !!(panel && panel.sharedWorkspace);
       destroyPanel();
       if (!changed) { scanSlots(); if (after) after(); return; }
+      if (sharedWorkspace) { scanSlots(); if (after) after(); return; }
       adoptWorkingCopy(function () { scanSlots(); if (after) after(); });
     });
   }
@@ -1895,7 +1918,10 @@
   function panelViewFile(name) {
     if (!panel) return;
     var viewer = panel.tr.querySelector(".crm-viewer"), divider = panel.tr.querySelector(".crm-divider");
-    if (panel.viewDocId) { delete pdfViewerDocs[panel.viewDocId]; panel.viewDocId = null; }
+    if (panel.viewDocId) {
+      delete pdfViewerDocs[panel.viewDocId]; clearPdfViewerSendState(panel.viewDocId);
+      panel.viewDocId = null;
+    }
     if (!name) {
       viewer.hidden = true; divider.hidden = true; viewer.innerHTML = "";
       // Clear any dragged split ratio, or the report frame would stay at its dragged width
@@ -1918,12 +1944,6 @@
             panel.viewDocId = id;
             viewer.innerHTML = '<iframe title="' + esc(name) + '" src="../app/PDF_Viewer.html#embed=1&id=' + id +
               "&name=" + encodeURIComponent(name) + '"></iframe>';
-            // The viewer also announces readiness. Sending again on iframe load closes the small
-            // timing window where that first message can arrive while the split is being promoted.
-            var viewerFrame = viewer.querySelector("iframe");
-            if (viewerFrame) viewerFrame.addEventListener("load", function () {
-              if (pdfViewerDocs[id] && viewerFrame.contentWindow) sendPdfViewerDoc(id, viewerFrame.contentWindow);
-            }, { once: true });
           } else {
             file.text().then(function (t) {
               if (!panel) return;
@@ -1981,7 +2001,7 @@
     if (ev.origin !== location.origin) return;
     if (!panel || !panel.frame || ev.source !== panel.frame.contentWindow) return;
     var m = ev.data || {};
-    if (m.type === "crm:ready") { panel.ready = true; return; }
+    if (m.type === "crm:ready") { panel.ready = true; panel.sharedWorkspace = !!m.sharedWorkspace; return; }
     if (m.type === "crm:status") {
       var el = panel.tr.querySelector("[data-panel-sync]");
       if (el) { el.textContent = m.text || ""; el.className = "crm-panel-sync" + (m.warn ? " warn" : ""); }

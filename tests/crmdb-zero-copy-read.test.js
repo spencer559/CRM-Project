@@ -143,6 +143,11 @@ function injectLocalExtraField(buf, targetName, extraLen) {
 async function run() {
   shared.wipe();
   const authoring = await buildDatabase();
+  const dayIndex = authoring.filesBySlot("2026-07-29");
+  assert.deepStrictEqual(Object.keys(dayIndex).sort(), ["0800_AA", "0900_BB", "1000_CC"],
+    "one-pass date index should contain exactly that day's slots");
+  assert.deepStrictEqual(dayIndex["0800_AA"], ["notes.txt", "prog.pdf", "report.json"],
+    "one-pass date index should list the slot's direct files in stable order");
   const written = await authoring._serialize();
   const before = await entriesOf(written);
   assert.ok(written.size > 3 * 1024 * 1024, "test database should be a few MB, got " + written.size);
