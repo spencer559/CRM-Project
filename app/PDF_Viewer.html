@@ -120,6 +120,12 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
+    if (m.type === "pdfviewer:error" && m.id === params.id && !receivedDocument) {
+      receivedDocument = true;
+      clearTimeout(waitTimer); clearInterval(readyTimer);
+      showStatus(m.message || "The PDF could not be prepared.");
+      return;
+    }
     if (m.type !== "pdfviewer:doc" || m.id !== params.id || !m.buf || receivedDocument) return;
     receivedDocument = true;
     clearTimeout(waitTimer);

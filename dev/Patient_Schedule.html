@@ -1615,16 +1615,22 @@
     // Refreshed again rather than trusting the menu: a click inside the frame doesn't reach this
     // document, so the menu can sit open while the tech keeps typing, and the bytes behind these
     // rows can go stale between opening the menu and picking a file.
+    var viewer = /\.pdf$/i.test(name) ? reservePdfViewer(name, "../app/PDF_Viewer.html") : null;
+    if (/\.pdf$/i.test(name) && !viewer) return;
     if (String(name).toLowerCase() === "report.pdf" && (!panel || panel.date !== curDate || panel.slot !== slot)) {
       setWsStatus("Rebuilding this patient's generated report…");
       rebuildStoredGeneratedReport(slot, function (error) {
-        if (error) { setWsStatus("Could not rebuild report.pdf: " + error, "warn"); return; }
+        if (error) {
+          failPdfViewer(viewer, "Could not rebuild report.pdf: " + error);
+          setWsStatus("Could not rebuild report.pdf: " + error, "warn");
+          return;
+        }
         setWsStatus("Generated report ready", "ok");
-        readPatientFile(slot, name);
+        readPatientFile(slot, name, viewer);
       });
       return;
     }
-    withPanelFilesFresh(slot, function () { readPatientFile(slot, name); });
+    withPanelFilesFresh(slot, function () { readPatientFile(slot, name, viewer); });
   }
   function validateGeneratedPdf(file) {
     if (!file || file.size < 16) return Promise.reject(new Error("the generated file is empty"));
@@ -1634,7 +1640,7 @@
         return file;
       });
   }
-  function readPatientFile(slot, name) {
+  function readPatientFile(slot, name, viewer) {
     WS.slotDir(wsRoot, curDate, slot, false)
       .then(function (dir) { return dir.getFileHandle(name); })
       .then(function (fh) { return fh.getFile(); })
@@ -1643,13 +1649,16 @@
         // window); everything else keeps the plain browser tab.
         if (/\.pdf$/i.test(name)) {
           var checked = String(name).toLowerCase() === "report.pdf" ? validateGeneratedPdf(file) : Promise.resolve(file);
-          return checked.then(function (validFile) { openPdfInViewer(validFile, name, "../app/PDF_Viewer.html"); });
+          return checked.then(function (validFile) { completePdfViewer(viewer, validFile); });
         }
         var url = URL.createObjectURL(file);
         window.open(url, "_blank");
         setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
       })
-      .catch(function (e) { setWsStatus("Could not open " + name + ": " + e.message, "warn"); });
+      .catch(function (e) {
+        if (viewer) failPdfViewer(viewer, "Could not open " + name + ": " + e.message);
+        setWsStatus("Could not open " + name + ": " + e.message, "warn");
+      });
   }
 
   /* ---------- in-app PDF viewer handoff --------------------------------------------------
@@ -1660,6 +1669,8 @@
      File stays in the map so a refreshed viewer tab can ask again while this page lives. */
   var pdfViewerDocs = {};
   var pdfViewerSends = {};
+  var pdfViewerPending = {};
+  var pdfViewerReady = {};
   function clearPdfViewerSendState(id) {
     Object.keys(pdfViewerSends).forEach(function (k) { if (k.indexOf(id + ":") === 0) delete pdfViewerSends[k]; });
   }
@@ -1684,17 +1695,49 @@
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
-    if (m.type !== "pdfviewer:ready" || !pdfViewerDocs[m.id] || !ev.source) return;
+    if (m.type !== "pdfviewer:ready" || !ev.source) return;
+    if (pdfViewerPending[m.id] && !pdfViewerDocs[m.id]) {
+      pdfViewerReady[m.id] = { target: ev.source, instance: m.instance };
+      return;
+    }
+    if (!pdfViewerDocs[m.id]) return;
     sendPdfViewerDoc(m.id, ev.source, m.instance);
   });
-  function openPdfInViewer(file, name, viewerPath) {
+  function reservePdfViewer(name, viewerPath) {
     var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    pdfViewerDocs[id] = file;
+    pdfViewerPending[id] = true;
     var w = window.open(viewerPath + "#id=" + id + "&name=" + encodeURIComponent(name), "_blank");
     if (!w) {
-      delete pdfViewerDocs[id]; clearPdfViewerSendState(id);
+      delete pdfViewerPending[id]; clearPdfViewerSendState(id);
       setWsStatus("Your browser blocked the viewer tab for " + name + " — allow pop-ups for this page.", "warn");
+      return null;
     }
+    return { id: id, win: w, name: name };
+  }
+  function completePdfViewer(viewer, file) {
+    if (!viewer || !file) return;
+    pdfViewerDocs[viewer.id] = file;
+    delete pdfViewerPending[viewer.id];
+    var ready = pdfViewerReady[viewer.id];
+    if (ready) {
+      delete pdfViewerReady[viewer.id];
+      sendPdfViewerDoc(viewer.id, ready.target, ready.instance);
+    }
+  }
+  function failPdfViewer(viewer, message) {
+    if (!viewer) return;
+    delete pdfViewerPending[viewer.id]; delete pdfViewerDocs[viewer.id]; delete pdfViewerReady[viewer.id];
+    clearPdfViewerSendState(viewer.id);
+    try {
+      if (viewer.win && !viewer.win.closed) {
+        var viewerOrigin = location.origin === "null" ? "*" : location.origin;
+        viewer.win.postMessage({ type: "pdfviewer:error", id: viewer.id, message: message }, viewerOrigin);
+      }
+    } catch (e) {}
+  }
+  function openPdfInViewer(file, name, viewerPath) {
+    var viewer = reservePdfViewer(name, viewerPath);
+    if (viewer) completePdfViewer(viewer, file);
   }
   /* ---------- inline CRM report panel ----------------------------------------------------
      "Open" expands the Report Generator under the patient's row instead of navigating to it, so
