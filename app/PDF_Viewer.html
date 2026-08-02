@@ -54,6 +54,9 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
           justify-content: center; text-align: center; color: var(--muted); font-size: 13px;
           padding: 20px; white-space: pre-line; }
 #status[hidden] { display: none; }
+/* Embedded in the schedule's split panel: the host owns closing (its file switcher / panel
+   collapse), and window.close() can't close an iframe anyway. */
+.embedded #closeBtn { display: none; }
 </style>
 </head>
 <body>
@@ -64,7 +67,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   <span class="spacer"></span>
   <button type="button" id="chromeBtn" title="Open this PDF in Chrome's own viewer (continuous scrolling)" hidden>Chrome viewer</button>
   <button type="button" id="downloadBtn" hidden>Download</button>
-  <button type="button" onclick="window.close()" title="Close (Esc)">&#10005;</button>
+  <button type="button" id="closeBtn" onclick="window.close()" title="Close (Esc)">&#10005;</button>
 </div>
 <div id="toc" role="navigation" aria-label="Contents"></div>
 <div id="pages"></div>
@@ -87,6 +90,14 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   var docName = params.name || "PDF";
   document.title = docName;
   $("name").textContent = docName;
+
+  // Two hosts can hold the document for us: the page that window.open'd this tab, or — embedded
+  // in the schedule's split panel — the parent frame. Same handshake either way.
+  var EMBED = params.embed === "1" && window.parent !== window;
+  if (EMBED) document.documentElement.classList.add("embedded");
+  var host = null;
+  try { host = window.opener || null; } catch (e) {}
+  if (!host && window.parent !== window) host = window.parent;
 
   function showStatus(msg) { statusEl.textContent = msg; statusEl.hidden = false; }
 
@@ -115,9 +126,9 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     showStatus("No document arrived.\nReopen this file from the Schedule's Files menu or the Report Generator.");
   }, 5000);
   try {
-    if (window.opener && params.id) window.opener.postMessage({ type: "pdfviewer:ready", id: params.id }, location.origin);
+    if (host && params.id) host.postMessage({ type: "pdfviewer:ready", id: params.id }, location.origin);
     else showStatus("This viewer shows PDFs opened from the Schedule or the Report Generator.\nOpen one from a patient's Files menu.");
-  } catch (e) { /* opener gone — the timeout message covers it */ }
+  } catch (e) { /* host gone — the timeout message covers it */ }
 
   function open(buf) {
     // isEvalSupported false: this page's CSP has no 'unsafe-eval', and pdf.js is happy without it.
@@ -335,7 +346,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     updatePager();
   }
   window.addEventListener("keydown", function (ev) {
-    if (ev.key === "Escape") { window.close(); return; }
+    if (ev.key === "Escape") { if (!EMBED) window.close(); return; }   // embedded: the host owns closing
     if (!doc) return;
     var next = { "PageDown": 1, "ArrowDown": 1, "ArrowRight": 1, " ": 1, "PageUp": -1, "ArrowUp": -1, "ArrowLeft": -1 }[ev.key];
     if (ev.key === " " && ev.shiftKey) next = -1;

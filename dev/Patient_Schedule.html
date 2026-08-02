@@ -228,7 +228,23 @@
   .crm-panel-sync { margin-left:auto; flex:0 0 auto; font-size:.72rem; color:var(--green); }
   .crm-panel-sync.warn { color:var(--amber); }
   .crm-panel-hdr button { flex:0 0 auto; padding:4px 9px; font-size:.72rem; border-radius:6px; }
-  .crm-frame { display:block; width:100%; height:min(70vh,620px); border:0; background:#d0d6df; }
+  .crm-panel-hdr select { flex:0 0 auto; max-width:210px; background:var(--panel2); border:1px solid var(--border);
+                          color:var(--text); border-radius:6px; padding:3px 6px; font:inherit; font-size:.72rem; }
+  /* Split body: the report generator on the left, the patient's programmer file on the right —
+     chart while reading the source, no tabs. The divider drags; both sides are iframes/panes that
+     fill the panel's fixed height. min-width:0 on both, or a wide PDF page would push the flex
+     row past the panel instead of shrinking. */
+  .crm-panel-body { display:flex; align-items:stretch; height:min(70vh,620px); }
+  .crm-frame { display:block; flex:1 1 55%; min-width:0; height:100%; border:0; background:#d0d6df; }
+  .crm-divider { flex:0 0 7px; cursor:col-resize; background:var(--panel); border-left:1px solid var(--border);
+                 border-right:1px solid var(--border); touch-action:none; }
+  .crm-divider:hover, .crm-divider.dragging { background:var(--accent); }
+  .crm-divider[hidden], .crm-viewer[hidden] { display:none; }
+  .crm-viewer { flex:1 1 45%; min-width:0; height:100%; background:#23272e; }
+  .crm-viewer iframe { display:block; width:100%; height:100%; border:0; }
+  .crm-viewer pre { height:100%; overflow:auto; margin:0; padding:10px 12px; white-space:pre-wrap;
+                    overflow-wrap:break-word; font:.72rem/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+                    color:#dfe5ec; }
   /* ---- All-patients overview modal ---- */
   .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:400; display:none;
                    align-items:flex-start; justify-content:center; padding:44px 16px; }
@@ -1548,6 +1564,9 @@
         else if (hasGeneratedReport) { cls = "draft"; label = "Generated"; }
         td.innerHTML = '<button type="button" class="files-trigger ' + cls + '" data-files-slot="' + esc(slot) +
           '" aria-haspopup="menu" aria-expanded="false" title="Show files for this patient">' + label + ' \u25be</button>';
+        // A file attached or removed while this patient's panel is open: keep the split's file
+        // switcher in step with the badge that was just redrawn.
+        if (panel && panel.date === curDate && panel.slot === slot) populatePanelViewer(false);
       });
   }
   function closeFileMenu() {
@@ -1711,6 +1730,7 @@
   function destroyPanel() {
     if (!panel) return;
     var tr = panel.tr;
+    if (panel.viewDocId) delete pdfViewerDocs[panel.viewDocId];   // the viewer frame dies with the row
     panel = null;
     window.removeEventListener("resize", sizePanel);
     if (tr && tr.parentNode) tr.parentNode.removeChild(tr);
@@ -1757,19 +1777,130 @@
             '<span class="crm-panel-pt">' + esc(r.pt || "This patient") + '</span>' +
             '<span class="crm-panel-slot">' + esc(slot) + '</span>' +
             '<span class="crm-panel-sync" data-panel-sync></span>' +
+            '<select data-panel-view title="Show one of this patient\'s files beside the report" aria-label="File to view beside the report">' +
+              '<option value="">Viewer off</option>' +
+            '</select>' +
             '<button type="button" data-panel-full title="Open this patient in the full-page Report Generator">Full page</button>' +
             '<button type="button" data-panel-close title="Close this report">Close</button>' +
           '</div>' +
-          '<iframe class="crm-frame" title="CRM Report Generator for ' + esc(r.pt || slot) + '" src="' + esc(url) + '"></iframe>' +
+          '<div class="crm-panel-body">' +
+            '<iframe class="crm-frame" title="CRM Report Generator for ' + esc(r.pt || slot) + '" src="' + esc(url) + '"></iframe>' +
+            '<div class="crm-divider" title="Drag to resize" hidden></div>' +
+            '<div class="crm-viewer" hidden></div>' +
+          '</div>' +
         '</div>' +
       '</td>';
     // Immediately after the notes row, so the appointment, its notes and its report read as one
     // block — the same way .notes-row already extends .appt-row.
     apptTr.parentNode.insertBefore(tr, notesTr ? notesTr.nextSibling : null);
-    panel = { date: curDate, slot: slot, tr: tr, frame: tr.querySelector("iframe"), ready: false };
+    panel = { date: curDate, slot: slot, tr: tr, frame: tr.querySelector("iframe.crm-frame"), ready: false, viewDocId: null };
     window.addEventListener("resize", sizePanel);
     sizePanel();
+    initPanelDivider();
+    populatePanelViewer(true);
+    tr.querySelector("[data-panel-view]").addEventListener("change", function () { panelViewFile(this.value); });
     scanSlots();
+  }
+
+  /* ---- the split's right side: one of this patient's files beside the report --------------
+     The switcher lists the slot's files; picking one loads it into the right pane — PDFs into
+     the snap viewer (an embedded PDF_Viewer.html, fed over the same pdfviewer:ready/doc
+     handshake the standalone tab uses), text files (.log — Abbott's export — .txt, .json)
+     straight into a <pre>. `auto` picks the first programmer file on open, so clicking Open on
+     a patient with an interrogation file lands you in the split immediately. */
+  function populatePanelViewer(auto) {
+    if (!panel) return;
+    var sel = panel.tr.querySelector("[data-panel-view]");
+    if (!sel) return;
+    WS.slotDir(wsRoot, panel.date, panel.slot, false)
+      .then(function (dir) { return WS.listFiles(dir); })
+      .catch(function () { return []; })
+      .then(function (files) {
+        if (!panel || panel.tr.querySelector("[data-panel-view]") !== sel) return;
+        var names = files.map(function (f) { return f.name; }).filter(isScheduleReport)
+          .sort(function (a, b) { return (chipOrder(a) - chipOrder(b)) || a.localeCompare(b); });
+        var keep = sel.value;
+        sel.innerHTML = '<option value="">Viewer off</option>' + names.map(function (n) {
+          return '<option value="' + esc(n) + '">' + esc(n) + "</option>";
+        }).join("");
+        if (keep && names.indexOf(keep) !== -1) { sel.value = keep; return; }
+        if (auto) {
+          // Default to the programmer PDF — the document you read while charting; a .log or
+          // anything else is the switch-to option, not the opening view.
+          var progs = names.filter(isProgrammerReport);
+          var first = progs.filter(function (n) { return /\.pdf$/i.test(n); })[0] || progs[0] || "";
+          sel.value = first;
+          if (first) panelViewFile(first);
+        }
+      });
+  }
+  function panelViewFile(name) {
+    if (!panel) return;
+    var viewer = panel.tr.querySelector(".crm-viewer"), divider = panel.tr.querySelector(".crm-divider");
+    if (panel.viewDocId) { delete pdfViewerDocs[panel.viewDocId]; panel.viewDocId = null; }
+    if (!name) {
+      viewer.hidden = true; divider.hidden = true; viewer.innerHTML = "";
+      // Clear any dragged split ratio, or the report frame would stay at its dragged width
+      // instead of taking the whole panel back.
+      panel.frame.style.flex = ""; viewer.style.flex = "";
+      return;
+    }
+    // The generated report.pdf is derived data — rebuild before showing it, exactly like the
+    // Files menu does. Programmer files are source and never stale.
+    var load = function () {
+      WS.slotDir(wsRoot, panel.date, panel.slot, false)
+        .then(function (dir) { return dir.getFileHandle(name); })
+        .then(function (fh) { return fh.getFile(); })
+        .then(function (file) {
+          if (!panel) return;
+          viewer.hidden = false; divider.hidden = false;
+          if (/\.pdf$/i.test(name)) {
+            var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            pdfViewerDocs[id] = file;
+            panel.viewDocId = id;
+            viewer.innerHTML = '<iframe title="' + esc(name) + '" src="../app/PDF_Viewer.html#embed=1&id=' + id +
+              "&name=" + encodeURIComponent(name) + '"></iframe>';
+          } else {
+            file.text().then(function (t) {
+              if (!panel) return;
+              viewer.innerHTML = "";
+              var pre = document.createElement("pre");
+              pre.textContent = t;
+              viewer.appendChild(pre);
+            });
+          }
+        })
+        .catch(function (e) { setWsStatus("Could not open " + name + ": " + e.message, "warn"); });
+    };
+    if (isProgrammerReport(name)) load();
+    else withPanelFilesFresh(panel.slot, load);
+  }
+  // Drag the divider to rebalance the split (pointer events cover mouse and the iPad's touch).
+  // Both iframes swallow pointermoves, so the drag captures the pointer on the divider itself.
+  function initPanelDivider() {
+    var divider = panel.tr.querySelector(".crm-divider");
+    var body = panel.tr.querySelector(".crm-panel-body");
+    var frame = panel.frame, viewer = panel.tr.querySelector(".crm-viewer");
+    divider.addEventListener("pointerdown", function (ev) {
+      ev.preventDefault();
+      divider.setPointerCapture(ev.pointerId);
+      divider.classList.add("dragging");
+      var rect = body.getBoundingClientRect();
+      var move = function (mv) {
+        var pct = Math.max(25, Math.min(75, ((mv.clientX - rect.left) / rect.width) * 100));
+        frame.style.flex = "0 0 " + pct + "%";
+        viewer.style.flex = "0 0 " + (100 - pct) + "%";
+      };
+      var up = function () {
+        divider.classList.remove("dragging");
+        divider.removeEventListener("pointermove", move);
+        divider.removeEventListener("pointerup", up);
+        divider.removeEventListener("pointercancel", up);
+      };
+      divider.addEventListener("pointermove", move);
+      divider.addEventListener("pointerup", up);
+      divider.addEventListener("pointercancel", up);
+    });
   }
 
   // One panel at a time: opening a different patient finalizes the outgoing one first.
