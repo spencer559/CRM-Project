@@ -115,20 +115,32 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
      The opener holds the File under our id and answers our "ready" with the bytes as a
      transferred ArrayBuffer. If this tab was refreshed (opener map gone) or opened directly,
      the timeout below explains how to get back. */
+  var receivedDocument = false;
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
-    if (m.type !== "pdfviewer:doc" || m.id !== params.id || !m.buf) return;
+    if (m.type !== "pdfviewer:doc" || m.id !== params.id || !m.buf || receivedDocument) return;
+    receivedDocument = true;
     clearTimeout(waitTimer);
+    clearInterval(readyTimer);
     open(m.buf);
   });
   var waitTimer = setTimeout(function () {
     showStatus("No document arrived.\nReopen this file from the Schedule's Files menu or the Report Generator.");
   }, 5000);
+  var targetOrigin = location.origin === "null" ? "*" : location.origin;
   try {
-    if (host && params.id) host.postMessage({ type: "pdfviewer:ready", id: params.id }, location.origin);
+    if (host && params.id) host.postMessage({ type: "pdfviewer:ready", id: params.id }, targetOrigin);
     else showStatus("This viewer shows PDFs opened from the Schedule or the Report Generator.\nOpen one from a patient's Files menu.");
   } catch (e) { /* host gone — the timeout message covers it */ }
+
+  // Repeat until the document arrives. This closes the small timing window created while the
+  // schedule promotes an inline report into the full-screen split layout.
+  var readyTimer = setInterval(function () {
+    try { if (host && params.id) host.postMessage({ type: "pdfviewer:ready", id: params.id }, targetOrigin); }
+    catch (e) {}
+  }, 500);
+  setTimeout(function () { clearInterval(readyTimer); }, 5000);
 
   function open(buf) {
     // isEvalSupported false: this page's CSP has no 'unsafe-eval', and pdf.js is happy without it.

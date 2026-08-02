@@ -230,6 +230,12 @@
   .crm-panel-hdr button { flex:0 0 auto; padding:4px 9px; font-size:.72rem; border-radius:6px; }
   .crm-panel-hdr select { flex:0 0 auto; max-width:210px; background:var(--panel2); border:1px solid var(--border);
                           color:var(--text); border-radius:6px; padding:3px 6px; font:inherit; font-size:.72rem; }
+  .crm-panel:not(.split-open) [data-panel-view] { display:none; }
+  body.crm-split-open { overflow:hidden; }
+  /* Split view uses almost the whole viewport so both panes remain useful on a 1080p screen. */
+  .crm-panel.split-open { position:fixed; inset:8px; z-index:500; width:auto !important;
+                          display:flex; flex-direction:column; border-radius:10px; }
+  .crm-panel.split-open .crm-panel-body { flex:1 1 auto; height:auto; min-height:0; }
   /* Split body: the report generator on the left, the patient's programmer file on the right —
      chart while reading the source, no tabs. The divider drags; both sides are iframes/panes that
      fill the panel's fixed height. min-width:0 on both, or a wide PDF page would push the flex
@@ -1626,14 +1632,23 @@
      announces itself with that id, and the reply transfers the ArrayBuffer (zero-copy). The
      File stays in the map so a refreshed viewer tab can ask again while this page lives. */
   var pdfViewerDocs = {};
+  function sendPdfViewerDoc(id, target) {
+    var file = pdfViewerDocs[id];
+    if (!file || !target) return;
+    file.arrayBuffer().then(function (buf) {
+      // Opaque file:// origins cannot be used as a targetOrigin. Hosted copies still use the
+      // exact same-origin value; the wildcard is only a local-file compatibility fallback.
+      var targetOrigin = location.origin === "null" ? "*" : location.origin;
+      target.postMessage({ type: "pdfviewer:doc", id: id, buf: buf }, targetOrigin, [buf]);
+    }).catch(function (e) {
+      setWsStatus("Could not send the PDF to the viewer: " + e.message, "warn");
+    });
+  }
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
     if (m.type !== "pdfviewer:ready" || !pdfViewerDocs[m.id] || !ev.source) return;
-    var src = ev.source;
-    pdfViewerDocs[m.id].arrayBuffer().then(function (buf) {
-      try { src.postMessage({ type: "pdfviewer:doc", id: m.id, buf: buf }, location.origin, [buf]); } catch (e) {}
-    });
+    sendPdfViewerDoc(m.id, ev.source);
   });
   function openPdfInViewer(file, name, viewerPath) {
     var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -1731,6 +1746,7 @@
     if (!panel) return;
     var tr = panel.tr;
     if (panel.viewDocId) delete pdfViewerDocs[panel.viewDocId];   // the viewer frame dies with the row
+    document.body.classList.remove("crm-split-open");
     panel = null;
     window.removeEventListener("resize", sizePanel);
     if (tr && tr.parentNode) tr.parentNode.removeChild(tr);
@@ -1775,6 +1791,7 @@
         '<div class="crm-panel">' +
           '<div class="crm-panel-hdr">' +
             '<span class="crm-panel-pt">' + esc(r.pt || "This patient") + '</span>' +
+            '<button type="button" data-panel-split aria-pressed="false" disabled title="Open the report generator and programmer file in a full-screen split view">Split view</button>' +
             '<span class="crm-panel-slot">' + esc(slot) + '</span>' +
             '<span class="crm-panel-sync" data-panel-sync></span>' +
             '<select data-panel-view title="Show one of this patient\'s files beside the report" aria-label="File to view beside the report">' +
@@ -1797,7 +1814,8 @@
     window.addEventListener("resize", sizePanel);
     sizePanel();
     initPanelDivider();
-    populatePanelViewer(true);
+    // Opening CRM starts with the generator alone; split view is an explicit second action.
+    populatePanelViewer(false);
     tr.querySelector("[data-panel-view]").addEventListener("change", function () { panelViewFile(this.value); });
     scanSlots();
   }
@@ -1806,8 +1824,8 @@
      The switcher lists the slot's files; picking one loads it into the right pane — PDFs into
      the snap viewer (an embedded PDF_Viewer.html, fed over the same pdfviewer:ready/doc
      handshake the standalone tab uses), text files (.log — Abbott's export — .txt, .json)
-     straight into a <pre>. `auto` picks the first programmer file on open, so clicking Open on
-     a patient with an interrogation file lands you in the split immediately. */
+     straight into a <pre>. Opening CRM leaves this viewer off; the Split view button chooses the
+     first programmer PDF when the user asks for the larger two-pane workspace. */
   function populatePanelViewer(auto) {
     if (!panel) return;
     var sel = panel.tr.querySelector("[data-panel-view]");
@@ -1823,16 +1841,45 @@
         sel.innerHTML = '<option value="">Viewer off</option>' + names.map(function (n) {
           return '<option value="' + esc(n) + '">' + esc(n) + "</option>";
         }).join("");
+        var splitBtn = panel.tr.querySelector("[data-panel-split]");
+        var progs = names.filter(isProgrammerReport);
+        var first = progs.filter(function (n) { return /\.pdf$/i.test(n); })[0] || progs[0] || "";
+        panel.defaultView = first;
+        if (splitBtn) {
+          splitBtn.disabled = !first && !panel.tr.querySelector(".crm-panel.split-open");
+          splitBtn.title = first
+            ? "Open the report generator and " + first + " in a full-screen split view"
+            : "Attach a programmer file to use split view";
+        }
         if (keep && names.indexOf(keep) !== -1) { sel.value = keep; return; }
         if (auto) {
           // Default to the programmer PDF — the document you read while charting; a .log or
           // anything else is the switch-to option, not the opening view.
-          var progs = names.filter(isProgrammerReport);
-          var first = progs.filter(function (n) { return /\.pdf$/i.test(n); })[0] || progs[0] || "";
           sel.value = first;
           if (first) panelViewFile(first);
         }
       });
+  }
+  function setPanelSplit(open) {
+    if (!panel) return;
+    var shell = panel.tr.querySelector(".crm-panel");
+    var btn = panel.tr.querySelector("[data-panel-split]");
+    var sel = panel.tr.querySelector("[data-panel-view]");
+    if (!shell || !btn || !sel) return;
+    shell.classList.toggle("split-open", open);
+    document.body.classList.toggle("crm-split-open", open);
+    btn.textContent = open ? "Inline view" : "Split view";
+    btn.setAttribute("aria-pressed", open ? "true" : "false");
+    btn.title = open ? "Return to the inline report generator" : "Open the report generator and programmer file in a full-screen split view";
+    if (open) {
+      var name = sel.value || panel.defaultView || "";
+      if (name) { sel.value = name; panelViewFile(name); }
+    } else {
+      sel.value = "";
+      panelViewFile("");
+      btn.disabled = !panel.defaultView;
+      sizePanel();
+    }
   }
   function panelViewFile(name) {
     if (!panel) return;
@@ -1860,6 +1907,12 @@
             panel.viewDocId = id;
             viewer.innerHTML = '<iframe title="' + esc(name) + '" src="../app/PDF_Viewer.html#embed=1&id=' + id +
               "&name=" + encodeURIComponent(name) + '"></iframe>';
+            // The viewer also announces readiness. Sending again on iframe load closes the small
+            // timing window where that first message can arrive while the split is being promoted.
+            var viewerFrame = viewer.querySelector("iframe");
+            if (viewerFrame) viewerFrame.addEventListener("load", function () {
+              if (pdfViewerDocs[id] && viewerFrame.contentWindow) sendPdfViewerDoc(id, viewerFrame.contentWindow);
+            }, { once: true });
           } else {
             file.text().then(function (t) {
               if (!panel) return;
@@ -1931,6 +1984,11 @@
   $("schedBody").addEventListener("click", function (ev) {
     var crm = ev.target.closest(".crm-link[data-crm]");
     if (crm && !crm.disabled) { togglePanel(+crm.closest("td.crm-cell").dataset.cslot); return; }
+    if (ev.target.closest("[data-panel-split]") && panel) {
+      var shell = panel.tr.querySelector(".crm-panel");
+      setPanelSplit(!shell.classList.contains("split-open"));
+      return;
+    }
     if (ev.target.closest("[data-panel-close]")) { closePanel(); return; }
     if (ev.target.closest("[data-panel-full]") && panel) {
       var url = "../app/CRM_Report_Generator.html#slot=" + panel.date + "/" + panel.slot;
@@ -1978,7 +2036,11 @@
   document.addEventListener("click", function (ev) {
     if (!ev.target.closest("#fileMenu") && !ev.target.closest(".files-trigger")) closeFileMenu();
   });
-  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") closeFileMenu(); });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key !== "Escape") return;
+    if (panel && panel.tr.querySelector(".crm-panel.split-open")) { setPanelSplit(false); return; }
+    closeFileMenu();
+  });
   document.addEventListener("scroll", closeFileMenu, true);
   window.addEventListener("resize", closeFileMenu);
 
