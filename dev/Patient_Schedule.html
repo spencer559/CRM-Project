@@ -1635,6 +1635,24 @@
       });
       return;
     }
+    if (String(name).toLowerCase() === "report.pdf") {
+      setWsStatus("Rebuilding this patient's generated report…");
+      finalizePanel(function (_changed, error, generatedPdf) {
+        if (error) {
+          failPdfViewer(viewer, "Could not rebuild report.pdf: " + error);
+          setWsStatus("Could not rebuild report.pdf: " + error, "warn");
+          return;
+        }
+        validateGeneratedPdf(generatedPdf).then(function (validPdf) {
+          setWsStatus("Generated report ready", "ok");
+          completePdfViewer(viewer, validPdf);
+        }).catch(function (e) {
+          failPdfViewer(viewer, "Could not open report.pdf: " + e.message);
+          setWsStatus("Could not open report.pdf: " + e.message, "warn");
+        });
+      }, true);
+      return;
+    }
     withPanelFilesFresh(slot, function () { readPatientFile(slot, name, viewer); });
   }
   function validateGeneratedPdf(file) {
@@ -1792,17 +1810,21 @@
   // this is the wait that decides whether the files the schedule then reads are the current ones.
   // `after(changed, error)` — false means the frame had nothing to rebuild. A timeout is an error,
   // so file opening stops instead of handing stale or incomplete bytes to the PDF viewer.
-  function finalizePanel(after) {
-    if (!panel || !panel.ready) { after(true); return; }
+  function finalizePanel(after, includePdf) {
+    if (!panel || !panel.ready) {
+      if (includePdf) after(false, 'Report Generator is still loading', null);
+      else after(true);
+      return;
+    }
     var token = "f" + (++panelSeq), done = false;
-    var fire = function (changed, error) {
+    var fire = function (changed, error, pdf) {
       if (done) return;
       done = true; delete panelPending[token];
-      after(changed !== false, error || '');
+      after(changed !== false, error || '', pdf || null);
     };
     panelPending[token] = fire;
     setTimeout(function () { fire(false, 'Report generation timed out'); }, 6000);
-    try { panel.frame.contentWindow.postMessage({ type: "crm:finalize", token: token }, location.origin); }
+    try { panel.frame.contentWindow.postMessage({ type: "crm:finalize", token: token, includePdf: !!includePdf }, location.origin); }
     catch (e) { fire(); }
   }
 
@@ -2118,7 +2140,7 @@
       if (el) { el.textContent = m.text || ""; el.className = "crm-panel-sync" + (m.warn ? " warn" : ""); }
       return;
     }
-    if (m.type === "crm:finalized") { var cb = panelPending[m.token]; if (cb) cb(m.changed, m.error); return; }
+    if (m.type === "crm:finalized") { var cb = panelPending[m.token]; if (cb) cb(m.changed, m.error, m.pdf); return; }
     // The frame's own exit path already finalized before sending this — don't make it do it twice.
     if (m.type === "crm:collapse") { destroyPanel(); scanSlots(); return; }
   });

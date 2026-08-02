@@ -3478,7 +3478,9 @@ window.ensureReportPdfBuilder = function () {
       var reply = function (changed, error, pdf) {
         postHost({ type: 'crm:finalized', token: m.token, changed: changed !== false, error: error || '', pdf: pdf || null });
       };
-      if (syncArmed && !dirty && finalizedKey && finalizedKey === slotKey()) { reply(false); return; }
+      // A caller asking for the PDF needs the actual fresh Blob, even when this patient was
+      // finalized moments ago. The normal close/files refresh can still take the cheap no-op path.
+      if (!m.includePdf && syncArmed && !dirty && finalizedKey && finalizedKey === slotKey()) { reply(false); return; }
       (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve()))
         .then(function (pdf) { reply(true, '', m.includePdf ? pdf : null); }, function (e) { reply(false, (e && e.message) || 'Could not rebuild the generated PDF'); });
     });
