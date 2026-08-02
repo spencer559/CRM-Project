@@ -69,8 +69,8 @@
   var baseFileMod = null;         // file.lastModified our cache is based on, or null when unknown
   var cacheMatchesFile = false;   // cache byte-for-byte equals the bound file (no unsaved edits)
   var freshnessVerified = false;  // desktop only: bound file compared to the cache this session
-  var baseSig = null;             // SHA-256 of the bytes we last read from / wrote to the file
-  var pendingSig = null;          // SHA-256 of bytes a save was about to write when it could be cut short
+  var baseSig = null;             // signature of what we last read from / wrote to the file ("m2:" manifest sig, or legacy full-byte SHA-256)
+  var pendingSig = null;          // signature of bytes a save was about to write when it could be cut short
   var mutSeq = 0;                 // bumped on every bundle mutation, to date a serialized snapshot
 
   // ---- cross-tab safety ------------------------------------------------------
@@ -130,6 +130,7 @@
   }
   // Content signature of one .crmdb's bytes — how we tell our own writes from another station's.
   // Best-effort: a browser without SubtleCrypto simply falls back to the mtime-only comparison.
+  // Prefer containerSig below: this one materializes the whole container on the heap to hash it.
   function sigOf(data) {
     var c;
     try { c = cryptoApi(); } catch (e) { return Promise.resolve(null); }
@@ -141,6 +142,31 @@
         return s;
       })
       .catch(function () { return null; });
+  }
+  // The signature every write and reconnect actually uses. Same question as sigOf — "did this
+  // machine put these bytes there?" — answered from the container's central directory instead of
+  // its bytes: CRMDB.manifest reads a few KB of tail/CD slices, and hashing the per-entry
+  // name/crc/size claims identifies the container without ever pulling it onto the JS heap. On a
+  // clinic-sized database that turns every autosave's whole-file arrayBuffer() into kilobytes.
+  // "m2:"-prefixed so it can never be mistaken for (or collide with) a legacy full-byte sig.
+  // Falls back to sigOf for anything the manifest can't describe: an encrypted envelope (its
+  // ciphertext has no readable CD — and differs every save anyway, thanks to the random IV), a
+  // non-Blob source, or a container we didn't write. NOT a security boundary either way — the
+  // sig only recognizes our own writes; confidentiality/integrity stay with AES-GCM.
+  function containerSig(blob) {
+    if (typeof Blob === "undefined" || !(blob instanceof Blob) || !window.CRMDB || !window.CRMDB.manifest) return sigOf(blob);
+    return blob.slice(0, ENC_MAGIC.length).arrayBuffer().then(function (head) {
+      if (isEncryptedBytes(new Uint8Array(head))) return sigOf(blob);
+      return window.CRMDB.manifest(blob).then(function (entries) {
+        if (!entries) return sigOf(blob);
+        // Sorted canonical form: identical contents must sign identically regardless of the order
+        // the CD happened to list them in. NUL field separators, because attached programmer
+        // files keep their original names — which may contain spaces or any other printable
+        // character, but never a NUL — so no name can smudge a field boundary.
+        var canon = entries.map(function (e) { return e.name + "\u0000" + e.crc + "\u0000" + e.size; }).sort().join("\n");
+        return sigOf(new TextEncoder().encode(canon)).then(function (hex) { return hex ? "m2:" + hex : null; });
+      });
+    }).catch(function () { return sigOf(blob); });
   }
   function deriveMaterial(password, salt, iterations) {
     var c = cryptoApi();
@@ -634,7 +660,7 @@
       if (opts.loud || opts.rethrow) status("Reconnect the database before saving — it hasn't been verified against the file yet", "warn");
       return Promise.resolve(false);
     }
-    return sigOf(blob).then(function (sig) {
+    return containerSig(blob).then(function (sig) {
       // Sign the bytes BEFORE they go out. If this page is torn down between the file write and the
       // metadata write below — which is exactly what navigating to the other page does — the next
       // session still recognizes the file as our own doing instead of another station's edit.
@@ -743,14 +769,42 @@
       return sigs.filter(Boolean);
     });
   }
-  // Read the bound file once and work out whose bytes are on it: `own` when some save from this
-  // machine produced them (including one cut short before it could record itself), false when this
-  // is a copy no station of ours has ever written — i.e. genuinely someone else's.
+  // Work out whose bytes are on the bound file: `own` when some save from this machine produced
+  // them (including one cut short before it could record itself), false when this is a copy no
+  // station of ours has ever written — i.e. genuinely someone else's. `src` is what an adopt
+  // should ingest — the File itself when it is a real Blob, so ingest can go by reference (the
+  // same zero-copy path the iPad open uses) instead of materializing the whole database.
   function readFile(f) {
-    return f.arrayBuffer().then(function (ab) {
-      return sigOf(ab).then(function (sig) {
-        return knownSigs().then(function (sigs) {
-          return { ab: ab, sig: sig, own: !!sig && sigs.indexOf(sig) >= 0 };
+    // No Blob constructor at all (bare runtime): the old full-read path, bytes and all.
+    if (typeof Blob === "undefined") {
+      return f.arrayBuffer().then(function (ab) {
+        return sigOf(ab).then(function (sig) {
+          return knownSigs().then(function (sigs) {
+            return { src: ab, sig: sig, own: !!sig && sigs.indexOf(sig) >= 0 };
+          });
+        });
+      });
+    }
+    // A handle whose getFile() gives something Blob-less (the Node tests' stand-ins) is wrapped
+    // into one, so it signs IDENTICALLY to the write side — which always signs a real Blob. Two
+    // formats for the same bytes would make a station disown its own save.
+    var asBlob = (f instanceof Blob) ? Promise.resolve(f)
+               : f.arrayBuffer().then(function (ab) { return new Blob([ab]); });
+    return asBlob.then(function (b) { return readBlobFile(b); });
+  }
+  function readBlobFile(f) {
+    return containerSig(f).then(function (sig) {
+      return knownSigs().then(function (sigs) {
+        if (sig && sigs.indexOf(sig) >= 0) return { src: f, sig: sig, own: true };
+        // Migration: metadata written before manifest signatures existed holds full-byte sigs
+        // (bare hex, no "m2:"). A mismatch against those proves nothing, so pay for one legacy
+        // hash of the file and compare again. Skipped once the ring holds only m2 sigs — and
+        // skipped when OUR sig is already legacy-format (encrypted container), because then the
+        // comparison above was legacy-vs-legacy and the answer is final.
+        var hasLegacy = sigs.some(function (s) { return !/^m2:/.test(s); });
+        if (!hasLegacy || !/^m2:/.test(sig || "")) return { src: f, sig: sig, own: false };
+        return sigOf(f).then(function (old) {
+          return { src: f, sig: sig, own: !!old && sigs.indexOf(old) >= 0 };
         });
       });
     });
@@ -758,7 +812,7 @@
   // Replace our cache with the file's bytes and publish it as the authoritative working copy.
   function adoptFile(f, info) {
     return (info ? Promise.resolve(info) : readFile(f)).then(function (i) {
-      return ingest(i.ab).then(function () {
+      return ingest(i.src).then(function () {
         markAuthoritative();
         baseFileMod = f.lastModified; cacheMatchesFile = true; freshnessVerified = true;
         baseSig = i.sig; pendingSig = null;
@@ -964,7 +1018,7 @@
           }).then(function (f) {
             var mod = f.lastModified;
             return readFile(f).then(function (info) {
-              return ingest(info.ab).then(function () {
+              return ingest(info.src).then(function () {
                 fileHandle = next;
                 // We just read the file, so the cache equals it exactly and this session is verified.
                 baseFileMod = mod; cacheMatchesFile = true; freshnessVerified = true;
@@ -1245,6 +1299,7 @@
     get onConflict() { return conflictCb; },
     // test hooks (used by the Node unit test; harmless in the browser)
     _bundle: bundle, _serialize: serialize, _serializeZip: serializeZip, _ingest: ingest,
+    _containerSig: containerSig, _sigOf: sigOf,
     _markAuthoritativeForTest: markAuthoritative, _journal: journal,
     _setFileHandleForTest: function (h) { fileHandle = h; },
     // Resolves when every queued write-through has finished. Tests use it to observe the file

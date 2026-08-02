@@ -42,8 +42,15 @@
       tc.items.forEach(function (it) {
         var s = it.str || '';
         if (!s.trim()) return;                 // skip whitespace-only items
+        // Copy out the four numbers we want rather than keeping `it`: a pdf.js text item holds a
+        // reference back into the page's parsed content, so retaining them would pin every page
+        // we are about to release below.
         items.push({ page: p, x: it.transform[4], y: it.transform[5], w: it.width || 0, str: s });
       });
+      // Drop the page's parsed content now that its text is copied out. Without this, a long
+      // programmer report keeps every page resident until the whole document is destroyed —
+      // and peak usage is then the entire PDF rather than one page at a time.
+      if (typeof page.cleanup === 'function') { try { page.cleanup(); } catch (e) {} }
     }
     return items;
   }

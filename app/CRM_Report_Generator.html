@@ -78,8 +78,10 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 /* JSON import/export dropdown — position:fixed so it's anchored in VIEWPORT coordinates under the
    fixed app-bar button. This keeps the menu (and the native iOS share popover it triggers, which
    anchors to the tapped item) on screen no matter how far the page is scrolled. */
-.json-dd { position: fixed; min-width: 134px; background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.16); z-index: 1000; overflow: hidden; padding: 3px 0; }
-.json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; }
+/* max-width caps the menu at the viewport: patient rows are one nowrap line each, so without it a
+   long "Last, First MI" would widen the whole menu past the edge of the screen. */
+.json-dd { position: fixed; min-width: 134px; max-width: calc(100vw - 16px); background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.16); z-index: 1000; overflow: hidden; padding: 3px 0; }
+.json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
 .json-dd-item:active { background: var(--navy-lt); color: var(--navy); }
 /* Discards the current patient — coloured like the button it replaced, so it doesn't read as
@@ -2236,25 +2238,39 @@ function closeMenus() {
   var mb = document.getElementById('menu-btn');
   if (mb) mb.setAttribute('aria-expanded', 'false');
 }
-function toggleMenu(e, id) {
+/* `build` fills the menu and MUST run before it is measured — the width is whatever the longest
+   patient name makes it, so positioning an empty menu would place it by the wrong width. */
+function toggleMenu(e, id, build) {
   e.stopPropagation();
   var dd = document.getElementById(id);
   if (!dd) return;
   if (dd.style.display === 'block') { closeMenus(); return; }
-  closeMenus();   // close any other open menu first
-  // The menu is position:fixed, so anchor it under the button using VIEWPORT coordinates (the
-  // app-bar is fixed, so the button rect is always near the top). No pageYOffset — using document
-  // coordinates on a fixed element is what pushed the iOS share popover off-screen when scrolled.
+  // The menu is position:fixed, so anchor it under the trigger using VIEWPORT coordinates (the
+  // app-bar is fixed, so an app-bar button's rect is always near the top). No pageYOffset — using
+  // document coordinates on a fixed element is what pushed the iOS share popover off-screen when
+  // scrolled. Capture the rect BEFORE closeMenus: Export and Import open from items INSIDE the
+  // ☰ menu, and closing it first zeroes their rects — which stranded both submenus in the
+  // viewport's top-left corner instead of where the tapped item was.
   var r = e.currentTarget.getBoundingClientRect();
+  closeMenus();   // close any other open menu first
+  if (build) build();
   dd.style.top = (r.bottom + 4) + 'px';
-  dd.style.right = (document.documentElement.clientWidth - r.right) + 'px';
-  dd.style.left = 'auto';
-  dd.style.display = 'block';
+  // Show it before measuring: a display:none element has no width to read.
+  dd.style.left = '0px'; dd.style.right = 'auto'; dd.style.display = 'block';
+  // Hang from the trigger's LEFT edge, and only fall back to its right edge when that would run
+  // off the screen. Anchoring everything to the right (which is what this used to do, back when
+  // every menu lived at the right end of the bar) sends a wide menu off the left edge as soon as
+  // its trigger is on the left — which is exactly where the patient menu is now. The clamp is the
+  // backstop for the case where neither edge fits, e.g. a long name on a narrow iPad panel.
+  var vw = document.documentElement.clientWidth, w = dd.offsetWidth, pad = 8;
+  var left = r.left;
+  if (left + w > vw - pad) left = r.right - w;
+  dd.style.left = Math.round(Math.max(pad, Math.min(left, vw - w - pad))) + 'px';
 }
-function togglePatientMenu(e){ toggleMenu(e, 'patient-dropdown'); if (window.buildPatientMenu) window.buildPatientMenu(); }
-function toggleImportMenu(e){ toggleMenu(e, 'import-dropdown'); if (window.buildImportMenu) window.buildImportMenu(); }
-function toggleExportMenu(e){ toggleMenu(e, 'export-dropdown'); if (window.buildExportExtra) window.buildExportExtra(); }
-function toggleFilesMenu(e){ toggleMenu(e, 'files-dropdown'); if (window.buildFilesMenu) window.buildFilesMenu(); }
+function togglePatientMenu(e){ toggleMenu(e, 'patient-dropdown', function () { if (window.buildPatientMenu) window.buildPatientMenu(); }); }
+function toggleImportMenu(e){ toggleMenu(e, 'import-dropdown', function () { if (window.buildImportMenu) window.buildImportMenu(); }); }
+function toggleExportMenu(e){ toggleMenu(e, 'export-dropdown', function () { if (window.buildExportExtra) window.buildExportExtra(); }); }
+function toggleFilesMenu(e){ toggleMenu(e, 'files-dropdown', function () { if (window.buildFilesMenu) window.buildFilesMenu(); }); }
 // closeMenus (called by toggleMenu) has already cleared aria-expanded, so read the result back.
 function toggleMainMenu(e){
   toggleMenu(e, 'main-dropdown');
@@ -2954,6 +2970,9 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       setStatus('Parser scripts did not load (need engine.js beside this page).', 'err'); return;
     }
     setStatus('Reading ' + file.name + ' …');
+    // Declared out here so the finally below can release it on EVERY exit — including the two
+    // early returns for an unknown vendor and the catch. See the destroy() call for why.
+    var pdf = null;
     try {
       // pdf.js is fetched on demand — this drop is the first thing on the page that needs it.
       // Resolves instantly on every drop after the first.
@@ -2966,7 +2985,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       // which the Content-Security-Policy (correctly) blocks.
       pdfjsLib.GlobalWorkerOptions.workerSrc = '../vendor/pdf.worker.min.js';
       var buf = await file.arrayBuffer();
-      var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       var items = await Engine.extractItems(pdf);
       LAST_PDF = { items: items, lines: null, name: file.name };
       // Ranked, not first-match: a report names other manufacturers (an Abbott lead in a Boston
@@ -2981,6 +3000,14 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
     } catch(e){
       console.error(e);
       setStatus('Could not parse: '+ e.message +' (a scanned PDF with no selectable text needs OCR).', 'err');
+    } finally {
+      // pdf.js caches every page's parsed content — operator lists, embedded fonts, text layers —
+      // on the document, and holds a second copy of all of it inside the worker. None of that is
+      // released until the document is destroyed, so without this each imported programmer report
+      // stayed resident for the life of the tab: measured at roughly 1.8x the file's own size per
+      // import on the main thread alone, and a clinic day is a lot of imports.
+      // Safe here because everything downstream reads LAST_PDF.items, never the document.
+      if (pdf) { try { await pdf.destroy(); } catch (e2) {} pdf = null; }
     }
   }
 
@@ -3014,6 +3041,11 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   var slotDate = null, slotName = null, slotLabel = "", slotRoot = null;
   var syncArmed = false;
   var dirty = false;   // edits since the last full report build (json+txt+pdf)
+  // The patient whose full report set is known to be built and published, or null. Paired with
+  // `dirty` it answers "is there anything to rebuild?" without doing the rebuild to find out —
+  // which is the difference between a free Files-menu click and re-serializing the database.
+  var finalizedKey = null;
+  function slotKey() { return (slotDate && slotName) ? (slotDate + '/' + slotName) : null; }
   var patientBtn = document.getElementById('patient-btn');
   var pdMenu = document.getElementById('patient-dropdown');
   var imMenu = document.getElementById('import-dropdown');
@@ -3312,11 +3344,18 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       if (ev.origin !== location.origin || ev.source !== window.parent) return;
       var m = ev.data || {};
       if (m.type !== 'crm:finalize') return;
-      // The host is about to close or replace this panel. Same work the standalone page does when
-      // it navigates away — rebuild json+txt+pdf and publish — so the row's files are current
-      // before the frame goes. The token lets the host match the reply to its own request.
-      var reply = function () { postHost({ type: 'crm:finalized', token: m.token }); };
-      (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve())).then(reply, reply);
+      // The host is about to close this panel, or to read this patient's files. Same work the
+      // standalone page does when it navigates away — rebuild json+txt+pdf and publish — so the
+      // row's files are current before the frame goes. The token lets the host match the reply.
+      //
+      // `changed` is what stops this being expensive on repeat: a rebuild re-serializes the WHOLE
+      // database, and the host asks every time the Files menu is opened. When nothing has been
+      // edited since the last finalize of THIS patient, there is provably nothing to rebuild and
+      // nothing new for the host to adopt — so say so and let it skip both.
+      var reply = function (changed) { postHost({ type: 'crm:finalized', token: m.token, changed: changed !== false }); };
+      if (syncArmed && !dirty && finalizedKey && finalizedKey === slotKey()) { reply(false); return; }
+      (syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : Promise.resolve()))
+        .then(function () { reply(true); }, function () { reply(true); });
     });
   }
   // the store reports autosave / unsaved / errors through the USB-sync indicator
@@ -3333,6 +3372,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
   }
   function disarm() {
     syncArmed = false;
+    finalizedKey = null;   // whatever was built belonged to the patient we are leaving
     clearTimeout(saveTimer);                      // the form autosave drives staging; drop it too
     if (cadence.pending()) cadence.commitNow();   // don't strand staged edits in memory
     setSync('');
@@ -3381,6 +3421,7 @@ window.loadPdfJs = function () { return loadScriptOnce('../vendor/pdf.min.js'); 
       return Promise.all(jobs);
     }).then(function () {
       dirty = false;
+      finalizedKey = slotKey();  // this patient's json+txt+pdf are now built AND published
       clearTimeout(saveTimer);   // this rebuild supersedes whatever the autosave was about to stage
       // this flush publishes everything staged by the live sync too, so the cadence timer has
       // nothing left to do — cancel it rather than leaving a redundant commit armed.

@@ -232,33 +232,36 @@
   var EOCD_SIG = 0x06054b50, CDH_SIG = 0x02014b50, LFH_SIG = 0x04034b50;
   var EOCD_MIN = 22, TAIL_SMALL = 512, TAIL_SCAN = 66560;   // 22-byte record + up to a 64K comment
 
+  // Locate the end-of-central-directory record reading only the blob's tail. write() emits no ZIP
+  // comment, so our own containers put the EOCD in the last 22 bytes; the 64K scan is only for a
+  // foreign file. Resolves { total, cdSize, cdOffset }, or null when no EOCD is found.
+  function findEocd(blob) {
+    var size = blob.size;
+    function scanTail(len) {
+      return blob.slice(Math.max(0, size - len), size).arrayBuffer().then(function (tab) {
+        var tv = new DataView(tab);
+        for (var i = tab.byteLength - EOCD_MIN; i >= 0; i--) {
+          if (tv.getUint32(i, true) === EOCD_SIG) {
+            return { total: tv.getUint16(i + 10, true), cdSize: tv.getUint32(i + 12, true), cdOffset: tv.getUint32(i + 16, true) };
+          }
+        }
+        return null;
+      });
+    }
+    return scanTail(Math.min(size, TAIL_SMALL)).then(function (hit) {
+      return (hit || size <= TAIL_SMALL) ? hit : scanTail(TAIL_SCAN);
+    });
+  }
+
   function readBlob(blob) {
     if (typeof Blob === "undefined" || !(blob instanceof Blob)) return read(blob);
     var size = blob.size;
     if (size < EOCD_MIN) return Promise.reject(new Error("crmdb: not a valid bundle (too small)"));
     var full = function () { return blob.arrayBuffer().then(read); };
 
-    // write() emits no ZIP comment, so our own containers put the EOCD in the last 22 bytes. Try a
-    // small tail first and only fall back to the full 64K comment scan for a foreign file.
-    function scanTail(len) {
-      return blob.slice(Math.max(0, size - len), size).arrayBuffer().then(function (tab) {
-        var tv = new DataView(tab);
-        for (var i = tab.byteLength - EOCD_MIN; i >= 0; i--) {
-          if (tv.getUint32(i, true) === EOCD_SIG) return { tv: tv, eocd: i };
-        }
-        return null;
-      });
-    }
-
-    return scanTail(Math.min(size, TAIL_SMALL)).then(function (hit) {
-      return (hit || size <= TAIL_SMALL) ? hit : scanTail(TAIL_SCAN);
-    }).then(function (hit) {
+    return findEocd(blob).then(function (hit) {
       if (!hit) return full();
-      var tv = hit.tv, eocd = hit.eocd;
-
-      var total = tv.getUint16(eocd + 10, true);
-      var cdSize = tv.getUint32(eocd + 12, true);
-      var cdOffset = tv.getUint32(eocd + 16, true);
+      var total = hit.total, cdSize = hit.cdSize, cdOffset = hit.cdOffset;
       if (cdOffset + cdSize > size) return full();
 
       return blob.slice(cdOffset, cdOffset + cdSize).arrayBuffer().then(function (cab) {
@@ -309,11 +312,44 @@
     });
   }
 
+  /* ------------------------------------------------------------- MANIFEST */
+  // The container's own claims about its contents — [{ name, crc, size }] straight from the
+  // central directory — reading only the EOCD tail and the CD itself (a few KB of slices), never
+  // an entry's bytes. This is what lets a content signature of a multi-hundred-megabyte database
+  // cost kilobytes: any change to any file changes that file's CRC/size in the CD, so hashing
+  // these claims identifies the container as well as hashing the bytes did.
+  // Resolves null (never rejects) when the blob isn't a parseable ZIP — an encrypted envelope,
+  // a truncated file, a ZIP64 layout — so the caller can fall back to full-byte hashing.
+  function manifest(blob) {
+    if (typeof Blob === "undefined" || !(blob instanceof Blob) || blob.size < EOCD_MIN) return Promise.resolve(null);
+    var size = blob.size;
+    return findEocd(blob).then(function (hit) {
+      if (!hit || hit.cdOffset + hit.cdSize > size) return null;
+      return blob.slice(hit.cdOffset, hit.cdOffset + hit.cdSize).arrayBuffer().then(function (cab) {
+        var cd = new Uint8Array(cab), cv = new DataView(cab);
+        var out = [], p = 0;
+        for (var n = 0; n < hit.total; n++) {
+          if (p + 46 > cd.length || cv.getUint32(p, true) !== CDH_SIG) return null;
+          var nameLen = cv.getUint16(p + 28, true);
+          var extraLen = cv.getUint16(p + 30, true);
+          var commentLen = cv.getUint16(p + 32, true);
+          out.push({
+            name: td.decode(cd.subarray(p + 46, p + 46 + nameLen)),
+            crc: cv.getUint32(p + 16, true),
+            size: cv.getUint32(p + 24, true)      // uncompressed size
+          });
+          p += 46 + nameLen + extraLen + commentLen;
+        }
+        return out;
+      });
+    }).catch(function () { return null; });
+  }
+
   /* small convenience: text <-> bytes */
   function encodeText(s) { return te.encode(s); }
   function decodeText(u8) { return td.decode(u8); }
 
-  var api = { write: write, read: read, readBlob: readBlob, crc32: crc32, encodeText: encodeText, decodeText: decodeText };
+  var api = { write: write, read: read, readBlob: readBlob, manifest: manifest, crc32: crc32, encodeText: encodeText, decodeText: decodeText };
   if (typeof module !== "undefined" && module.exports) module.exports = api;   // Node tests
   if (typeof window !== "undefined") window.CRMDB = api;                        // browser
 })();
