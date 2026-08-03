@@ -49,7 +49,18 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
          scroll-snap-type: y mandatory; }
 .page { display: flex; align-items: center; justify-content: center;
         scroll-snap-align: start; scroll-snap-stop: always; }
-.page canvas { background: #fff; box-shadow: 0 3px 18px rgba(0,0,0,.5); }
+.page-stage { position: relative; flex: none; }
+.page canvas { position: absolute; inset: 0; background: #fff; box-shadow: 0 3px 18px rgba(0,0,0,.5); }
+/* Transparent PDF.js text precisely overlays the canvas. Keeping it per virtualized page makes
+   short values (BPM, serial numbers) selectable without retaining a document-wide DOM tree. */
+.text-layer { position: absolute; inset: 0; overflow: hidden; opacity: 1; line-height: 1;
+              text-align: initial; text-size-adjust: none; forced-color-adjust: none;
+              transform-origin: 0 0; z-index: 1; }
+.text-layer :is(span, br) { position: absolute; color: transparent; white-space: pre;
+                            cursor: text; transform-origin: 0 0; }
+.text-layer span.markedContent { top: 0; height: 0; }
+.text-layer ::selection { background: rgba(43, 126, 247, .38); }
+.text-layer br::selection { background: transparent; }
 #status { position: fixed; inset: var(--bar) 0 0 0; display: flex; align-items: center;
           justify-content: center; text-align: center; color: var(--muted); font-size: 13px;
           padding: 20px; white-space: pre-line; }
@@ -185,11 +196,15 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     for (var i = 1; i <= total; i++) {
       var el = document.createElement("div");
       el.className = "page"; el.dataset.i = i;
+      var stage = document.createElement("div");
+      stage.className = "page-stage";
       var canvas = document.createElement("canvas");
       canvas.width = 0; canvas.height = 0;   // a default canvas is 300x150 — 120 pages of that is real memory
-      el.appendChild(canvas);
+      var textLayer = document.createElement("div");
+      textLayer.className = "text-layer";
+      stage.appendChild(canvas); stage.appendChild(textLayer); el.appendChild(stage);
       scroller.appendChild(el);
-      shells.push({ el: el, canvas: canvas, rendered: false, task: null });
+      shells.push({ el: el, stage: stage, canvas: canvas, textLayer: textLayer, rendered: false, task: null });
       io.observe(el);
     }
   }
@@ -200,10 +215,10 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   function render(i) {
     var s = shells[i - 1];
     if (!s || s.rendered || s.task || !doc || tearingDown) return;
-    var claim = {}, renderTask = null;
-    s.task = claim;                                  // unique ownership across the first await
+    var work = { canvas: null, text: null };
+    s.task = work;                                   // unique ownership across every async stage
     doc.getPage(i).then(function (page) {
-      if (s.task !== claim) { try { page.cleanup(); } catch (e) {} return; }
+      if (s.task !== work) { try { page.cleanup(); } catch (e) {} return; }
       var v1 = page.getViewport({ scale: 1 });
       // Fit the whole page inside the viewport with a small breathing margin.
       var scale = Math.min((pageW - 20) / v1.width, (pageH - 16) / v1.height);
@@ -215,22 +230,40 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
       s.canvas.height = Math.floor(vp.height * dpr);
       s.canvas.style.width = Math.floor(vp.width) + "px";
       s.canvas.style.height = Math.floor(vp.height) + "px";
-      renderTask = page.render({ canvasContext: s.canvas.getContext("2d"), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
-      s.task = renderTask;
-      return renderTask.promise.then(function () {
-        if (s.task === renderTask) { s.rendered = true; s.task = null; }
+      s.stage.style.width = s.textLayer.style.width = Math.floor(vp.width) + "px";
+      s.stage.style.height = s.textLayer.style.height = Math.floor(vp.height) + "px";
+      s.textLayer.style.setProperty("--scale-factor", vp.scale);
+      work.canvas = page.render({ canvasContext: s.canvas.getContext("2d"), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+
+      // Text extraction/rendering is deliberately non-fatal: a scanned report still displays its
+      // canvas normally. The task belongs to the same virtual page and is cancelled/removed with it.
+      var textDone = page.getTextContent({ includeMarkedContent: true }).then(function (content) {
+        if (s.task !== work) return;
+        work.text = pdfjsLib.renderTextLayer({
+          textContentSource: content,
+          container: s.textLayer,
+          viewport: vp,
+          textDivs: []
+        });
+        return work.text.promise;
+      }).catch(function () {});
+      return Promise.all([work.canvas.promise, textDone]).then(function () {
+        if (s.task === work) { s.rendered = true; s.task = null; }
         page.cleanup();                              // parsed page content; the canvas keeps the pixels
       });
     }).catch(function () {
-      if (s.task === claim || s.task === renderTask) s.task = null;
+      if (s.task === work) s.task = null;
     });                                              // cancelled by a release/resize — it'll re-enter
   }
   function release(i) {
     var s = shells[i - 1];
     if (!s) return;
-    if (s.task && s.task.cancel) { try { s.task.cancel(); } catch (e) {} }
+    if (s.task && s.task.canvas && s.task.canvas.cancel) { try { s.task.canvas.cancel(); } catch (e) {} }
+    if (s.task && s.task.text && s.task.text.cancel) { try { s.task.text.cancel(); } catch (e) {} }
     s.task = null;
     if (s.canvas.width || s.canvas.height) { s.canvas.width = 0; s.canvas.height = 0; }
+    s.textLayer.replaceChildren();
+    s.stage.style.width = s.stage.style.height = "0px";
     s.rendered = false;
   }
 
