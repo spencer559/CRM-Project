@@ -6,7 +6,7 @@
      reach a network. The document arrives by postMessage from the page that opened this tab
      (window-to-window messaging is not a CSP fetch), and pdf.js runs entirely on the vendored
      files beside this page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PDF</title>
 <style>
@@ -66,6 +66,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   <span class="pager" id="pager"></span>
   <span class="spacer"></span>
   <button type="button" id="chromeBtn" title="Open this PDF in Chrome's own viewer (continuous scrolling)" hidden>Chrome viewer</button>
+  <button type="button" id="printBtn" title="Print the complete PDF" hidden>Print</button>
   <button type="button" id="downloadBtn" hidden>Download</button>
   <button type="button" id="closeBtn" onclick="window.close()" title="Close (Esc)">&#10005;</button>
 </div>
@@ -154,7 +155,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise.then(function (d) {
       doc = d; total = d.numPages;
       statusEl.hidden = true;
-      $("chromeBtn").hidden = $("downloadBtn").hidden = $("tocBtn").hidden = false;
+      $("chromeBtn").hidden = $("printBtn").hidden = $("downloadBtn").hidden = $("tocBtn").hidden = false;
       buildShells();
       layout();
       updatePager();
@@ -437,6 +438,47 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
       setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
     });
   });
+  var printFrame = null, printUrl = null, printCleanupTimer = null;
+  function cleanupPrintFrame() {
+    clearTimeout(printCleanupTimer);
+    if (printFrame && printFrame.parentNode) printFrame.parentNode.removeChild(printFrame);
+    if (printUrl) URL.revokeObjectURL(printUrl);
+    printFrame = null; printUrl = null;
+  }
+  $("printBtn").addEventListener("click", function () {
+    if (!doc) return;
+    cleanupPrintFrame();
+    doc.getData().then(function (bytes) {
+      printUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      printFrame = document.createElement("iframe");
+      printFrame.title = "Print " + docName;
+      printFrame.style.cssText = "position:fixed;width:1px;height:1px;right:0;bottom:0;border:0;opacity:0;pointer-events:none";
+      printFrame.onload = function () {
+        // Let Chrome's native PDF plugin finish attaching before invoking its print command. This
+        // prints every vector page from the original bytes, not just the canvases currently near
+        // the one-page scroller.
+        setTimeout(function () {
+          try {
+            var pw = printFrame && printFrame.contentWindow;
+            if (!pw) throw new Error("Print frame unavailable");
+            pw.focus();
+            pw.onafterprint = cleanupPrintFrame;
+            pw.print();
+          } catch (e) {
+            cleanupPrintFrame();
+            window.alert("Chrome could not open the print dialog. Use Chrome viewer, then print from there.");
+          }
+        }, 250);
+      };
+      printFrame.src = printUrl;
+      document.body.appendChild(printFrame);
+      // Some PDF plugin versions do not emit afterprint. Keep the Blob long enough for the dialog,
+      // then deterministically release it instead of retaining another full document indefinitely.
+      printCleanupTimer = setTimeout(cleanupPrintFrame, 120000);
+    }).catch(function (e) {
+      window.alert("Could not prepare this PDF for printing: " + e.message);
+    });
+  });
   $("downloadBtn").addEventListener("click", function () {
     if (!doc) return;
     doc.getData().then(function (bytes) {
@@ -450,7 +492,10 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
 
   // The lesson from the importer applies here too: a pdf.js document holds every parsed page
   // (and the worker holds a copy) until it is destroyed.
-  window.addEventListener("pagehide", function () { if (doc) { try { doc.destroy(); } catch (e) {} doc = null; } });
+  window.addEventListener("pagehide", function () {
+    cleanupPrintFrame();
+    if (doc) { try { doc.destroy(); } catch (e) {} doc = null; }
+  });
 })();
 </script>
 </body>
