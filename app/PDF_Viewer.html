@@ -410,27 +410,17 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
       snapRestoreFrame = null;
     });
   }
-  // Native wheel momentum makes mandatory scroll snapping animate through the space between pages.
-  // Discrete mouse-wheel notches each count as an Arrow key; a trackpad's stream of momentum
-  // events remains grouped into one gesture so a single swipe cannot fly through the report.
-  var wheelGesture = false, wheelEndTimer = null;
+  // Cancel native scrolling and treat every wheel event as an Arrow key. There is deliberately no
+  // gesture lock or cooldown: rapid wheel notches must remain rapid page changes.
   scroller.addEventListener("wheel", function (ev) {
     if (!doc || ev.ctrlKey || Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return;
     ev.preventDefault();
     var amount = Math.abs(ev.deltaY), legacy = Math.abs(ev.wheelDelta || 0);
-    var discrete = ev.deltaMode !== 0 || (legacy >= 120 && legacy % 120 === 0);
-    if (discrete) {
-      clearTimeout(wheelEndTimer); wheelGesture = false;
-      var steps = legacy >= 120 ? Math.round(legacy / 120)
-        : (ev.deltaMode === 1 ? Math.max(1, Math.round(amount / 3)) : 1);
-      goTo(current + (ev.deltaY > 0 ? 1 : -1) * Math.min(steps, 10));
-      return;
-    }
-    clearTimeout(wheelEndTimer);
-    wheelEndTimer = setTimeout(function () { wheelGesture = false; }, 140);
-    if (wheelGesture || amount < 0.5) return;
-    wheelGesture = true;
-    goTo(current + (ev.deltaY > 0 ? 1 : -1));
+    if (amount < 0.5) return;
+    // Some drivers combine several notches into one event. Preserve that count when Chrome exposes
+    // the traditional 120-units-per-notch value; otherwise the event is one page.
+    var steps = legacy >= 120 && legacy % 120 === 0 ? Math.round(legacy / 120) : 1;
+    goTo(current + (ev.deltaY > 0 ? 1 : -1) * Math.min(steps, 10));
   }, { passive: false });
   window.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") { if (!EMBED) window.close(); return; }   // embedded: the host owns closing
@@ -449,7 +439,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   function teardownViewer() {
     if (tearingDown) return;
     tearingDown = true;
-    clearTimeout(waitTimer); clearTimeout(resizeTimer); clearTimeout(wheelEndTimer); clearInterval(readyTimer);
+    clearTimeout(waitTimer); clearTimeout(resizeTimer); clearInterval(readyTimer);
     if (snapRestoreFrame) cancelAnimationFrame(snapRestoreFrame);
     if (io) io.disconnect();
     if (thumbIo) thumbIo.disconnect();
