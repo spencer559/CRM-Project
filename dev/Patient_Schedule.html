@@ -240,8 +240,16 @@
      chart while reading the source, no tabs. The divider drags; both sides are iframes/panes that
      fill the panel's fixed height. min-width:0 on both, or a wide PDF page would push the flex
      row past the panel instead of shrinking. */
-  .crm-panel-body { display:flex; align-items:stretch; height:min(70vh,620px); }
+  .crm-panel-body { position:relative; display:flex; align-items:stretch; height:min(70vh,620px); }
   .crm-frame { display:block; flex:1 1 55%; min-width:0; height:100%; border:0; background:#d0d6df; }
+  .crm-auth-overlay { position:absolute; inset:0; z-index:4; display:flex; align-items:center; justify-content:center;
+                      padding:24px; background:var(--panel2); text-align:center; }
+  .crm-auth-overlay[hidden] { display:none; }
+  .crm-auth-card { width:min(430px,100%); padding:22px; border:1px solid var(--border); border-radius:10px;
+                   background:var(--panel); box-shadow:0 10px 30px rgba(0,0,0,.35); }
+  .crm-auth-card strong { display:block; margin-bottom:8px; font-size:1rem; }
+  .crm-auth-card p { margin:0 0 14px; color:var(--muted); font-size:.82rem; line-height:1.45; }
+  .crm-auth-card button { border-color:var(--accent); color:var(--accent); }
   .crm-divider { flex:0 0 7px; cursor:col-resize; background:var(--panel); border-left:1px solid var(--border);
                  border-right:1px solid var(--border); touch-action:none; }
   .crm-divider:hover, .crm-divider.dragging { background:var(--accent); }
@@ -1718,6 +1726,11 @@
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
+    if (m.type === 'crm:access-ready') {
+      try { if (panel && panel.authPopup && !panel.authPopup.closed) panel.authPopup.close(); } catch (e) {}
+      reloadPanelAfterAccess();
+      return;
+    }
     if (m.type !== "pdfviewer:ready" || !ev.source) return;
     if (pdfViewerPending[m.id] && !pdfViewerDocs[m.id]) {
       pdfViewerReady[m.id] = { target: ev.source, instance: m.instance };
@@ -1884,6 +1897,8 @@
   function destroyPanel() {
     if (!panel) return;
     var tr = panel.tr;
+    clearTimeout(panel.authTimer);
+    clearInterval(panel.authPoll);
     if (panel.viewDocId) {
       delete pdfViewerDocs[panel.viewDocId];   // the viewer frame dies with the row
       clearPdfViewerSendState(panel.viewDocId);
@@ -1923,6 +1938,48 @@
     Promise.resolve(flushPending()).then(go, go);
   }
 
+  function armPanelAuthCheck() {
+    if (!panel) return;
+    clearTimeout(panel.authTimer);
+    panel.authTimer = setTimeout(function () {
+      if (!panel || panel.ready) return;
+      var overlay = panel.tr.querySelector('[data-crm-auth]');
+      if (overlay) overlay.hidden = false;
+      setWsStatus('CRM access needs authorization on this browser', 'warn');
+    }, 2500);
+  }
+  function authorizePanelAccess() {
+    if (!panel) return;
+    var authUrl = '../app/CRM_Report_Generator.html?authwarm=1';
+    panel.authPopup = window.open(authUrl, 'crm-access-authorization', 'width=720,height=760');
+    if (!panel.authPopup) {
+      setWsStatus('Chrome blocked the authorization window — allow pop-ups and try again', 'warn');
+      return;
+    }
+    clearInterval(panel.authPoll);
+    panel.authPoll = setInterval(function () {
+      if (!panel || !panel.authPopup) return;
+      var closed = false;
+      try { closed = panel.authPopup.closed; } catch (e) {}
+      if (!closed) return;
+      clearInterval(panel.authPoll); panel.authPoll = null;
+      reloadPanelAfterAccess();
+    }, 400);
+    setWsStatus('Finish CRM authorization in the new window…');
+  }
+  function reloadPanelAfterAccess() {
+    if (!panel) return;
+    clearTimeout(panel.authTimer);
+    clearInterval(panel.authPoll); panel.authPoll = null;
+    var overlay = panel.tr.querySelector('[data-crm-auth]');
+    if (overlay) overlay.hidden = true;
+    panel.ready = false;
+    var parts = panel.url.split('#');
+    panel.frame.src = parts[0] + '&authorized=' + Date.now() + (parts[1] ? '#' + parts[1] : '');
+    setWsStatus('CRM authorized — loading report generator…');
+    armPanelAuthCheck();
+  }
+
   function insertPanel(r, i) {
     var slot = slotOf(r);
     var cell = document.querySelector('td.crm-cell[data-cslot="' + i + '"]');
@@ -1946,6 +2003,11 @@
             '<button type="button" data-panel-close title="Close this report">Close</button>' +
           '</div>' +
           '<div class="crm-panel-body">' +
+            '<div class="crm-auth-overlay" data-crm-auth hidden>' +
+              '<div class="crm-auth-card"><strong>CRM access needs authorization</strong>' +
+                '<p>Chrome has authorized the Schedule but not the Report Generator. Authorize it once, then this panel will reload automatically.</p>' +
+                '<button type="button" data-crm-authorize>Authorize CRM access</button></div>' +
+            '</div>' +
             '<iframe class="crm-frame" title="CRM Report Generator for ' + esc(r.pt || slot) + '" src="' + esc(url) + '"></iframe>' +
             '<div class="crm-divider" title="Drag to resize" hidden></div>' +
             '<div class="crm-viewer" hidden></div>' +
@@ -1955,13 +2017,16 @@
     // Immediately after the notes row, so the appointment, its notes and its report read as one
     // block — the same way .notes-row already extends .appt-row.
     apptTr.parentNode.insertBefore(tr, notesTr ? notesTr.nextSibling : null);
-    panel = { date: curDate, slot: slot, tr: tr, frame: tr.querySelector("iframe.crm-frame"), ready: false, viewDocId: null };
+    panel = { date: curDate, slot: slot, tr: tr, frame: tr.querySelector("iframe.crm-frame"), url: url,
+      ready: false, viewDocId: null, authTimer: null, authPopup: null, authPoll: null };
     window.addEventListener("resize", sizePanel);
     sizePanel();
     initPanelDivider();
     // Opening CRM starts with the generator alone; split view is an explicit second action.
     populatePanelViewer(false);
     tr.querySelector("[data-panel-view]").addEventListener("change", function () { panelViewFile(this.value); });
+    tr.querySelector("[data-crm-authorize]").addEventListener("click", authorizePanelAccess);
+    armPanelAuthCheck();
     scanSlots();
     // Once the new row has participated in layout, place its appointment at the top of the
     // schedule viewport. The body is intentionally locked; .main-scroll owns vertical scrolling.
@@ -2134,7 +2199,13 @@
       return;
     }
     if (!panel || !panel.frame || ev.source !== panel.frame.contentWindow) return;
-    if (m.type === "crm:ready") { panel.ready = true; panel.sharedWorkspace = !!m.sharedWorkspace; return; }
+    if (m.type === "crm:ready") {
+      panel.ready = true; panel.sharedWorkspace = !!m.sharedWorkspace;
+      clearTimeout(panel.authTimer);
+      var authOverlay = panel.tr.querySelector('[data-crm-auth]');
+      if (authOverlay) authOverlay.hidden = true;
+      return;
+    }
     if (m.type === "crm:status") {
       var el = panel.tr.querySelector("[data-panel-sync]");
       if (el) { el.textContent = m.text || ""; el.className = "crm-panel-sync" + (m.warn ? " warn" : ""); }

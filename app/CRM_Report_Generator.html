@@ -297,6 +297,14 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
    `window.parent !== window` is deliberate: ?embed=1 typed into a top-level tab is not an embed,
    and the exits below must never post to a parent that is really this window. */
 (function () {
+  // Cloudflare Access sessions are scoped separately for /dev/ and /app/. When the Schedule opens
+  // this URL in a user-initiated helper window, reaching this script proves /app/ authorization;
+  // notify the opener and close before presenting a second copy of the form.
+  if (/(?:^|[?&])authwarm=1(?:&|$)/.test(location.search)) {
+    var authOrigin = location.origin === 'null' ? '*' : location.origin;
+    try { if (window.opener) window.opener.postMessage({ type: 'crm:access-ready' }, authOrigin); } catch (e) {}
+    try { window.close(); } catch (e) {}
+  }
   var embedded = /(?:^|[?&])embed=1(?:&|$)/.test(location.search) && window.parent !== window;
   window.CRM_EMBED = embedded;
   if (embedded) document.documentElement.classList.add('embedded');
