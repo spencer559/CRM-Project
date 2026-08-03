@@ -3966,7 +3966,12 @@ window.ensureReportPdfBuilder = function () {
     if (pdfViewerSends[sendKey]) return;
     pdfViewerSends[sendKey] = true;
     pdfViewerDocs[m.id].arrayBuffer().then(function (buf) {
-      try { src.postMessage({ type: 'pdfviewer:doc', id: m.id, buf: buf }, location.origin, [buf]); } catch (e) {}
+      // file:// pages have an opaque origin. `location.origin` is the string "null" there,
+      // which is not a valid postMessage targetOrigin; use the wildcard only for that local-file
+      // case. This matches the Schedule handoff and keeps hosted copies locked to same-origin.
+      var targetOrigin = location.origin === 'null' ? '*' : location.origin;
+      try { src.postMessage({ type: 'pdfviewer:doc', id: m.id, buf: buf }, targetOrigin, [buf]); }
+      catch (e) { delete pdfViewerSends[sendKey]; }
     }).catch(function () { delete pdfViewerSends[sendKey]; });
   });
   function openPdfInViewer(file, name) {
