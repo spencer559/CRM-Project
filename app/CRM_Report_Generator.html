@@ -84,10 +84,9 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 .json-dd-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 13px; font-size: 10.5px; font-family: Arial, Helvetica, sans-serif; color: var(--text-soft); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .json-dd-item:hover { background: var(--navy-lt); color: var(--navy); }
 .json-dd-item:active { background: var(--navy-lt); color: var(--navy); }
-/* ☰ items that open a flyout: the caret points the way the submenu expands (left — the ☰ sits
-   at the right edge of the bar, so leftward is where the room is). */
+/* ☰ items drill into a submenu in the same dropdown footprint. */
 .json-dd-item.json-dd-sub { display: flex; align-items: center; gap: 7px; }
-.json-dd-sub .sub-caret { color: #99a; font-size: 8px; flex: none; }
+.json-dd-sub .sub-caret { color: #99a; font-size: 8px; flex: none; transform: rotate(180deg); }
 .json-dd-sub[aria-expanded="true"] { background: var(--navy-lt); color: var(--navy); }
 .json-dd-item.json-dd-back { color: var(--navy); font-weight: 700; border-bottom: 1px solid var(--border); }
 /* Discards the current patient — coloured like the button it replaced, so it doesn't read as
@@ -281,15 +280,11 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
    script) and the button itself goes. The app-shell layout needs no change — its fixed app-bar
    and sidebar resolve against the FRAME's viewport, which is the panel. */
 .embedded .btn-schedule { display: none; }
-/* A split-view frame is wide enough for the form but not for a desktop menu plus a side flyout.
-   The script turns Export/Import into drill-in panels below 1200px; give those panels a bounded,
-   scrollable footprint so long patient-file lists stay inside the iframe. */
-@media (max-width: 1199px) {
-  .embedded #main-dropdown .sub-caret { transform: rotate(180deg); }
-  .embedded #export-dropdown, .embedded #import-dropdown {
-    min-width: 0 !important; width: min(240px, calc(100vw - 16px));
-    max-height: calc(100vh - 60px); overflow-y: auto;
-  }
+/* Export and Import use the split-view drill-in treatment everywhere. Keeping one menu inside one
+   viewport footprint is also friendlier on iPad and smaller laptop windows. */
+#export-dropdown, #import-dropdown {
+  min-width: 0 !important; width: min(240px, calc(100vw - 16px));
+  max-height: calc(100vh - 60px); overflow-y: auto;
 }
 </style>
 <script>
@@ -2272,10 +2267,9 @@ function closeMenus() {
   if (mb) mb.setAttribute('aria-expanded', 'false');
   document.querySelectorAll('.json-dd-sub[aria-expanded="true"]').forEach(function(b){ b.setAttribute('aria-expanded', 'false'); });
 }
-// Flyout submenus of the ☰ menu (Export / Import). Unlike toggleMenu this does NOT closeMenus —
-// the parent stays open, the child expands out beside it, and only the sibling flyout is closed,
-// so exactly one is showing at a time. The outside-click / Escape paths still tear everything
-// down through closeMenus.
+// Drill-in submenus of the ☰ menu (Export / Import). Each child replaces the main menu in the same
+// viewport footprint and provides an explicit Back row. The outside-click / Escape paths still
+// tear everything down through closeMenus.
 function openSubMenu(e, id, build) {
   e.stopPropagation();
   var dd = document.getElementById(id), item = e.currentTarget;
@@ -2293,49 +2287,27 @@ function openSubMenu(e, id, build) {
   });
   parent.querySelectorAll('.json-dd-sub[aria-expanded="true"]').forEach(function(b){ b.setAttribute('aria-expanded', 'false'); });
   if (build) build();
-  var pr = parent.getBoundingClientRect(), ir = item.getBoundingClientRect();
+  var pr = parent.getBoundingClientRect();
   var oldBack = dd.querySelector('[data-submenu-back]');
   if (oldBack) oldBack.parentNode.removeChild(oldBack);
-  // Inside a narrow embedded frame, a side flyout either overlaps the parent or gets clamped
-  // against the iframe edge. Drill into the submenu in the parent's footprint instead, with an
-  // explicit way back. The full-page generator keeps its faster desktop flyout behavior.
-  var compact = window.CRM_EMBED === true && document.documentElement.clientWidth < 1200;
-  if (compact) {
-    var back = document.createElement('button');
-    back.type = 'button';
-    back.className = 'json-dd-item json-dd-back';
-    back.setAttribute('data-submenu-back', '');
-    back.innerHTML = '<span aria-hidden="true">&#9666;</span> Main menu';
-    back.addEventListener('click', function (ev) {
-      ev.stopPropagation();
-      dd.style.display = 'none';
-      parent.style.display = 'block';
-      item.setAttribute('aria-expanded', 'false');
-    });
-    dd.insertBefore(back, dd.firstChild);
-    dd.style.left = '0px'; dd.style.right = 'auto'; dd.style.display = 'block';
-    var cvw = document.documentElement.clientWidth, cpad = 8, cw = dd.offsetWidth;
-    var cleft = Math.max(cpad, Math.min(pr.right - cw, cvw - cw - cpad));
-    dd.style.left = Math.round(cleft) + 'px';
-    dd.style.top = Math.round(Math.max(cpad, pr.top)) + 'px';
-    parent.style.display = 'none';
-    item.setAttribute('aria-expanded', 'true');
-    return;
-  }
-  // Show before measuring (a display:none element has no size), then place it: out to the LEFT
-  // of the parent menu — the ☰ hangs at the right edge of the bar, so leftward is where the room
-  // is — top-aligned with the tapped row. When a narrow viewport leaves no room on the left
-  // (e.g. the embedded panel), fall through to the right of the parent, then clamp on-screen.
+  var back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'json-dd-item json-dd-back';
+  back.setAttribute('data-submenu-back', '');
+  back.innerHTML = '<span aria-hidden="true">&#9666;</span> Main menu';
+  back.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    dd.style.display = 'none';
+    parent.style.display = 'block';
+    item.setAttribute('aria-expanded', 'false');
+  });
+  dd.insertBefore(back, dd.firstChild);
   dd.style.left = '0px'; dd.style.right = 'auto'; dd.style.display = 'block';
-  var vw = document.documentElement.clientWidth, vh = window.innerHeight;
-  var w = dd.offsetWidth, h = dd.offsetHeight, pad = 8, gap = 4;
-  var left = pr.left - w - gap;
-  if (left < pad) left = pr.right + gap;
-  left = Math.max(pad, Math.min(left, vw - w - pad));
-  var top = ir.top - 4;                  // -4: optical alignment with the row's own padding
-  if (top + h > vh - pad) top = Math.max(pad, vh - h - pad);
+  var vw = document.documentElement.clientWidth, pad = 8, w = dd.offsetWidth;
+  var left = Math.max(pad, Math.min(pr.right - w, vw - w - pad));
   dd.style.left = Math.round(left) + 'px';
-  dd.style.top = Math.round(top) + 'px';
+  dd.style.top = Math.round(Math.max(pad, pr.top)) + 'px';
+  parent.style.display = 'none';
   item.setAttribute('aria-expanded', 'true');
 }
 function subExportMenu(e){ openSubMenu(e, 'export-dropdown', function () { if (window.buildExportExtra) window.buildExportExtra(); }); }
