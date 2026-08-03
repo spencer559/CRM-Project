@@ -26,6 +26,10 @@ body { background: var(--bg); color: var(--text); font: 12px/1.4 "Segoe UI", sys
 .bar button { flex: none; background: #262b33; color: var(--text); border: 1px solid var(--border);
               border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
 .bar button:hover { border-color: #58a6ff; }
+.zoom-controls { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; }
+.zoom-controls[hidden] { display: none; }
+.zoom-controls button { min-width: 29px; padding-left: 7px; padding-right: 7px; }
+#zoomFit { min-width: 45px; font-variant-numeric: tabular-nums; }
 /* Contents sidebar: the PDF's own outline when it has one, page thumbnails otherwise. Fixed
    beside the scroller; opening it narrows the pages, which re-fit themselves (see refit). */
 :root { --toc-w: 232px; }
@@ -47,17 +51,19 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
 .toc-thumb .toc-pg { float: none; padding: 0; }
 #pages { position: fixed; inset: var(--bar) 0 0 0; overflow-y: auto;
          scroll-snap-type: y mandatory; }
-.page { display: flex; align-items: center; justify-content: center;
+.page { display: flex; align-items: center; justify-content: center; overflow: hidden;
         scroll-snap-align: start; scroll-snap-stop: always; }
 .page-stage { position: relative; flex: none; }
+body.zoomed .page-stage { cursor: grab; touch-action: none; }
+body.panning .page-stage { cursor: grabbing; }
 .page canvas { position: absolute; inset: 0; background: #fff; box-shadow: 0 3px 18px rgba(0,0,0,.5); }
 /* Transparent PDF.js text precisely overlays the canvas. Keeping it per virtualized page makes
    short values (BPM, serial numbers) selectable without retaining a document-wide DOM tree. */
 .text-layer { position: absolute; inset: 0; overflow: hidden; opacity: 1; line-height: 1;
               text-align: initial; text-size-adjust: none; forced-color-adjust: none;
-              transform-origin: 0 0; z-index: 1; }
+              transform-origin: 0 0; z-index: 1; pointer-events: none; }
 .text-layer :is(span, br) { position: absolute; color: transparent; white-space: pre;
-                            cursor: text; transform-origin: 0 0; }
+                            cursor: text; transform-origin: 0 0; pointer-events: auto; }
 .text-layer span.markedContent { top: 0; height: 0; }
 .text-layer ::selection { background: rgba(43, 126, 247, .38); }
 .text-layer br::selection { background: transparent; }
@@ -75,6 +81,11 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   <button type="button" id="tocBtn" title="Contents — the PDF's bookmarks, or page thumbnails" aria-expanded="false" hidden>Contents</button>
   <span class="name" id="name">PDF</span>
   <span class="pager" id="pager"></span>
+  <span class="zoom-controls" id="zoomControls" aria-label="PDF zoom" hidden>
+    <button type="button" id="zoomOut" title="Zoom out (Ctrl/Cmd −)" aria-label="Zoom out">&minus;</button>
+    <button type="button" id="zoomFit" title="Fit one complete page (Ctrl/Cmd 0)">Fit</button>
+    <button type="button" id="zoomIn" title="Zoom in (Ctrl/Cmd +)" aria-label="Zoom in">+</button>
+  </span>
   <span class="spacer"></span>
   <button type="button" id="chromeBtn" title="Open this PDF in Chrome's own viewer (continuous scrolling)" hidden>Chrome viewer</button>
   <button type="button" id="printBtn" title="Print the complete PDF" hidden>Print</button>
@@ -120,6 +131,8 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   pdfjsLib.GlobalWorkerOptions.workerSrc = "../vendor/pdf.worker.min.js";
 
   var doc = null, total = 0, current = 1, tearingDown = false;
+  var zoom = 1;
+  var ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
   var shells = [];           // one per page: { el, canvas, rendered, task }
   var pageH = 0, pageW = 0;
 
@@ -167,6 +180,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
       doc = d; total = d.numPages;
       statusEl.hidden = true;
       $("chromeBtn").hidden = $("printBtn").hidden = $("downloadBtn").hidden = $("tocBtn").hidden = false;
+      $("zoomControls").hidden = false;
       buildShells();
       layout();
       updatePager();
@@ -204,7 +218,8 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
       textLayer.className = "text-layer";
       stage.appendChild(canvas); stage.appendChild(textLayer); el.appendChild(stage);
       scroller.appendChild(el);
-      shells.push({ el: el, stage: stage, canvas: canvas, textLayer: textLayer, rendered: false, task: null });
+      shells.push({ el: el, stage: stage, canvas: canvas, textLayer: textLayer,
+        rendered: false, task: null, panX: 0, panY: 0 });
       io.observe(el);
     }
   }
@@ -221,19 +236,31 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
       if (s.task !== work) { try { page.cleanup(); } catch (e) {} return; }
       var v1 = page.getViewport({ scale: 1 });
       // Fit the whole page inside the viewport with a small breathing margin.
-      var scale = Math.min((pageW - 20) / v1.width, (pageH - 16) / v1.height);
+      var scale = Math.min((pageW - 20) / v1.width, (pageH - 16) / v1.height) * zoom;
       var vp = page.getViewport({ scale: scale });
       // A 2x portrait page can exceed 10 MB before the browser's GPU copy. In the split pane 1.5x
       // remains crisp at normal reading size and cuts pixel memory by roughly forty-four percent.
-      var dpr = Math.min(window.devicePixelRatio || 1, EMBED ? 1.5 : 2);
+      // Zoom increases the vector render detail, but cap total backing resolution so a 3x view
+      // cannot consume nine times the fit-mode canvas memory. Fit keeps its existing 2x/1.5x cap;
+      // zoomed pages top out at 3x/2.25x total backing scale.
+      var dprCap = (EMBED ? 2.25 : 3) / zoom;
+      var dpr = Math.max(0.75, Math.min(window.devicePixelRatio || 1, dprCap, EMBED ? 1.5 : 2));
+      // Do not expose pdf.js's progressive canvas tiles. During a fast direction reversal a page
+      // can enter, leave, and re-enter while its prior paint is being cancelled; revealing only a
+      // completed paint prevents a transient quadrant from flashing on screen.
+      s.canvas.style.visibility = "hidden";
       s.canvas.width = Math.floor(vp.width * dpr);
       s.canvas.height = Math.floor(vp.height * dpr);
       s.canvas.style.width = Math.floor(vp.width) + "px";
       s.canvas.style.height = Math.floor(vp.height) + "px";
       s.stage.style.width = s.textLayer.style.width = Math.floor(vp.width) + "px";
       s.stage.style.height = s.textLayer.style.height = Math.floor(vp.height) + "px";
+      applyPan(s);
       s.textLayer.style.setProperty("--scale-factor", vp.scale);
       work.canvas = page.render({ canvasContext: s.canvas.getContext("2d"), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+      var canvasDone = work.canvas.promise.then(function () {
+        if (s.task === work) s.canvas.style.visibility = "visible";
+      });
 
       // Text extraction/rendering is deliberately non-fatal: a scanned report still displays its
       // canvas normally. The task belongs to the same virtual page and is cancelled/removed with it.
@@ -247,7 +274,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
         });
         return work.text.promise;
       }).catch(function () {});
-      return Promise.all([work.canvas.promise, textDone]).then(function () {
+      return Promise.all([canvasDone, textDone]).then(function () {
         if (s.task === work) { s.rendered = true; s.task = null; }
         page.cleanup();                              // parsed page content; the canvas keeps the pixels
       });
@@ -258,14 +285,87 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   function release(i) {
     var s = shells[i - 1];
     if (!s) return;
-    if (s.task && s.task.canvas && s.task.canvas.cancel) { try { s.task.canvas.cancel(); } catch (e) {} }
+    var painting = !!(s.task && s.task.canvas);
+    // Hide before clearing the backing store. A zero-pixel canvas with its old CSS width/height
+    // can otherwise be composited for one frame as a rectangular GPU artifact.
+    s.canvas.style.visibility = "hidden";
+    if (painting && s.task.canvas.cancel) { try { s.task.canvas.cancel(); } catch (e) {} }
     if (s.task && s.task.text && s.task.text.cancel) { try { s.task.text.cancel(); } catch (e) {} }
     s.task = null;
-    if (s.canvas.width || s.canvas.height) { s.canvas.width = 0; s.canvas.height = 0; }
+    if (painting) {
+      // A cancelled PDF.js render may settle asynchronously. Detach its canvas so a rapid
+      // re-entry always paints into a fresh backing store instead of racing the old task.
+      var oldCanvas = s.canvas, freshCanvas = document.createElement("canvas");
+      freshCanvas.width = 0; freshCanvas.height = 0; freshCanvas.style.visibility = "hidden";
+      oldCanvas.replaceWith(freshCanvas); s.canvas = freshCanvas;
+    } else if (s.canvas.width || s.canvas.height) {
+      s.canvas.width = 0; s.canvas.height = 0;
+    }
+    s.canvas.style.width = s.canvas.style.height = "0px";
     s.textLayer.replaceChildren();
     s.stage.style.width = s.stage.style.height = "0px";
     s.rendered = false;
   }
+
+  /* ---- zoom and pan ---------------------------------------------------------------------
+     Zoom never changes the outer page shell: it remains exactly one viewport high and therefore
+     keeps the same mandatory one-page snap. Only the stage inside that shell grows. Drag blank
+     PDF space to pan; text spans retain normal selection behavior for copying small values. */
+  function applyPan(s) {
+    if (!s || !s.stage) return;
+    var sw = parseFloat(s.stage.style.width) || 0, sh = parseFloat(s.stage.style.height) || 0;
+    var bx = Math.max(0, (sw - pageW) / 2), by = Math.max(0, (sh - pageH) / 2);
+    s.panX = Math.max(-bx, Math.min(bx, s.panX || 0));
+    s.panY = Math.max(-by, Math.min(by, s.panY || 0));
+    s.stage.style.transform = "translate(" + s.panX + "px," + s.panY + "px)";
+  }
+  function updateZoomUi() {
+    document.body.classList.toggle("zoomed", zoom > 1);
+    $("zoomFit").textContent = zoom === 1 ? "Fit" : Math.round(zoom * 100) + "%";
+    $("zoomOut").disabled = zoom === ZOOM_STEPS[0];
+    $("zoomIn").disabled = zoom === ZOOM_STEPS[ZOOM_STEPS.length - 1];
+  }
+  function setZoom(next) {
+    next = Math.max(ZOOM_STEPS[0], Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], next));
+    if (next === zoom) return;
+    zoom = next;
+    shells.forEach(function (s) { s.panX = s.panY = 0; });
+    updateZoomUi();
+    refit();
+  }
+  function stepZoom(direction) {
+    var at = ZOOM_STEPS.indexOf(zoom);
+    if (at < 0) at = 0;
+    setZoom(ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, at + direction))]);
+  }
+  $("zoomOut").addEventListener("click", function () { stepZoom(-1); });
+  $("zoomIn").addEventListener("click", function () { stepZoom(1); });
+  $("zoomFit").addEventListener("click", function () { setZoom(1); });
+
+  var panDrag = null;
+  scroller.addEventListener("pointerdown", function (ev) {
+    if (zoom <= 1 || ev.button !== 0 || (ev.target.closest && ev.target.closest(".text-layer span"))) return;
+    var stage = ev.target.closest && ev.target.closest(".page-stage");
+    if (!stage) return;
+    var page = stage.parentNode, s = shells[(+page.dataset.i || 1) - 1];
+    if (!s) return;
+    ev.preventDefault();
+    panDrag = { pointer: ev.pointerId, shell: s, x: ev.clientX, y: ev.clientY, px: s.panX, py: s.panY };
+    document.body.classList.add("panning");
+    try { stage.setPointerCapture(ev.pointerId); } catch (e) {}
+  });
+  scroller.addEventListener("pointermove", function (ev) {
+    if (!panDrag || ev.pointerId !== panDrag.pointer) return;
+    panDrag.shell.panX = panDrag.px + ev.clientX - panDrag.x;
+    panDrag.shell.panY = panDrag.py + ev.clientY - panDrag.y;
+    applyPan(panDrag.shell);
+  });
+  function endPan(ev) {
+    if (!panDrag || (ev && ev.pointerId !== panDrag.pointer)) return;
+    panDrag = null; document.body.classList.remove("panning");
+  }
+  scroller.addEventListener("pointerup", endPan);
+  scroller.addEventListener("pointercancel", endPan);
 
   // The fit is a function of the scroller's size, so anything that changes it — a window resize,
   // the Contents sidebar opening — re-lays-out and re-renders, keeping the page you were on.
@@ -443,10 +543,22 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
       snapRestoreFrame = null;
     });
   }
-  // Cancel native scrolling and treat every wheel event as an Arrow key. There is deliberately no
-  // gesture lock or cooldown: rapid wheel notches must remain rapid page changes.
+  // Cancel native scrolling and treat every ordinary wheel event as an Arrow key. Ctrl/Cmd-wheel
+  // is reserved for the viewer's bounded zoom rather than allowing browser chrome zoom to resize
+  // the whole UI. Zoom gets a short lock because trackpads emit a stream of tiny pinch events;
+  // ordinary page-wheel navigation deliberately remains unthrottled.
+  var zoomWheelLocked = false;
   scroller.addEventListener("wheel", function (ev) {
-    if (!doc || ev.ctrlKey || Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return;
+    if (!doc) return;
+    if (ev.ctrlKey || ev.metaKey) {
+      ev.preventDefault();
+      if (zoomWheelLocked || Math.abs(ev.deltaY) < 0.5) return;
+      zoomWheelLocked = true;
+      stepZoom(ev.deltaY < 0 ? 1 : -1);
+      setTimeout(function () { zoomWheelLocked = false; }, 120);
+      return;
+    }
+    if (Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return;
     ev.preventDefault();
     var amount = Math.abs(ev.deltaY), legacy = Math.abs(ev.wheelDelta || 0);
     if (amount < 0.5) return;
@@ -458,6 +570,11 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   window.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") { if (!EMBED) window.close(); return; }   // embedded: the host owns closing
     if (!doc) return;
+    if (ev.ctrlKey || ev.metaKey) {
+      if (ev.key === "0") { ev.preventDefault(); setZoom(1); return; }
+      if (ev.key === "+" || ev.key === "=") { ev.preventDefault(); stepZoom(1); return; }
+      if (ev.key === "-" || ev.key === "_") { ev.preventDefault(); stepZoom(-1); return; }
+    }
     var next = { "PageDown": 1, "ArrowDown": 1, "ArrowRight": 1, " ": 1, "PageUp": -1, "ArrowUp": -1, "ArrowLeft": -1 }[ev.key];
     if (ev.key === " " && ev.shiftKey) next = -1;
     if (ev.key === "Home") { ev.preventDefault(); goTo(1); return; }
