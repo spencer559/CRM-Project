@@ -400,6 +400,19 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     scroller.scrollTop = (p - 1) * pageH;
     updatePager();
   }
+  // Native wheel momentum makes mandatory scroll snapping animate through the space between pages.
+  // Treat one mouse-wheel/trackpad gesture exactly like one Arrow key instead: cancel native
+  // scrolling, jump immediately, then ignore that gesture's remaining momentum events.
+  var wheelGesture = false, wheelEndTimer = null;
+  scroller.addEventListener("wheel", function (ev) {
+    if (!doc || ev.ctrlKey || Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return;
+    ev.preventDefault();
+    clearTimeout(wheelEndTimer);
+    wheelEndTimer = setTimeout(function () { wheelGesture = false; }, 140);
+    if (wheelGesture || Math.abs(ev.deltaY) < 0.5) return;
+    wheelGesture = true;
+    goTo(current + (ev.deltaY > 0 ? 1 : -1));
+  }, { passive: false });
   window.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") { if (!EMBED) window.close(); return; }   // embedded: the host owns closing
     if (!doc) return;
@@ -417,7 +430,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
   function teardownViewer() {
     if (tearingDown) return;
     tearingDown = true;
-    clearTimeout(waitTimer); clearTimeout(resizeTimer); clearInterval(readyTimer);
+    clearTimeout(waitTimer); clearTimeout(resizeTimer); clearTimeout(wheelEndTimer); clearInterval(readyTimer);
     if (io) io.disconnect();
     if (thumbIo) thumbIo.disconnect();
     shells.forEach(function (_s, n) { release(n + 1); });
