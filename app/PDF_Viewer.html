@@ -395,10 +395,20 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     highlightToc();
   }
   scroller.addEventListener("scroll", updatePager);
+  var snapRestoreFrame = null;
   function goTo(p) {
     p = Math.min(total, Math.max(1, p));
-    scroller.scrollTop = (p - 1) * pageH;
+    // Disable snap only for this exact placement. Otherwise Chrome can animate a short "settle"
+    // even though the destination is already a page boundary.
+    if (snapRestoreFrame) cancelAnimationFrame(snapRestoreFrame);
+    scroller.style.scrollSnapType = "none";
+    render(p);                                      // ensure the destination canvas is already claimed
+    scroller.scrollTo({ top: (p - 1) * pageH, left: 0, behavior: "instant" });
     updatePager();
+    snapRestoreFrame = requestAnimationFrame(function () {
+      scroller.style.scrollSnapType = "y mandatory";
+      snapRestoreFrame = null;
+    });
   }
   // Native wheel momentum makes mandatory scroll snapping animate through the space between pages.
   // Treat one mouse-wheel/trackpad gesture exactly like one Arrow key instead: cancel native
@@ -431,6 +441,7 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     if (tearingDown) return;
     tearingDown = true;
     clearTimeout(waitTimer); clearTimeout(resizeTimer); clearTimeout(wheelEndTimer); clearInterval(readyTimer);
+    if (snapRestoreFrame) cancelAnimationFrame(snapRestoreFrame);
     if (io) io.disconnect();
     if (thumbIo) thumbIo.disconnect();
     shells.forEach(function (_s, n) { release(n + 1); });
