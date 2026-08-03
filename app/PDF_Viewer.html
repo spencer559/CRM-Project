@@ -411,15 +411,24 @@ body.toc-open #pages, body.toc-open #status { left: var(--toc-w); }
     });
   }
   // Native wheel momentum makes mandatory scroll snapping animate through the space between pages.
-  // Treat one mouse-wheel/trackpad gesture exactly like one Arrow key instead: cancel native
-  // scrolling, jump immediately, then ignore that gesture's remaining momentum events.
+  // Discrete mouse-wheel notches each count as an Arrow key; a trackpad's stream of momentum
+  // events remains grouped into one gesture so a single swipe cannot fly through the report.
   var wheelGesture = false, wheelEndTimer = null;
   scroller.addEventListener("wheel", function (ev) {
     if (!doc || ev.ctrlKey || Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return;
     ev.preventDefault();
+    var amount = Math.abs(ev.deltaY), legacy = Math.abs(ev.wheelDelta || 0);
+    var discrete = ev.deltaMode !== 0 || (legacy >= 120 && legacy % 120 === 0);
+    if (discrete) {
+      clearTimeout(wheelEndTimer); wheelGesture = false;
+      var steps = legacy >= 120 ? Math.round(legacy / 120)
+        : (ev.deltaMode === 1 ? Math.max(1, Math.round(amount / 3)) : 1);
+      goTo(current + (ev.deltaY > 0 ? 1 : -1) * Math.min(steps, 10));
+      return;
+    }
     clearTimeout(wheelEndTimer);
     wheelEndTimer = setTimeout(function () { wheelGesture = false; }, 140);
-    if (wheelGesture || Math.abs(ev.deltaY) < 0.5) return;
+    if (wheelGesture || amount < 0.5) return;
     wheelGesture = true;
     goTo(current + (ev.deltaY > 0 ? 1 : -1));
   }, { passive: false });
