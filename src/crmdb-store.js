@@ -219,8 +219,24 @@
   }
 
   /* ---------------------------------------------------------- small helpers */
+  // The embedded Report Generator shares the Schedule's workspace, but values selected or built
+  // inside that iframe belong to a different JavaScript realm. `iframeFile instanceof Blob` is
+  // false when `Blob` is the parent window's constructor, even though iframeFile is a genuine
+  // browser File. Without the brand fallback below, importing a programmer report from the inline
+  // editor stores the string "[object File]" and pdf.js later reports "Invalid PDF structure".
+  function isBlobLike(data) {
+    if (!data) return false;
+    if (typeof Blob !== "undefined" && data instanceof Blob) return true;
+    var tag;
+    try { tag = Object.prototype.toString.call(data); } catch (e) { return false; }
+    return (tag === "[object Blob]" || tag === "[object File]")
+      && typeof data.size === "number" && typeof data.slice === "function";
+  }
   function toBlob(data) {
-    if (data instanceof Blob) return data;
+    if (typeof Blob !== "undefined" && data instanceof Blob) return data;
+    // Blob's constructor recognizes genuine Blob/File parts across realms and produces a Blob
+    // owned by this (workspace/parent) realm, so it remains safe after the iframe is removed.
+    if (isBlobLike(data)) return new Blob([data], { type: data.type || "" });
     if (typeof data === "string") return new Blob([data]);
     if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return new Blob([data]);
     return new Blob([String(data)]);
@@ -1341,6 +1357,7 @@
     // test hooks (used by the Node unit test; harmless in the browser)
     _bundle: bundle, _serialize: serialize, _serializeZip: serializeZip, _ingest: ingest,
     _containerSig: containerSig, _sigOf: sigOf,
+    _isBlobLikeForTest: isBlobLike, _toBlobForTest: toBlob,
     _markAuthoritativeForTest: markAuthoritative, _journal: journal,
     _setFileHandleForTest: function (h) { fileHandle = h; },
     // Resolves when every queued write-through has finished. Tests use it to observe the file
