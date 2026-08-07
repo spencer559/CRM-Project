@@ -684,7 +684,7 @@
     // what's on disk. This is the guard that stops a stale station cache clobbering newer OneDrive
     // data before the reconnect freshness check has had a chance to run.
     if (!freshnessVerified) {
-      if (opts.loud || opts.rethrow) status("Reconnect the database before saving — it hasn't been verified against the file yet", "warn");
+      if (opts.loud || opts.rethrow) status("Save blocked — these edits are only in this browser. Reconnect the database and choose which copy to keep.", "warn");
       return Promise.resolve(false);
     }
     return containerSig(blob).then(function (sig) {
@@ -861,8 +861,8 @@
     });
   }
   // A true conflict: the file moved AND our cache has unsaved edits. Ask the page which wins.
-  function resolveConflict(f, info) {
-    var details = { fileName: suggestedName, fileModified: f.lastModified };
+  function resolveConflict(f, info, reason) {
+    var details = { fileName: suggestedName, fileModified: f.lastModified, reason: reason || "freshness" };
     var ask = conflictCb ? Promise.resolve().then(function () { return conflictCb(details); })
                          : Promise.resolve("file");   // no handler wired → safest default is the file
     return ask.then(function (choice) {
@@ -1046,6 +1046,10 @@
           // and writing it back here is exactly how a stale reconnect overwrote OneDrive before.
           var prev = fileHandle, prevName = suggestedName, prevProtection = protection;
           var next = hs[0];
+          // A blocked Save can still commit edits into this browser's working copy. Reopening the
+          // file used to ingest it unconditionally here, silently erasing those edits. Treat that
+          // as the same three-way conflict as automatic freshness verification.
+          var reconnectConflict = opened && !freshnessVerified && !cacheMatchesFile;
           var saveOld = (opened && prev && canAutosave && freshnessVerified)
             ? serialize().then(function (blob) {
                 return prev.createWritable().then(function (w) { return w.write(blob).then(function () { return w.close(); }); });
@@ -1058,18 +1062,32 @@
           }).then(function (f) {
             var mod = f.lastModified;
             return readFile(f).then(function (info) {
+              fileHandle = next;
+              if (reconnectConflict) {
+                return resolveConflict(f, info, "reconnect").then(function (res) {
+                  return { decision: res.decision, resolved: true };
+                });
+              }
               return ingest(info.src).then(function () {
-                fileHandle = next;
                 // We just read the file, so the cache equals it exactly and this session is verified.
                 baseFileMod = mod; cacheMatchesFile = true; freshnessVerified = true;
                 baseSig = info.sig; pendingSig = null;
+                return { decision: "file", resolved: false };
               });
             }).catch(function (e) { fileHandle = prev; suggestedName = prevName; protection = prevProtection; throw e; });
           })
-            .then(function () { return idbSet("fileHandle", fileHandle); })
+            .then(function (result) {
+              return idbSet("fileHandle", fileHandle).then(function () { return result; });
+            })
             // Keep an immediately reopenable working copy. Waiting for the next edit used to
             // leave refresh/page handoff with only a permission-gated file handle and no data.
-            .then(function () { opened = true; markAuthoritative(); return persistMeta().then(commit); })
+            .then(function (result) {
+              opened = true;
+              // adoptFile already published the file/backup choices. A local choice is marked
+              // authoritative by resolveConflict but still needs publishing into IndexedDB.
+              if (result.resolved) return result.decision === "local" ? commit() : null;
+              markAuthoritative(); return persistMeta().then(commit);
+            })
             .then(function () { return ROOT; });
         });
     }
@@ -1333,6 +1351,7 @@
     reloadWorkingCopy: reloadWorkingCopy,
     verifyFreshness: verifyFreshness,
     isVerified: function () { return freshnessVerified; },
+    hasPendingFileChanges: function () { return opened && !cacheMatchesFile; },
     lastOpenError: function () { return lastOpenError; },
     enableProtection: enableProtection,
     changePassword: changePassword,

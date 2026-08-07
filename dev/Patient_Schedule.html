@@ -1103,6 +1103,7 @@
   if (WS) WS.onConflict = function (details) {
     return new Promise(function (resolve) {
       var name = (details && details.fileName) || "the database";
+      var reconnect = details && details.reason === "reconnect";
       var when = "";
       try { if (details && details.fileModified) when = " (file updated " + new Date(details.fileModified).toLocaleString() + ")"; } catch (e) {}
       var back = document.createElement("div");
@@ -1110,9 +1111,10 @@
       var box = document.createElement("div");
       box.style.cssText = "background:var(--card,#fff);color:var(--fg,#111);max-width:460px;width:92%;padding:20px 22px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.4);font:14px/1.5 system-ui,sans-serif;";
       box.innerHTML =
-        '<h3 style="margin:0 0 8px;font-size:16px;">Database changed elsewhere</h3>' +
-        '<p style="margin:0 0 14px;">' + name + ' was updated on another device' + when +
-        ', but this station has unsaved changes. Which copy should win? Nothing is deleted — “Save mine aside” keeps a backup either way.</p>';
+        '<h3 style="margin:0 0 8px;font-size:16px;">' + (reconnect ? 'Unsaved browser changes' : 'Database changed elsewhere') + '</h3>' +
+        '<p style="margin:0 0 14px;">' + (reconnect
+          ? 'This browser has changes that were not written to ' + name + '. Reconnecting would replace them. Choose which copy to keep.'
+          : name + ' was updated on another device' + when + ', but this station has unsaved changes. Which copy should win? Nothing is deleted — “Save mine aside” keeps a backup either way.') + '</p>';
       function btn(label, val, primary) {
         var b = document.createElement("button");
         b.textContent = label;
@@ -1121,9 +1123,15 @@
         b.onclick = function () { document.body.removeChild(back); resolve(val); };
         return b;
       }
-      box.appendChild(btn("Use the newer copy from the file (recommended)", "file", true));
-      box.appendChild(btn("Save mine aside, then load the file's copy", "backup", false));
-      box.appendChild(btn("Keep this station's copy (overwrite the file on next save)", "local", false));
+      if (reconnect) {
+        box.appendChild(btn("Save browser copy aside, then load the file (recommended)", "backup", true));
+        box.appendChild(btn("Keep browser copy (overwrite the file on next save)", "local", false));
+        box.appendChild(btn("Discard browser edits and load the file", "file", false));
+      } else {
+        box.appendChild(btn("Use the newer copy from the file (recommended)", "file", true));
+        box.appendChild(btn("Save mine aside, then load the file's copy", "backup", false));
+        box.appendChild(btn("Keep this station's copy (overwrite the file on next save)", "local", false));
+      }
       back.appendChild(box);
       document.body.appendChild(back);
     });
@@ -1314,7 +1322,11 @@
       $("openBtn").disabled = false;
       $("openBtn").textContent = "Open a different database…";
       $("wsForget").style.display = "";
-      setStatus(WS.canAutosave ? "Database open — auto-saving as you edit" : "Database open — press “Save database” to write back to USB", "ok");
+      var pendingFileChanges = WS.hasPendingFileChanges && WS.hasPendingFileChanges();
+      setStatus(pendingFileChanges
+        ? "Database reconnected — browser changes are not in the file yet. Click “Save now” to write them."
+        : (WS.canAutosave ? "Database open — auto-saving as you edit" : "Database open — press “Save database” to write back to USB"),
+        pendingFileChanges ? "warn" : "ok");
       updateDbLocation();
       updateSaveBtn();
       updateProtectionUI();

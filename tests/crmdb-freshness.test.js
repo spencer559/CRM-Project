@@ -81,6 +81,7 @@ async function blobBytes(blob) { return new Uint8Array(await blob.arrayBuffer())
 // last-modified time, and bumps the mtime on every write so a write-through is observable.
 function makeHandle(bytes, mtime) {
   const h = {
+    name: "schedule.crmdb",
     writes: 0,
     getFile() { return Promise.resolve({ lastModified: h._mtime, arrayBuffer: () => Promise.resolve(h._bytes.buffer.slice(h._bytes.byteOffset, h._bytes.byteOffset + h._bytes.byteLength)) }); },
     createWritable() {
@@ -141,8 +142,11 @@ async function run() {
   {
     const h = await seedStation({ cache: { v: "STALE" }, cacheMod: 1000, cacheMatchesFile: true, file: { v: "NEWER" }, fileMod: 9000 });
     const s = newTab(); await s.stored();
+    let warning = ""; s.onStatus = (msg, cls) => { if (cls === "warn") warning = msg; };
     await s.saveNow();                    // before verifyFreshness
     assert.strictEqual(h.writes, 0, "an unverified session wrote to the file — this is the OneDrive-clobber bug");
+    assert.match(warning, /only in this browser/i,
+      "a blocked explicit save must say that the edits have not reached the database file");
     // After verifying (file wins) and a real edit, a save DOES write through.
     await s.verifyFreshness();
     await s.writeFile({ prefix: "" }, "schedule.json", JSON.stringify({ v: "EDIT-HERE" }));
@@ -182,6 +186,40 @@ async function run() {
     const res = await s.verifyFreshness();
     assert.strictEqual(res.decision, "file", "with no handler, a conflict must default to the file");
     assert.strictEqual((await schedOf(s)).v, "FILE");
+  }
+
+  /* 6. Manual reconnect with browser-only edits must ask instead of silently ingesting the picked
+        file. This is the Schedule startup case: Save was blocked while OneDrive/file permission
+        was unavailable, then Open database used to erase the checked Cerner boxes. */
+  for (const [choice, expected, pending] of [
+    ["file", "PICKED-FILE", false],
+    ["backup", "PICKED-FILE", false],
+    ["local", "BROWSER-ONLY", true]
+  ]) {
+    await seedStation({ cache: { v: "BROWSER-ONLY" }, cacheMod: 1000, cacheMatchesFile: false, file: { v: "BOUND-OLD" }, fileMod: 9000 });
+    const picked = makeHandle(await blobBytes(await crmdbBlob({ v: "PICKED-FILE" })), 10000);
+    global.showOpenFilePicker = () => Promise.resolve([picked]);
+
+    const s = newTab();
+    let details = null;
+    s.onConflict = (d) => { details = d; return choice; };
+    await s.stored();
+    await s.connect();
+
+    assert.strictEqual(details && details.reason, "reconnect",
+      "manual reconnect must identify the browser-only conflict for choice=" + choice);
+    assert.strictEqual((await schedOf(s)).v, expected,
+      "manual reconnect loaded the wrong copy for choice=" + choice);
+    assert.strictEqual(s.hasPendingFileChanges(), pending,
+      "manual reconnect reported the wrong file-save state for choice=" + choice);
+    if (choice === "local") {
+      assert.strictEqual(picked.writes, 0, "keeping the browser copy must wait for an explicit save before overwriting the file");
+      await s.saveNow();
+      assert.strictEqual(picked.writes, 1, "Save now must write the kept browser copy after reconnect");
+      const checkFile = await picked.getFile();
+      const check = newTab(); await check._ingest(new Blob([await checkFile.arrayBuffer()]));
+      assert.strictEqual((await schedOf(check)).v, "BROWSER-ONLY", "the post-reconnect save wrote the wrong database");
+    }
   }
 
   console.log("crmdb freshness: a stale station cache can no longer overwrite a newer OneDrive file — passed");
