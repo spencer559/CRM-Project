@@ -1510,6 +1510,9 @@ function applyFormData(d) {
   if (typeof updateEpMode === 'function') updateEpMode();   // show table vs free-text per saved choice
   if (typeof updateLoopObservations === 'function') updateLoopObservations();
   if (typeof updateLoopEpMode === 'function') updateLoopEpMode();
+  // The reprogramming table starts hidden in the HTML. Restoring the saved "Yes" radio does not
+  // fire its change event, so explicitly bring the wrapper back into sync on every restore.
+  if (typeof updateReprogTable === 'function') updateReprogTable();
   // restore the verbatim lead-info table rows (cells have no id/name, so they ride in __leadinfo)
   if (Array.isArray(d.__leadinfo) && d.__leadinfo.length && typeof setLeadInfoRows === 'function') {
     setLeadInfoRows(d.__leadinfo);
