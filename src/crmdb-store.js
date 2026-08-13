@@ -2,7 +2,7 @@
  *
  * This is what backs window.CRMWorkspace — the API both the Patient Schedule and the CRM
  * Report Generator call (connect, slotDir, writeFile, readText, listFiles, moveSlot,
- * slotName, stored, permission, forget, usbOnly …). Rather than drive a live folder tree
+ * slotName, stored, permission, forget …). Rather than drive a live folder tree
  * through the File System Access directory API (which iPadOS doesn't have at all), every
  * one of those reads and writes an in-memory bundle:
  *
@@ -1230,10 +1230,6 @@
     return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY), idbDel(META_KEY), idbDel(CRC_KEY)]).then(function () {});
   }
 
-  /* USB-only preference (unchanged semantics: whether pages keep a localStorage mirror) */
-  function usbOnly() { try { return localStorage.getItem("usbOnlyMode") === "1"; } catch (e) { return false; } }
-  function setUsbOnly(v) { try { v ? localStorage.setItem("usbOnlyMode", "1") : localStorage.removeItem("usbOnlyMode"); } catch (e) {} }
-
   /* slot / file operations over the bundle */
   function slotDir(root, date, slot, create) { return Promise.resolve(dirHandleFor(slotPrefix(date, slot))); }
   function readText(dir, name) {
@@ -1360,8 +1356,6 @@
     reconnect: reconnect,
     canReconnect: function () { return !!(fileHandle && canAutosave); },
     forget: forget,
-    usbOnly: usbOnly,
-    setUsbOnly: setUsbOnly,
     slotDir: slotDir,
     moveSlot: moveSlot,
     moveDate: moveDate,

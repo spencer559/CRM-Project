@@ -357,9 +357,6 @@
         <button id="reconnectBtn" onclick="reconnectDatabase()" style="display:none;">Reconnect same database</button>
         <button id="openBtn" onclick="openDatabase()">Open database&hellip;</button>
         <button onclick="newDatabase()">New database&hellip;</button>
-        <button onclick="exportJson()">Export schedule JSON</button>
-        <button onclick="importJson()">Import schedule JSON</button>
-        <input id="importFile" type="file" accept="application/json,.json" style="display:none">
         <input id="attachFile" type="file" accept="application/pdf,.pdf,.log,.txt" style="display:none">
         <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
         <div id="dbProtectionStatus" class="hdr-status">Password protection: &mdash;</div>
@@ -369,10 +366,6 @@
         <div style="border-top:1px solid var(--border); margin:6px 0 2px;"></div>
         <div id="wsStatus" class="hdr-status"></div>
         <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Close database</button>
-        <label class="hdr-status" style="display:flex; gap:7px; align-items:flex-start; cursor:pointer; margin-top:4px;">
-          <input type="checkbox" id="usbOnlyChk" style="margin-top:2px; cursor:pointer;">
-          <span>USB-only mode &mdash; keep no schedule copy in this browser (the database file is the only copy)</span>
-        </label>
       </div>
     </div>
     <button id="dbSaveBtn" class="save" onclick="saveDatabase()" disabled title="Save the database (.crmdb) back to your USB">Save database</button>
@@ -458,7 +451,7 @@
   "use strict";
   var KEY = "patientSchedV1";
   var DATEKEY = "patientSchedDateV1";
-  var REVKEY = "patientSchedRevisionV1"; // timestamp only (no PHI); safe even in USB-only mode
+  var REVKEY = "patientSchedRevisionV1"; // timestamp only (no PHI)
   // sessionStorage, not localStorage: the filter must survive the CRM Report Generator round trip
   // (a full navigation in this same tab) without leaving a provider's name on the machine after the
   // tab closes. Closing the tab still starts the next visit on All Providers.
@@ -507,7 +500,7 @@
     return blank();
   }
   // The day being viewed is a plain UI preference (a bare date, not PHI) so it persists
-  // across refreshes regardless of USB-only mode — return to the day you last looked at.
+  // across refreshes — return to the day you last looked at.
   function loadCurDate() {
     try { var d = localStorage.getItem(DATEKEY); if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d; } catch (e) {}
     return localISO();
@@ -522,7 +515,7 @@
   var curDate = loadCurDate();
   // The remembered choice is kept SEPARATE from the active filter. The provider roster lives in the
   // database, which loads asynchronously — after the first render, and with no localStorage mirror
-  // at all when the database is password-protected or in USB-only mode. Storing only the active
+  // at all when the database is password-protected. Storing only the active
   // filter meant that first roster-less paint threw the choice away before the database could
   // arrive with the provider in it.
   var rememberedProvider = loadProviderFilter();
@@ -560,7 +553,7 @@
     var adopt = function () {
       state = next;
       remotePendingRevision = committed ? 0 : revisionOf(next);
-      if (!(WS && wsRoot && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted())))) {
+      if (!(WS && wsRoot && WS.isEncrypted && WS.isEncrypted())) {
         try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
       }
       // Our own schedule.json may already be STAGED — sitting in the store's journal, which a rebase
@@ -600,8 +593,8 @@
   var mirrorTimer = null;
   function mirrorNow() {
     clearTimeout(mirrorTimer); mirrorTimer = null;
-    // USB-only mode: while the workspace is connected, the stick is the ONLY copy
-    if (wsRoot && WS && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted()))) {
+    // Protected databases must never leave a plaintext schedule mirror in localStorage.
+    if (wsRoot && WS && WS.isEncrypted && WS.isEncrypted()) {
       try { localStorage.removeItem(KEY); } catch (e) {}
     } else {
       try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
@@ -1050,30 +1043,6 @@
   window.printSchedule = function () { buildPrintView(); window.print(); };
   window.addEventListener("beforeprint", buildPrintView);
 
-  /* ---------- JSON export / import ---------- */
-  window.exportJson = function () {
-    var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "patient-schedule-" + curDate + ".json";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1500);
-  };
-  window.importJson = function () { $("importFile").click(); };
-  $("importFile").addEventListener("change", function (ev) {
-    var f = ev.target.files[0]; if (!f) return;
-    var r = new FileReader();
-    r.onload = function () {
-      try {
-        var s = normalize(JSON.parse(r.result));
-        if (!confirm("Load this schedule? It REPLACES everything currently here.")) return;
-        state = s; save(); render();
-        setStatus("Imported " + f.name, "ok");
-      } catch (e) { alert("Could not read that schedule file."); }
-    };
-    r.readAsText(f); ev.target.value = "";
-  });
-
   /* ---------- database persistence (.crmdb container via src/crmdb-store.js) ---------- */
   var WS = window.CRMWorkspace;
   var wsRoot = null;             // the open database (virtual root over the bundle)
@@ -1293,7 +1262,7 @@
           });
         }
         state = incoming;
-        if (!(WS && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted())))) localStorage.setItem(KEY, JSON.stringify(state));
+        if (!(WS && WS.isEncrypted && WS.isEncrypted())) localStorage.setItem(KEY, JSON.stringify(state));
         else { try { localStorage.removeItem(KEY); } catch (e) {} }
       }
       render();
@@ -1306,7 +1275,7 @@
     return h.createWritable().then(function (w) {
       return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); });
     }).then(function () {
-      if (!(WS && (WS.usbOnly() || (WS.isEncrypted && WS.isEncrypted())))) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+      if (!(WS && WS.isEncrypted && WS.isEncrypted())) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
       else { try { localStorage.removeItem(KEY); } catch (e) {} }
       render();
     });
@@ -1484,26 +1453,6 @@
       r.addEventListener("change", function () { window.setRetention(this.value); });
     });
   })();
-  (function initUsbOnlyToggle() {
-    var chk = $("usbOnlyChk");
-    if (!chk || !WS) return;
-    chk.checked = WS.usbOnly();
-    chk.addEventListener("change", function () {
-      WS.setUsbOnly(chk.checked);
-      if (!wsRoot) { setWsStatus("USB-only mode " + (chk.checked ? "ON" : "OFF") + " — takes effect while a database is open", ""); return; }
-      if (chk.checked) {
-        try { localStorage.removeItem(KEY); } catch (e) {}
-        setWsStatus("USB-only ON — this browser holds no schedule copy", "ok");
-      } else if (!(WS.isEncrypted && WS.isEncrypted())) {
-        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
-        setWsStatus("USB-only OFF — browser mirror restored", "");
-      } else {
-        try { localStorage.removeItem(KEY); } catch (e) {}
-        setWsStatus("Browser mirror remains off while password protection is enabled", "ok");
-      }
-    });
-  })();
-
   /* Leaving the page, in every way a browser signals it — tab-hide, Back out of the schedule, tab
      close. This is what keeps the commit cadence from ever costing a normal exit. */
   cadence.attachLeaveHooks(function () {

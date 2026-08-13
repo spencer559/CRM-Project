@@ -334,7 +334,7 @@ the next open requires the password. Encrypted files cannot be recovered by rena
 
 **Engine (`crmdb-store.js`).** It exposes the **same `window.CRMWorkspace` API the two pages
 already called** (`connect`, `slotDir`, `readText`, `writeFile`, `listFiles`, `moveSlot`, `moveDate`,
-`slotName`, `stored`, `permission`, `forget`, `usbOnly` …) but backed by an **in-memory
+`slotName`, `stored`, `permission`, `forget` …) but backed by an **in-memory
 `bundle` = `Map<path, Blob>`** instead of live directory handles. Slot/file ops became map
 reads/writes; `moveSlot` (renaming a slot when a row's time/patient name changes) and `moveDate`
 (relocating every patient-folder prefix when Move Day changes the schedule date) became key
@@ -414,7 +414,7 @@ chip still opens inline after a round-trip strips the raw blob's type.
 
 **Schedule-side features built on the container:**
 - **Database menu** (replaces the old dual "schedule file" + "USB workspace" menus): Open / New
-  database, Export/Import schedule JSON, add/change/remove password protection, USB-only, Close
+  database, reconnect the remembered file, add/change/remove password protection, and Close
   database. A separate **Save** button
   ("Save now" on desktop, "Save database" on iPad) sits in the header; **Leave Station** moved
   into the **Memory** menu. Header order: Modules · All patients · Memory · Database · Save.
@@ -502,8 +502,7 @@ working copy directly; external-file permission affects desktop autosave but nev
 loading. It also offers **Open database…** and
 **Return to Schedule**, and does not allow report entry to begin against an unlinked blank form.
 
-**USB-only mode** is unchanged in spirit (preference key `usbOnlyMode`): while a database is open,
-the browser keeps no schedule mirror. **NTFS caveat** — the bug that started all this: macOS and
+**NTFS caveat** — the bug that started all this: macOS and
 iPadOS mount **NTFS read-only**, so *every* write fails there regardless of mechanism (the original
 "could not be modified due to the state of the underlying filesystem" error). Format the stick
 **exFAT** for cross-device read-write. A single `.crmdb` (vs. thousands of loose files) is also far

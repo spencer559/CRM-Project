@@ -3478,8 +3478,8 @@ window.ensureReportPdfBuilder = function () {
     setSync('Live sync on');
     postHost({ type: 'crm:slot-ready', date: slotDate, slot: slotName });
     updateFilesBtn();
-    // USB-only: the slot's report.json is the recovery copy — drop the browser one
-    if ((WS.usbOnly && WS.usbOnly()) || (WS.isEncrypted && WS.isEncrypted())) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
+    // Protected databases must never leave a plaintext report draft in localStorage.
+    if (WS.isEncrypted && WS.isEncrypted()) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
   }
   function disarm() {
     syncArmed = false;
@@ -3593,8 +3593,8 @@ window.ensureReportPdfBuilder = function () {
     }
     // While a patient slot is armed, skip the localStorage draft entirely: the slot's own
     // report.json IS the crash-recovery copy, so the draft is duplicate work — and it is a
-    // SYNCHRONOUS write of PHI on the typing path. In USB-only / encrypted mode not writing it is
-    // the stronger requirement anyway: nothing may land on the machine at all.
+    // SYNCHRONOUS write of PHI on the typing path. For an encrypted database, not writing it is
+    // also a security requirement: no plaintext report may land on the machine.
     //
     // Hooks saveDraft, not doSave: doSave also feeds the live sync, and returning early from it
     // would silently stop staging to the patient's slot.
@@ -3825,12 +3825,6 @@ window.ensureReportPdfBuilder = function () {
             if (!any) pdMenu.appendChild(noteEl('The USB schedule has no patients yet — build it on the Patient Schedule page.'));
             addProtectionItems(pdMenu);
             pdMenu.appendChild(divEl());
-            pdMenu.appendChild(item('USB-only mode: ' + (WS.usbOnly() ? 'ON' : 'OFF') + ' — click to toggle', function () {
-              WS.setUsbOnly(!WS.usbOnly());
-              if (WS.usbOnly()) { try { localStorage.removeItem('crm-digital'); } catch (e) {} }
-              if (syncArmed) setSync('Live sync on');
-              toast('USB-only mode ' + (WS.usbOnly() ? 'ON — no browser autosave while a patient is active' : 'OFF — browser autosave restored'), 'ok');
-            }, true));
             pdMenu.appendChild(item('Disconnect workspace', doDisconnect, true));
           })
           .catch(function () {
