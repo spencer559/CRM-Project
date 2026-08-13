@@ -89,7 +89,7 @@ body.panning .page-stage { cursor: grabbing; }
   <span class="spacer"></span>
   <button type="button" id="chromeBtn" title="Open this PDF in Chrome's own viewer (continuous scrolling)" hidden>Chrome viewer</button>
   <button type="button" id="printBtn" title="Print the complete PDF" hidden>Print</button>
-  <button type="button" id="downloadBtn" hidden>Download</button>
+  <button type="button" id="downloadBtn" title="Choose where to save this PDF" hidden>Download</button>
   <button type="button" id="closeBtn" onclick="window.close()" title="Close (Esc)">&#10005;</button>
 </div>
 <div id="toc" role="navigation" aria-label="Contents"></div>
@@ -652,14 +652,55 @@ body.panning .page-stage { cursor: grabbing; }
       window.alert("Could not prepare this PDF for printing: " + e.message);
     });
   });
+  function classicDownload(blob, name) {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  }
   $("downloadBtn").addEventListener("click", function () {
     if (!doc) return;
+    var name = /\.pdf$/i.test(docName) ? docName : docName + ".pdf";
+
+    // The picker must be opened immediately from this click, before the asynchronous pdf.js
+    // getData() call, or Chromium will reject it for losing the user gesture. In split view the
+    // viewer is a same-origin iframe, so ask its top-level Schedule window to present the picker.
+    var pickerWindow = window;
+    try {
+      if (EMBED && window.top && window.top.showSaveFilePicker) pickerWindow = window.top;
+    } catch (e) {}
+    if (pickerWindow.showSaveFilePicker) {
+      var picked;
+      try {
+        picked = pickerWindow.showSaveFilePicker({
+          suggestedName: name,
+          types: [{ description: "PDF document", accept: { "application/pdf": [".pdf"] } }]
+        });
+      } catch (e) {
+        window.alert("Could not open the Save As dialog: " + e.message);
+        return;
+      }
+      picked.then(function (handle) {
+        return doc.getData().then(function (bytes) {
+          return handle.createWritable().then(function (writable) {
+            return writable.write(new Blob([bytes], { type: "application/pdf" }))
+              .then(function () { return writable.close(); });
+          });
+        });
+      }).catch(function (e) {
+        if (e && e.name === "AbortError") return; // user cancelled Save As
+        window.alert("Could not save this PDF: " + ((e && e.message) || "unknown error"));
+      });
+      return;
+    }
+
+    // Firefox/Safari do not currently expose showSaveFilePicker; preserve the normal browser
+    // download there instead of making the viewer's Download button stop working.
     doc.getData().then(function (bytes) {
-      var a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-      a.download = docName;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+      classicDownload(new Blob([bytes], { type: "application/pdf" }), name);
+    }).catch(function (e) {
+      window.alert("Could not prepare this PDF for download: " + e.message);
     });
   });
 

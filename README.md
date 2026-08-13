@@ -412,6 +412,10 @@ and a `flush()` (IndexedDB-only, no download) runs before every cross-page navig
 page opens the latest bundle. MIME types are re-assigned by extension on read, so a `report.pdf`
 chip still opens inline after a round-trip strips the raw blob's type.
 
+The custom PDF viewer's **Download** button uses the system **Save As** picker on supported
+Chromium browsers, allowing a USB drive or any other folder to be selected. Browsers without the
+File System Access picker retain the standard download-to-default-folder behavior.
+
 **Schedule-side features built on the container:**
 - **Database menu** (replaces the old dual "schedule file" + "USB workspace" menus): Open / New
   database, reconnect the remembered file, add/change/remove password protection, and Close
