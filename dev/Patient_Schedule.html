@@ -1555,6 +1555,21 @@
     if (isProgrammerReport(name)) return 1;
     return 2;
   }
+  // `report.pdf` remains the stable filename inside the .crmdb. Present a patient/date-specific
+  // name when the generated PDF is shown or handed to the viewer, whose Save action reuses it.
+  function generatedReportFilename(slot, date) {
+    var day = state.dates[date || curDate] || [];
+    var patient = '';
+    for (var i = 0; i < day.length; i++) {
+      if (WS && WS.slotName(day[i].time, day[i].pt) === slot) { patient = day[i].pt || ''; break; }
+    }
+    var last = patient.indexOf(',') >= 0
+      ? patient.split(',')[0].trim()
+      : ((patient.trim().split(/\s+/).filter(Boolean).pop()) || 'Patient');
+    last = last.normalize ? last.normalize('NFKD').replace(/[\u0300-\u036f]/g, '') : last;
+    last = last.replace(/[^A-Za-z0-9-]+/g, '_').replace(/^_+|_+$/g, '') || 'Patient';
+    return last + '_' + (date || curDate) + '_CRM_Report.pdf';
+  }
   function renderSlotCell(td, slot, knownNames) {
     var namesPromise = knownNames !== null && knownNames !== undefined
       ? Promise.resolve(knownNames.slice())
@@ -1595,8 +1610,9 @@
     var html = '<div class="file-menu-title">' + (names.length ? names.length + " saved file" + (names.length === 1 ? "" : "s") : "No saved files yet") + '</div>';
     names.forEach(function (name) {
       var c = chipLabel(name);
+      var shownName = String(name).toLowerCase() === 'report.pdf' ? generatedReportFilename(slot, curDate) : name;
       html += '<div class="file-menu-row"><button type="button" class="file-menu-open" data-open="' + esc(slot) + '" data-name="' + esc(name) +
-        '" role="menuitem" title="Open ' + esc(name) + '"><span class="file-kind' + c.cls + '">' + c.l + '</span><span class="file-name">' + esc(name) +
+        '" role="menuitem" title="Open ' + esc(shownName) + '"><span class="file-kind' + c.cls + '">' + c.l + '</span><span class="file-name">' + esc(shownName) +
         '</span></button><button type="button" class="file-menu-remove" data-rm-slot="' + esc(slot) + '" data-rm-name="' + esc(name) +
         '" title="Remove ' + esc(name) + ' from this patient" aria-label="Remove ' + esc(name) + '">&times;</button></div>';
     });
@@ -1613,7 +1629,8 @@
     // Refreshed again rather than trusting the menu: a click inside the frame doesn't reach this
     // document, so the menu can sit open while the tech keeps typing, and the bytes behind these
     // rows can go stale between opening the menu and picking a file.
-    var viewer = /\.pdf$/i.test(name) ? reservePdfViewer(name, "../app/PDF_Viewer.html") : null;
+    var viewerName = String(name).toLowerCase() === 'report.pdf' ? generatedReportFilename(slot, curDate) : name;
+    var viewer = /\.pdf$/i.test(name) ? reservePdfViewer(viewerName, "../app/PDF_Viewer.html") : null;
     if (/\.pdf$/i.test(name) && !viewer) return;
     if (String(name).toLowerCase() === "report.pdf" && (!panel || panel.date !== curDate || panel.slot !== slot)) {
       setWsStatus("Rebuilding this patient's generated report…");
@@ -2050,7 +2067,8 @@
           .sort(function (a, b) { return (chipOrder(a) - chipOrder(b)) || a.localeCompare(b); });
         var keep = sel.value;
         sel.innerHTML = '<option value="">Viewer off</option>' + names.map(function (n) {
-          return '<option value="' + esc(n) + '">' + esc(n) + "</option>";
+          var shown = String(n).toLowerCase() === 'report.pdf' ? generatedReportFilename(panel.slot, panel.date) : n;
+          return '<option value="' + esc(n) + '">' + esc(shown) + "</option>";
         }).join("");
         var splitBtn = panel.tr.querySelector("[data-panel-split]");
         var progs = names.filter(isProgrammerReport);
@@ -2119,8 +2137,9 @@
             var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
             pdfViewerDocs[id] = file;
             panel.viewDocId = id;
-            viewer.innerHTML = '<iframe title="' + esc(name) + '" src="../app/PDF_Viewer.html#embed=1&id=' + id +
-              "&name=" + encodeURIComponent(name) + '"></iframe>';
+            var viewerName = String(name).toLowerCase() === 'report.pdf' ? generatedReportFilename(panel.slot, panel.date) : name;
+            viewer.innerHTML = '<iframe title="' + esc(viewerName) + '" src="../app/PDF_Viewer.html#embed=1&id=' + id +
+              "&name=" + encodeURIComponent(viewerName) + '"></iframe>';
           } else {
             file.text().then(function (t) {
               if (!panel) return;

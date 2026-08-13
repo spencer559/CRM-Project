@@ -1911,7 +1911,8 @@ function buildReportPdfBlob() {
 function savePDF() {
   var blob = buildReportPdfBlob();
   if (!blob) { alert('PDF generator not loaded — use Print instead.'); return; }
-  return saveFile(fileStamp('pdf'), blob, 'application/pdf');
+  var scheduledDate = (typeof window.getActiveScheduleDate === 'function') ? window.getActiveScheduleDate() : '';
+  return saveFile(generatedReportFilename(scheduledDate), blob, 'application/pdf');
 }
 
 function exportPDF() {
@@ -2256,6 +2257,23 @@ function fileStamp(ext) {
   var ptName = (document.getElementById('pt-name')||{value:''}).value.replace(/[^a-zA-Z]/g,'_') || 'Record';
   var prefix = (typeof isLoopMode === 'function' && isLoopMode()) ? 'ILR_' : 'CRM_';
   return prefix + ptName + '_' + new Date().toISOString().slice(0,10) + '.' + ext;
+}
+
+// The database deliberately keeps the generated artifact at the stable internal key
+// `report.pdf`. Whenever it leaves the database, give it a useful chart/upload filename based
+// on the patient's LASTNAME, FIRSTNAME entry and the appointment date. The form date is the
+// fallback for standalone reports; today is only used when neither scheduled nor form date exists.
+function generatedReportFilename(scheduledDate) {
+  var rawName = ((document.getElementById('pt-name') || {}).value || '').trim();
+  var last = rawName.indexOf(',') >= 0
+    ? rawName.split(',')[0].trim()
+    : ((rawName.split(/\s+/).filter(Boolean).pop()) || 'Patient');
+  last = last.normalize ? last.normalize('NFKD').replace(/[\u0300-\u036f]/g, '') : last;
+  last = last.replace(/[^A-Za-z0-9-]+/g, '_').replace(/^_+|_+$/g, '') || 'Patient';
+  var formDate = ((document.getElementById('pt-date') || {}).value || '').trim();
+  var date = /^\d{4}-\d{2}-\d{2}$/.test(scheduledDate || '') ? scheduledDate
+    : (/^\d{4}-\d{2}-\d{2}$/.test(formDate) ? formDate : new Date().toISOString().slice(0, 10));
+  return last + '_' + date + '_CRM_Report.pdf';
 }
 
 function exportSummary() {
@@ -3148,6 +3166,7 @@ window.ensureReportPdfBuilder = function () {
     });
   });
   var slotDate = null, slotName = null, slotLabel = "", slotRoot = null;
+  window.getActiveScheduleDate = function () { return slotDate || ''; };
   var syncArmed = false;
   var dirty = false;   // edits since the last full report build (json+txt+pdf)
   // The patient whose full report set is known to be built and published, or null. Paired with
@@ -4060,13 +4079,17 @@ window.ensureReportPdfBuilder = function () {
   // `live` (report.pdf only) rebuilds from the current form at dragstart. This matters more here
   // than on the click path: dragging into Cerner's upload attaches the file to the chart, so a
   // stale payload lands in the record permanently.
-  function attachDragOut(btn, file, live) {
+  function attachDragOut(btn, file, live, exportName) {
     btn.draggable = true;
     btn.addEventListener('dragstart', function (e) {
       var dt = e.dataTransfer;
       if (!dt) return;
       var fresh = live ? freshReportPdf() : null;
-      var payload = fresh ? new File([fresh], file.name, { type: 'application/pdf' }) : file;
+      var source = fresh || file;
+      var payloadName = exportName || file.name;
+      var payload = (fresh || payloadName !== file.name)
+        ? new File([source], payloadName, { type: fresh ? 'application/pdf' : (file.type || 'application/octet-stream') })
+        : file;
       try { dt.items.add(payload); } catch (err) { /* older engines: DownloadURL still covers it */ }
       var url = URL.createObjectURL(payload);
       try { dt.setData('DownloadURL', (payload.type || 'application/octet-stream') + ':' + payload.name + ':' + url); } catch (err) {}
@@ -4103,29 +4126,32 @@ window.ensureReportPdfBuilder = function () {
             var k = fileKind(file.name);
             // the generated report — and only it — can be rebuilt from the live form on demand
             var live = String(file.name).toLowerCase() === 'report.pdf' && canBuildLiveReport();
+            var exportName = String(file.name).toLowerCase() === 'report.pdf'
+              ? generatedReportFilename(slotDate)
+              : file.name;
             if (live) builtLive = true;
             var b = document.createElement('button');
             b.type = 'button';
             b.className = 'json-dd-item file-row';
             b.title = live
-              ? 'Click to build ' + file.name + ' from the form as it is right now and open it · drag it onto Cerner\'s upload to attach it'
-              : 'Click to open ' + file.name + ' in a new tab · drag it onto Cerner\'s upload to attach it directly';
+              ? 'Click to build ' + exportName + ' from the form as it is right now and open it · drag it onto Cerner\'s upload to attach it'
+              : 'Click to open ' + exportName + ' in a new tab · drag it onto Cerner\'s upload to attach it directly';
             var tag = document.createElement('span');
             tag.className = 'file-kind';
             tag.textContent = k.label;
             tag.style.color = k.colour;
             var nm = document.createElement('span');
             nm.className = 'file-name';
-            nm.textContent = file.name;
+            nm.textContent = exportName;
             b.appendChild(tag); b.appendChild(nm);
             b.onclick = function (e) {
               e.stopPropagation();
               // Build first, synchronously, so window.open still carries the click's activation.
               var fresh = live ? freshReportPdf() : null;
-              openStoredFile(fresh || file, file.name);
+              openStoredFile(fresh || file, exportName);
               if (fresh) storeFreshReportPdf(fresh);   // after the tab is open — never block on it
             };
-            attachDragOut(b, file, live);
+            attachDragOut(b, file, live, exportName);
             holder.appendChild(b);
           });
           holder.appendChild(noteEl(builtLive
