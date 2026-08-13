@@ -128,6 +128,22 @@ async function run() {
     assert.strictEqual(h.writes, 0, "verify must never write to the file");
   }
 
+  /* A remembered handle reconnect restores permission and verifies the SAME file without invoking
+     the open-file picker. This is the lock/sleep recovery path used by Patient Schedule. */
+  {
+    const h = await seedStation({ cache: { v: "CACHE" }, cacheMod: 5000, cacheMatchesFile: true, file: { v: "FILE" }, fileMod: 5000 });
+    let permissionRequests = 0, pickerCalls = 0;
+    h.queryPermission = () => Promise.resolve("prompt");
+    h.requestPermission = () => { permissionRequests++; return Promise.resolve("granted"); };
+    global.showOpenFilePicker = () => { pickerCalls++; return Promise.reject(new Error("picker should not open")); };
+    const s = newTab(); await s.stored();
+    assert.strictEqual(s.canReconnect(), true, "remembered desktop handle should be reconnectable");
+    const result = await s.reconnect();
+    assert.strictEqual(result.decision, "cache", "same unchanged file should keep the working copy");
+    assert.strictEqual(permissionRequests, 1, "reconnect should restore permission once");
+    assert.strictEqual(pickerCalls, 0, "same-file reconnect must not show the file picker");
+  }
+
   /* 2. File is NEWER and the cache is clean → the file wins, silently. */
   {
     const h = await seedStation({ cache: { v: "STALE" }, cacheMod: 1000, cacheMatchesFile: true, file: { v: "NEWER-ELSEWHERE" }, fileMod: 9000 });

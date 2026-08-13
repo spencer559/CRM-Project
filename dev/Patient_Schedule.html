@@ -354,6 +354,7 @@
         <div id="dbLocation" class="db-location" style="display:none;" title="The active database file">
           <span aria-hidden="true">&#128193;</span><span id="dbLocationName" class="db-loc-name"></span>
         </div>
+        <button id="reconnectBtn" onclick="reconnectDatabase()" style="display:none;">Reconnect same database</button>
         <button id="openBtn" onclick="openDatabase()">Open database&hellip;</button>
         <button onclick="newDatabase()">New database&hellip;</button>
         <button onclick="exportJson()">Export schedule JSON</button>
@@ -1321,6 +1322,7 @@
       // is already connected — just relabel it so the intent is clear.
       $("openBtn").disabled = false;
       $("openBtn").textContent = "Open a different database…";
+      updateReconnectBtn();
       $("wsForget").style.display = "";
       var pendingFileChanges = WS.hasPendingFileChanges && WS.hasPendingFileChanges();
       setStatus(pendingFileChanges
@@ -1348,6 +1350,32 @@
       box.style.display = "none";
     }
   }
+  function updateReconnectBtn() {
+    var b = $("reconnectBtn");
+    if (!b) return;
+    var available = !!(WS && WS.canReconnect && WS.canReconnect());
+    b.style.display = available ? "" : "none";
+    if (available) {
+      var name = WS.fileName && WS.fileName();
+      b.textContent = name ? "Reconnect " + name : "Reconnect same database";
+      b.title = "Restore the saved connection without choosing the database file again";
+    }
+  }
+  window.reconnectDatabase = function () {
+    if (!(WS && WS.reconnect)) return;
+    var name = (WS.fileName && WS.fileName()) || "database";
+    setStatus("Reconnecting " + name + "…", "");
+    WS.reconnect().then(function (result) {
+      return adoptWorkspace(result.root, false, false).then(function () {
+        if (result.decision === "file") setStatus("Reconnected and loaded the newer database file", "ok");
+        else if (result.decision === "backup") setStatus("Reconnected, saved this browser's copy aside, and loaded the database file", "ok");
+        else if (result.decision === "local") setStatus("Reconnected — keeping this browser's copy until the next save", "warn");
+        else setStatus("Reconnected to " + name + " — auto-saving as you edit", "ok");
+      });
+    }).catch(function (e) {
+      setStatus("Reconnect failed: " + ((e && e.message) || "unknown error") + ". You can still use “Open a different database…” if the file moved.", "warn");
+    });
+  };
   window.openDatabase = function () {
     if (!WS) return;
     WS.connect()
@@ -1378,6 +1406,7 @@
       $("wsForget").style.display = "none";
       $("openBtn").disabled = false;
       $("openBtn").textContent = "Open database…";
+      updateReconnectBtn();
       setStatus("No database open — data is in this browser only", "");
       updateDbLocation();
       updateSaveBtn();

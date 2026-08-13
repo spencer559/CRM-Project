@@ -1176,7 +1176,14 @@
 
   // Load the bound file as the working copy (used when permission is (re)granted and we had no
   // cache). Reading the file is itself a verification, so this pins the base and clears the gate.
-  function readFromFile() { return fileHandle.getFile().then(function (f) { return adoptFile(f); }); }
+  function readFromFile() {
+    return fileHandle.getFile().then(function (f) {
+      // adoptFile publishes through commit(), which intentionally ignores a closed workspace.
+      // Mark this handle-only reopen as open before adopting so its restored working copy is kept.
+      opened = true;
+      return adoptFile(f).catch(function (e) { opened = false; throw e; });
+    });
+  }
 
   function permission(root, ask) {
     if (fileHandle && canAutosave && fileHandle.queryPermission) {
@@ -1192,6 +1199,25 @@
       });
     }
     return Promise.resolve(opened ? "granted" : "granted");   // iPad: the in-memory bundle is the copy
+  }
+
+  // Re-use the FileSystemFileHandle remembered in IndexedDB. This is deliberately separate from
+  // connect(): reconnect may restore browser permission, but it never opens a file-selection
+  // prompt or asks the user to find the same .crmdb again.
+  function reconnect() {
+    if (!fileHandle || !canAutosave) {
+      return Promise.reject(new Error("No previously opened database is available to reconnect"));
+    }
+    return permission(ROOT, true).then(function (p) {
+      if (p !== "granted") {
+        var e = new Error("Access to " + (suggestedName || DEFAULT_NAME) + " was not granted");
+        e.name = "NotAllowedError";
+        throw e;
+      }
+      return verifyFreshness();
+    }).then(function (result) {
+      return { root: ROOT, decision: result && result.decision };
+    });
   }
 
   function forget() {
@@ -1331,6 +1357,8 @@
     initScaffold: initScaffold,
     stored: stored,
     permission: permission,
+    reconnect: reconnect,
+    canReconnect: function () { return !!(fileHandle && canAutosave); },
     forget: forget,
     usbOnly: usbOnly,
     setUsbOnly: setUsbOnly,
