@@ -498,6 +498,8 @@ from the current form so the Schedule's chips are never stale; the cheap 1.5s li
 writes only `report.json` mid-edit. Patient List / Import / Export menus are otherwise unchanged,
 now sourcing the patient list from the bundle's `schedule.json`. A `.crmdb` opened directly on the
 CRM tool works the same as opening it on the Schedule (shared IndexedDB working copy + file handle).
+When a scheduled patient has a pre-charted **Last Office** date, the Report Generator shows it in
+the fixed app bar between the patient name and save status, including in the full split view.
 When the Schedule opens a patient in a fresh browser session and the encrypted working copy is not
 yet unlocked, the Report Generator now places a blocking **Patient database is locked** guard over
 the form. Password entry happens directly in that guard (including an inline incorrect-password
