@@ -99,6 +99,43 @@
       return null;
     }
 
+    /* Boston repeats setting-like labels outside the programmed-settings blocks. In
+       particular, Heart Rate Variability pages can print a historical/reference
+       "Sensed AV Delay" even when the current Brady mode is DDI and the programmed
+       settings contain only a Paced AV Delay. Limit programming lookups to either:
+         - the Quick Look / Combined Follow-up "Brady Settings" block, or
+         - the Device Settings Report's "Brady > Normal Settings" block.
+       Exclude the separate Brady (Post-Therapy) block. */
+    function programmedBradyLines() {
+      var out = [], page = null, inNormal = false, postTherapy = false;
+      LINES.forEach(function (line) {
+        if (line.page !== page) {
+          page = line.page;
+          inNormal = false;
+          postTherapy = false;
+        }
+        var first = ((line.items[0] || {}).str || '').trim();
+        if (/^Brady \(Post-Therapy\)$/.test(first)) {
+          postTherapy = true;
+          inNormal = false;
+        } else if (/^Brady$/.test(first)) {
+          postTherapy = false;
+          inNormal = false;
+        } else if (/^Normal Settings$/.test(first) && !postTherapy) {
+          inNormal = true;
+        } else if (/^Brady Settings$/.test(first) && !postTherapy) {
+          inNormal = true;
+        }
+        if (inNormal && !postTherapy) out.push(line);
+      });
+      return out;
+    }
+
+    var BRADY_LINES = programmedBradyLines();
+    function findProgrammedRight(re, opts) {
+      return E.findRight(BRADY_LINES, re, opts);
+    }
+
     /* ---------- identity / header ---------- */
     function mapHeader() {
       var h;
@@ -162,7 +199,7 @@
     /* AV delay: range -> both bounds + dyn-av Yes; single -> one value. dyn-av once set
        to Yes is never downgraded (one dynamic AV is enough to flip the toggle). */
     function avSet(loField, hiField, label, re) {
-      var h = findRight(re, { match: /\d/ });
+      var h = findProgrammedRight(re, { match: /\d/ });
       var raw = h ? h.v : '';
       var rng = raw.match(/(\d+)\s*-\s*(\d+)/);
       if (rng && rng[1] !== rng[2]) {                 // a real dynamic range (e.g. 260 - 300)
@@ -177,10 +214,10 @@
     /* ---------- programmed settings ---------- */
     function mapSettings() {
       var h;
-      h = findRight(/^Mode$/, { match: MODES });                 set('p-mode', 'Mode', h && h.v, h ? 'p' + h.page : '');
-      h = findRight(/Lower Rate Limit/, { match: /\d/ });        set('p-lrl', 'Lower Rate (LRL)', h && num(h.v), h ? 'p' + h.page : '');
-      h = findRight(/Maximum Tracking Rate/, { match: /\d/ });   set('p-utr', 'Upper Track (UTR)', h && num(h.v), h ? 'p' + h.page : '');
-      h = findRight(/Maximum Sensor Rate/, { match: /\d/ });     set('p-usr', 'Upper Sensor (USR)', h && num(h.v), h ? 'p' + h.page : '');
+      h = findProgrammedRight(/^Mode$/, { match: MODES });                 set('p-mode', 'Mode', h && h.v, h ? 'p' + h.page : '');
+      h = findProgrammedRight(/Lower Rate Limit/, { match: /\d/ });        set('p-lrl', 'Lower Rate (LRL)', h && num(h.v), h ? 'p' + h.page : '');
+      h = findProgrammedRight(/Maximum Tracking Rate/, { match: /\d/ });   set('p-utr', 'Upper Track (UTR)', h && num(h.v), h ? 'p' + h.page : '');
+      h = findProgrammedRight(/Maximum Sensor Rate/, { match: /\d/ });     set('p-usr', 'Upper Sensor (USR)', h && num(h.v), h ? 'p' + h.page : '');
       // AV delays may be a dynamic range ("260 - 300 ms"). When so, flip the form's
       // Dynamic AV toggle to Yes and fill BOTH bounds (p-sav/p-sav-hi); otherwise a single value.
       avSet('p-sav', 'p-sav-hi', 'Sensed AV', /Sensed AV Delay/);
@@ -188,9 +225,9 @@
       // default the toggle off if neither AV came back as a range
       if (!RESULT['dyn-av']) RESULT['dyn-av'] = { label: 'Dynamic AV?', field: 'dyn-av', v: 'No', src: '', status: 'auto', note: '' };
       // Mode switch on/off + trigger rate.
-      h = findRight(/^ATR Mode Switch$/);
+      h = findProgrammedRight(/^ATR Mode Switch$/);
       RESULT['p-ms'] = { label: 'Mode Switch', field: 'p-ms', v: h && /on/i.test(h.v) ? 'On' : (h ? 'Off' : ''), src: h ? 'p' + h.page : '', status: h ? 'auto' : 'empty', note: '' };
-      var tr = findRight(/^Trigger Rate$/, { match: /\d/ });     set('p-msrate', 'Mode Switch Rate', tr && num(tr.v), tr ? 'p' + tr.page : '');
+      var tr = findProgrammedRight(/^Trigger Rate$/, { match: /\d/ });     set('p-msrate', 'Mode Switch Rate', tr && num(tr.v), tr ? 'p' + tr.page : '');
     }
 
     /* ---------- Leads Data: Most-Recent column, per chamber ---------- */
@@ -330,7 +367,7 @@
 
     /* ---------- router ---------- */
     var model = (findRight(/^Device$/) || { v: '' }).v.split('/')[0].trim();
-    var modeTok = (findRight(/^Mode$/, { match: MODES }) || { v: '' }).v;
+    var modeTok = (findProgrammedRight(/^Mode$/, { match: MODES }) || { v: '' }).v;
     var hasA = !!pacedPct(/^Atrial$/) || /^(D|AAI|AOO)/i.test(modeTok) || LINES.some(function (l) { return /Right Atrium/.test(text(l)); });
     var hasV = !!pacedPct(/^Right Ventricular$/) || !!pacedPct(/^Ventricular$/) || /^(D|V)/i.test(modeTok) || LINES.some(function (l) { return /Right Ventricle/.test(text(l)); });
     var hasLV = !!pacedPct(/^Left Ventricular/) || LINES.some(function (l) { return /Left Ventric/.test(text(l)); });
