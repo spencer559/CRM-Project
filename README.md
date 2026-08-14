@@ -451,7 +451,10 @@ File System Access picker retain the standard download-to-default-folder behavio
   the two useful clinical links — the generated `report.pdf` and the raw programmer report — while
   JSON/TXT support files stay hidden. **Report ✓** appears in green only when a programmer report
   is attached; a generated report by itself reads **Generated**. The menu retains remove controls
-  and the manual attach action for loop recorders, Aveir, S-ICD, or anything with no parser.
+  and the manual attach action for loop recorders, Aveir, S-ICD, or anything with no parser. Its
+  **↓ Save original** control exports the stored `File` bytes directly (desktop save picker, iPad
+  share sheet, or classic download fallback), so Abbott `.log` control delimiters and encoding are
+  preserved byte-for-byte rather than passing through a text decoder.
   Won't clobber a generated `report.*` (an upload named `report.pdf` is stored `prog-report.pdf`).
 - **Delete a patient** (the row ×) confirms only when the row is substantially filled
   (time + patient name + manufacturer + device + check all set) and **also removes that slot's files**

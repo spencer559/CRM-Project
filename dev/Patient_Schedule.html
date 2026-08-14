@@ -182,7 +182,7 @@
   .files-trigger.source { color:var(--amber); }
   .files-trigger.empty { color:var(--muted); }
   .file-menu {
-    position:fixed; z-index:500; width:min(290px,calc(100vw - 20px)); max-height:min(420px,70vh);
+    position:fixed; z-index:500; width:min(330px,calc(100vw - 20px)); max-height:min(420px,70vh);
     overflow:auto; padding:8px; background:var(--panel); border:1px solid var(--border);
     border-radius:9px; box-shadow:0 12px 34px rgba(0,0,0,.55);
   }
@@ -197,8 +197,9 @@
   .file-kind { flex:0 0 72px; color:var(--accent); font-size:.66rem; font-weight:800; text-transform:uppercase; }
   .file-kind.vendor { color:var(--amber); }
   .file-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.74rem; }
-  .file-menu-remove { flex:0 0 30px; align-self:stretch; border:1px solid var(--border); border-radius:6px;
+  .file-menu-download, .file-menu-remove { flex:0 0 30px; align-self:stretch; border:1px solid var(--border); border-radius:6px;
                       background:var(--panel2); color:var(--muted); cursor:pointer; font-size:.95rem; }
+  .file-menu-download:hover { color:var(--accent); border-color:var(--accent); }
   .file-menu-remove:hover { color:var(--red); border-color:var(--red); }
   .file-menu-add { width:100%; border:1px dashed var(--border); border-radius:6px; background:transparent;
                    color:var(--muted); padding:7px; cursor:pointer; font:inherit; font-size:.74rem; }
@@ -1602,6 +1603,15 @@
     var trigger = document.querySelector('.files-trigger[aria-expanded="true"]');
     if (trigger) trigger.setAttribute("aria-expanded", "false");
   }
+  var fileMenuFiles = {};
+  function preloadFileMenu(slot) {
+    fileMenuFiles = {};
+    return WS.slotDir(wsRoot, curDate, slot, false)
+      .then(function (dir) { return WS.listFiles(dir); })
+      .then(function (handles) { return Promise.all(handles.map(function (fh) { return fh.getFile(); })); })
+      .then(function (files) { files.forEach(function (file) { fileMenuFiles[file.name] = file; }); })
+      .catch(function () { fileMenuFiles = {}; });
+  }
   function openFileMenu(trigger) {
     var menu = $("fileMenu"), slot = trigger.dataset.filesSlot;
     if (!menu.hidden && menu.dataset.slot === slot) { closeFileMenu(); return; }
@@ -1613,7 +1623,9 @@
       var shownName = String(name).toLowerCase() === 'report.pdf' ? generatedReportFilename(slot, curDate) : name;
       html += '<div class="file-menu-row"><button type="button" class="file-menu-open" data-open="' + esc(slot) + '" data-name="' + esc(name) +
         '" role="menuitem" title="Open ' + esc(shownName) + '"><span class="file-kind' + c.cls + '">' + c.l + '</span><span class="file-name">' + esc(shownName) +
-        '</span></button><button type="button" class="file-menu-remove" data-rm-slot="' + esc(slot) + '" data-rm-name="' + esc(name) +
+        '</span></button><button type="button" class="file-menu-download" data-download="' + esc(name) + '" data-download-name="' + esc(shownName) +
+        '" title="Save the original ' + esc(shownName) + '" aria-label="Save the original ' + esc(shownName) + '">&#8595;</button>' +
+        '<button type="button" class="file-menu-remove" data-rm-slot="' + esc(slot) + '" data-rm-name="' + esc(name) +
         '" title="Remove ' + esc(name) + ' from this patient" aria-label="Remove ' + esc(name) + '">&times;</button></div>';
     });
     html += '<button type="button" class="file-menu-add" data-add="' + esc(slot) + '" role="menuitem">+ Attach programmer file</button>';
@@ -1669,6 +1681,33 @@
       return;
     }
     withPanelFilesFresh(slot, function () { readPatientFile(slot, name, viewer); });
+  }
+  function savePatientFile(file, name) {
+    if (!file) { setWsStatus("Could not read the stored file — close and reopen the Files menu, then try again.", "warn"); return; }
+    name = name || file.name;
+    // Never decode/re-encode a programmer export. Abbott .log files contain control delimiters
+    // (notably ASCII FS / 0x1C), so every save path receives the original Blob bytes directly.
+    var payload = file.name === name ? file : new File([file], name, { type: file.type || "application/octet-stream" });
+    if (window.showSaveFilePicker) {
+      window.showSaveFilePicker({ suggestedName: name })
+        .then(function (handle) { return handle.createWritable(); })
+        .then(function (writable) { return writable.write(payload).then(function () { return writable.close(); }); })
+        .then(function () { setWsStatus("Saved original " + name, "ok"); })
+        .catch(function (e) { if (!e || e.name !== "AbortError") setWsStatus("Could not save " + name + ": " + ((e && e.message) || "unknown error"), "warn"); });
+      return;
+    }
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [payload] })) {
+        navigator.share({ files: [payload] })
+          .then(function () { setWsStatus("Shared original " + name + " — choose Save to Files", "ok"); })
+          .catch(function (e) { if (!e || e.name !== "AbortError") setWsStatus("Could not share " + name + ": " + ((e && e.message) || "unknown error"), "warn"); });
+        return;
+      }
+    } catch (e) {}
+    var a = document.createElement("a"), url = URL.createObjectURL(payload);
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    setWsStatus("Downloaded original " + name, "ok");
   }
   function validateGeneratedPdf(file) {
     if (!file || file.size < 16) return Promise.reject(new Error("the generated file is empty"));
@@ -2250,8 +2289,10 @@
       var td = trigger.parentNode;
       withPanelFilesFresh(fslot, function () {
         Promise.resolve(renderSlotCell(td, fslot)).then(function () {
-          var fresh = td.querySelector(".files-trigger");
-          if (fresh) openFileMenu(fresh);
+          return preloadFileMenu(fslot).then(function () {
+            var fresh = td.querySelector(".files-trigger");
+            if (fresh) openFileMenu(fresh);
+          });
         });
       });
     }
@@ -2272,6 +2313,12 @@
         .then(function () { return WS.flush ? WS.flush() : null; })
         .then(function () { setWsStatus("Removed " + nm + " from " + sl, "ok"); scanSlots(); })
         .catch(function (e) { setWsStatus("Could not remove " + nm + ": " + e.message, "warn"); });
+      return;
+    }
+    var download = ev.target.closest("[data-download]");
+    if (download && wsRoot) {
+      var originalName = download.dataset.download;
+      savePatientFile(fileMenuFiles[originalName], download.dataset.downloadName || originalName);
       return;
     }
     var open = ev.target.closest("[data-open]");
