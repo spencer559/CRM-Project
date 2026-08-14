@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<title>CIED Abbott Log Redactor</title>
+<style>
+:root{--navy:#1e3a5f;--navy2:#162e4d;--blue:#e7eff7;--bg:#d5dbe3;--card:#fff;--line:#c8d2dd;--text:#15191e;--muted:#66717d;--green:#287a49;--amber:#a55b00;--red:#9b3030;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+*{box-sizing:border-box} body{min-width:320px;margin:0;background:var(--bg);color:var(--text);font:13px Arial,Helvetica,sans-serif} button,input{font:inherit}
+.wrap{max-width:1220px;margin:0 auto;padding:20px} header{display:flex;align-items:flex-end;gap:14px;margin-bottom:12px} h1{margin:0;color:var(--navy);font-size:22px;text-transform:uppercase;letter-spacing:.5px} .sub{color:var(--muted);font-size:12px}
+.privacy{display:flex;gap:8px;align-items:center;background:#eaf5ee;border:1px solid #b9dcc6;color:var(--green);padding:7px 10px;border-radius:5px;margin-bottom:12px;font-weight:700}.privacy i{width:8px;height:8px;background:var(--green);border-radius:50%}
+#drop{display:block;background:var(--card);border:2px dashed #aab8c7;border-radius:8px;padding:34px;text-align:center;cursor:pointer;transition:.12s}#drop:hover,#drop.over{border-color:var(--navy);background:#f8fbff}#drop strong{display:block;color:var(--navy);font-size:16px;text-transform:uppercase;letter-spacing:.4px}#drop span{display:block;color:var(--muted);margin-top:5px}#pick{display:none}
+.workspace{display:none;margin-top:14px;grid-template-columns:260px 1fr;gap:12px}.side,.main{background:var(--card);border:1px solid var(--line);border-radius:7px;min-width:0}.side{padding:10px;align-self:start}.side-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;color:var(--navy);font-weight:800;text-transform:uppercase;font-size:10px;letter-spacing:.5px}.file-btn{display:block;width:100%;border:1px solid transparent;background:#f4f7fa;border-radius:5px;padding:8px;text-align:left;margin-bottom:5px;cursor:pointer}.file-btn.active{border-color:var(--navy);background:var(--blue)}.file-btn b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.file-btn small{color:var(--muted)}
+.toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px;border-bottom:1px solid var(--line)}.toolbar .grow{flex:1}.search{width:220px;border:1px solid var(--line);border-radius:4px;padding:6px 8px}.check{display:flex;align-items:center;gap:5px;color:var(--muted);white-space:nowrap}.btn{border:1px solid var(--navy);border-radius:4px;background:var(--navy);color:#fff;padding:6px 10px;cursor:pointer;font-weight:700;font-size:11px}.btn:hover{background:var(--navy2)}.btn.secondary{background:#fff;color:var(--navy)}.btn.danger{border-color:#b77;color:var(--red);background:#fff}.btn:disabled{opacity:.45;cursor:not-allowed}
+.notice{margin:10px;padding:9px 10px;background:#fff6e7;border:1px solid #e5c590;color:#704400;border-radius:5px;line-height:1.35}.summary{padding:0 10px 8px;color:var(--muted);font-size:11px}.summary b{color:var(--navy)}
+.table-wrap{overflow:auto;max-height:62vh;border-top:1px solid var(--line)}table{width:100%;border-collapse:collapse;table-layout:fixed}th{position:sticky;top:0;z-index:2;background:var(--navy);color:#fff;text-transform:uppercase;font-size:9px;letter-spacing:.35px;text-align:left;padding:7px;border-right:1px solid rgba(255,255,255,.15)}td{border-bottom:1px solid #e4e9ee;border-right:1px solid #edf0f3;padding:5px;vertical-align:top}tr.redact{background:#fff6f3}tr.hidden{display:none}.sel{width:42px;text-align:center}.code{width:68px;font-family:var(--mono);font-size:11px}.param{width:30%}.value{width:30%;font-family:var(--mono);font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}.replacement input{width:100%;border:1px solid var(--line);border-radius:3px;padding:5px;font-family:var(--mono);font-size:11px}.replacement input:disabled{background:#f1f3f5;color:#8a9299}.sensitive-tag{display:inline-block;margin-top:4px;background:#f1d4ca;color:#7e2d1e;border-radius:8px;padding:1px 6px;font-size:8px;text-transform:uppercase;font-weight:800}
+.empty{padding:45px;text-align:center;color:var(--muted)}.footer-actions{display:flex;gap:7px;justify-content:flex-end;align-items:center;padding:10px;border-top:1px solid var(--line)}.save-status{margin-right:auto;color:var(--green);font-size:11px;font-weight:700}
+@media(max-width:760px){.wrap{padding:10px}.workspace{grid-template-columns:1fr}.side{max-height:170px;overflow:auto}.toolbar{align-items:stretch}.search{width:100%}.toolbar .grow{display:none}.table-wrap{max-height:58vh}.param{width:34%}.value{width:28%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Abbott Log Redactor</h1><div class="sub">Merlin .log files · byte-preserving PHI removal</div></header>
+  <div class="privacy"><i></i>Local only — files never leave this browser and the originals are never modified.</div>
+  <label id="drop" for="pick"><strong>Drop Abbott .log files here</strong><span>or click to select one or many files</span></label>
+  <input id="pick" type="file" accept=".log,.txt" multiple>
+
+  <div class="workspace" id="workspace">
+    <aside class="side"><div class="side-h"><span>Loaded files</span><button class="btn danger" id="clear" type="button">Clear</button></div><div id="files"></div></aside>
+    <main class="main">
+      <div class="toolbar">
+        <input class="search" id="search" type="search" placeholder="Filter code, parameter, or value">
+        <label class="check"><input id="identifiers" type="checkbox" checked> Identifiers only</label>
+        <span class="grow"></span>
+        <button class="btn secondary" id="select-auto" type="button">Auto-select identifiers</button>
+        <button class="btn secondary" id="select-none" type="button">Select none</button>
+      </div>
+      <div class="notice"><b>Review before sharing.</b> The tool automatically selects common identifiers and serial numbers, but vendor free-text fields may contain additional PHI. Turn off “Identifiers only” and search the full file when needed.</div>
+      <div class="summary" id="summary"></div>
+      <div class="table-wrap"><table><thead><tr><th class="sel">Redact</th><th class="code">Code</th><th class="param">Parameter</th><th class="value">Original value</th><th>Replacement</th></tr></thead><tbody id="rows"></tbody></table><div class="empty" id="empty">Select a file.</div></div>
+      <div class="footer-actions"><span class="save-status" id="save-status" role="status"></span><button class="btn secondary" id="download-one" type="button">Download this redacted .log</button><button class="btn" id="download-all" type="button">Download all as ZIP</button></div>
+    </main>
+  </div>
+</div>
+<script src="../vendor/crmdb-zip.js"></script>
+<script src="../src/abbott-log-redactor.js"></script>
+<script>
+(function(){
+  'use strict';
+  var models=[], active=0;
+  function $(id){return document.getElementById(id)}
+  function redactedName(name){return String(name||'Abbott.log').replace(/\.(log|txt)$/i,'')+'.redacted.log'}
+  function safeZipName(name){return redactedName(name).replace(/[\\/]/g,'_')}
+  function readFiles(files){
+    return Promise.all(Array.from(files).filter(function(f){return /\.(log|txt)$/i.test(f.name)}).map(function(file){
+      return file.arrayBuffer().then(function(ab){return AbbottLogRedactor.parse(new Uint8Array(ab),file.name)})
+    })).then(function(added){models=models.concat(added);active=Math.max(0,models.length-added.length);render()})
+  }
+  function renderFiles(){
+    $('files').innerHTML=''; models.forEach(function(m,i){var b=document.createElement('button');b.type='button';b.className='file-btn'+(i===active?' active':'');var selected=m.rows.filter(function(r){return r.redact}).length;b.innerHTML='<b></b><small></small>';b.querySelector('b').textContent=m.filename;b.querySelector('small').textContent=m.encoding.toUpperCase()+' · '+selected+' redaction'+(selected===1?'':'s');b.onclick=function(){active=i;render()};$('files').appendChild(b)})
+  }
+  function matches(row){var q=$('search').value.trim().toLowerCase();if($('identifiers').checked&&!row.sensitive)return false;return !q||(row.code+' '+row.name+' '+row.value).toLowerCase().indexOf(q)>=0}
+  function renderRows(){
+    var body=$('rows');body.innerHTML='';var m=models[active];$('empty').style.display=m?'none':'block';if(!m)return;
+    m.rows.forEach(function(row,idx){var tr=document.createElement('tr');tr.className=(row.redact?'redact ':'')+(matches(row)?'':'hidden');
+      var td0=document.createElement('td');td0.className='sel';var cb=document.createElement('input');cb.type='checkbox';cb.checked=row.redact;cb.onchange=function(){row.redact=cb.checked;if(row.redact&&row.replacement===row.value)row.replacement=AbbottLogRedactor.defaultReplacement(row);render()};td0.appendChild(cb);
+      var td1=document.createElement('td');td1.className='code';td1.textContent=row.code;
+      var td2=document.createElement('td');td2.className='param';td2.appendChild(document.createTextNode(row.name));if(row.sensitive){var tag=document.createElement('span');tag.className='sensitive-tag';tag.textContent='possible identifier';td2.appendChild(document.createElement('br'));td2.appendChild(tag)}
+      var td3=document.createElement('td');td3.className='value';td3.textContent=row.value||'(blank)';
+      var td4=document.createElement('td');td4.className='replacement';var inp=document.createElement('input');inp.type='text';inp.value=row.replacement;inp.disabled=!row.redact;inp.setAttribute('aria-label','Replacement for '+row.name);inp.oninput=function(){row.replacement=inp.value};td4.appendChild(inp);
+      tr.append(td0,td1,td2,td3,td4);body.appendChild(tr)
+    });
+    var selected=m.rows.filter(function(r){return r.redact}).length, visible=m.rows.filter(matches).length;$('summary').innerHTML='<b>'+m.filename+'</b> · '+m.rows.length+' parsed fields · '+selected+' selected for redaction · '+visible+' shown';
+  }
+  function render(){
+    $('workspace').style.display=models.length?'grid':'none';renderFiles();renderRows();$('download-one').disabled=!models.length;$('download-all').disabled=!models.length
+  }
+  function outputBytes(m){return AbbottLogRedactor.redact(m)}
+  function output(m){return new Blob([outputBytes(m)],{type:'application/octet-stream'})}
+  function save(blob,name){
+    var a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;a.style.display='none';document.body.appendChild(a);a.click();a.remove();$('save-status').textContent='Download started: '+name;setTimeout(function(){URL.revokeObjectURL(url)},60000)
+  }
+  var drop=$('drop');['dragenter','dragover'].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.add('over')})});['dragleave','drop'].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.remove('over')})});drop.addEventListener('drop',function(e){readFiles(e.dataTransfer.files)});$('pick').addEventListener('change',function(e){readFiles(e.target.files);e.target.value=''})
+  $('search').addEventListener('input',renderRows);$('identifiers').addEventListener('change',renderRows);
+  $('select-auto').onclick=function(){var m=models[active];if(!m)return;m.rows.forEach(function(r){r.redact=r.sensitive&&r.value.trim()!=='';if(r.redact)r.replacement=AbbottLogRedactor.defaultReplacement(r)});render()};
+  $('select-none').onclick=function(){var m=models[active];if(!m)return;m.rows.forEach(function(r){r.redact=false});render()};
+  $('clear').onclick=function(){models=[];active=0;$('search').value='';render()};
+  $('download-one').onclick=function(){var m=models[active];if(m)save(output(m),redactedName(m.filename))};
+  $('download-all').onclick=function(){if(!models.length)return;var entries=models.map(function(m){return{name:safeZipName(m.filename),data:outputBytes(m)}});save(CRMDB.write(entries),'redacted-abbott-logs.zip')};
+  render();
+})();
+</script>
+</body>
+</html>

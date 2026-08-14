@@ -24,7 +24,7 @@
   'use strict';
 
   var DROPDOWN_MODES = ['AAI', 'AAIR', 'VVI', 'VVIR', 'DDD', 'DDDR', 'DDI', 'DDIR', 'VDI', 'VDIR', 'AOO', 'VOO', 'DOO', 'OOO'];
-  var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'pct-lv', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'dyn-av', 'p-sav', 'p-sav-hi', 'p-pav', 'p-pav-hi', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-af-burden', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
+  var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'pct-lv', 'pct-biv', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'dyn-av', 'p-sav', 'p-sav-hi', 'p-pav', 'p-pav-hi', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-since-date', 'ep-af-burden', 'ep-ahr', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
 
   // strip a BOM and any null bytes (UTF-16 leftovers). Built from escaped strings so the source
   // stays pure ASCII — no literal control characters.
@@ -71,7 +71,7 @@
     // SJM RV pace/sense lead (2461) vs a defib RV lead (2449) vs an "Other" lead (2450).
     function first() { for (var i = 0; i < arguments.length; i++) { var r = MAP[arguments[i]]; if (r && r.v) return r.v; } return ''; }
 
-    var RESULT = {}, LEADS = [], GOTCHAS = [], ROUTE = {};
+    var RESULT = {}, LEADS = [], EPISODES = [], GOTCHAS = [], ROUTE = {};
     function set(f, label, v, status, note) {
       RESULT[f] = { label: label, field: f, v: (v == null ? '' : String(v)), src: '.log', status: v ? (status || 'auto') : 'empty', note: note || '' };
     }
@@ -106,7 +106,17 @@
     var pa = field(2682, 'Event Histogram Percent Paced In Atrium');
     var pv = field(2681, 'Event Histogram Percent Paced In Ventricle');
     set('pct-a', 'A Paced %', num(pa), 'review', 'Event Histogram % (recent). Lifetime A-paced = ' + (field(2708, 'Atrial Paced - Lifetime') || 'n/a') + '.');
-    set('pct-v', 'V Paced %', num(pv), 'review', 'Event Histogram % (recent). Lifetime RVP = ' + (field(2709, 'Ventricular Paced - Lifetime (RVP)') || 'n/a') + '.');
+    if (ROUTE.family === 'crt') {
+      // Abbott splits CRT ventricular pacing into mutually exclusive lifetime event classes:
+      // right-ventricular-only (RVP), left-ventricular-only (LVP), and biventricular (BP).
+      // The generic Event Histogram ventricular value is their combined total and must not be
+      // copied into the form's RV-only field.
+      set('pct-v', 'RV Paced %', num(field(2709, 'Ventricular Paced - Lifetime (RVP)')), 'review', 'Abbott lifetime RVP compartment.');
+      set('pct-lv', 'LV Paced %', num(field(2710, 'Ventricular Paced - Lifetime (LVP)')), 'review', 'Abbott lifetime LVP-only compartment.');
+      set('pct-biv', 'BiV Paced %', num(field(2711, 'Ventricular Paced - Lifetime (BP)')), 'review', 'Abbott lifetime biventricular-paced compartment.');
+    } else {
+      set('pct-v', 'V Paced %', num(pv), 'review', 'Event Histogram % (recent). Lifetime RVP = ' + (field(2709, 'Ventricular Paced - Lifetime (RVP)') || 'n/a') + '.');
+    }
 
     /* ---------- mode & rates ---------- */
     set('p-mode', 'Mode', mode);
@@ -158,20 +168,43 @@
     pushLead('RV',     first(2460, 2448), first(2461, 2449, 2450), first(2470, 2469), first(2463, 2451));
     pushLead('LV',     field(2464), first(2465, 2466), field(2471), field(2467));
 
+    /* ---------- stored-episode summary ----------
+       The .log contains aggregate counters and diagnostic-clear dates, but none of the individual
+       log rows (episode date/time, duration, or peak rate). Therefore EPISODES intentionally stays
+       empty: choosing a recent/longest episode from these exports would require inventing data. */
+    var ahr = field(2754, 'Total Number of AT/AF Episodes Since Last Cleared');
+    if (ahr !== '') set('ep-ahr', 'AHR (AT/AF/AFl)', num(ahr), 'review', 'Total AT/AF episodes since diagnostics were last cleared.');
+    var hvr = field(2630, 'Total Number of VT/VF Episodes');
+    if (hvr !== '') set('ep-hvr', 'HVR (VT/VF/NS-VT)', num(hvr), 'review', 'Total VT/VF episodes since tachy diagnostics were last cleared; NSVT is not included in this export counter.');
+
+    var atrialClear = aToISO(field(2750, 'AT/AF Last Cleared Date'));
+    var tachyClear = aToISO(field(2642, 'Tachy Episodal Diagnostic Date and Time Last Cleared'));
+    // The form has one shared Since field. Fill it only when the available atrial and ventricular
+    // diagnostic intervals agree (or when only one interval is exported).
+    var episodeSince = atrialClear && tachyClear && atrialClear !== tachyClear ? '' : (atrialClear || tachyClear);
+    if (episodeSince) set('ep-since-date', 'Stored Episodes Since', episodeSince, 'auto', 'Abbott diagnostic last-cleared date.');
+
+    // Code 2755 is a raw, unitless "Total Time in AT/AF Recent Week", not the device's displayed
+    // since-clear burden percentage. Zero time proves a 0% burden; a nonzero value cannot safely be
+    // converted without a dependable unit and denominator, so leave it for manual entry.
+    var afRecentRaw = field(2755, 'Total Time in AT/AF Recent Week');
+    if (afRecentRaw !== '' && parseFloat(afRecentRaw) === 0) {
+      set('ep-af-burden', 'AF Burden (%)', '0', 'auto', 'No AT/AF time recorded in the recent-week diagnostic field.');
+    }
+
     /* ---------- observations / changes ---------- */
     RESULT['obs-yn'] = { label: 'Observations?', field: 'obs-yn', v: 'N/A', src: '', status: 'auto', note: '' };
     RESULT['rp-chg'] = { label: 'Parameter changes?', field: 'rp-chg', v: '', src: '', status: 'review', note: 'Not recorded in the .log — review.' };
     RESULT['sig-date'] = { label: 'Date Completed', field: 'sig-date', v: RESULT['pt-date'].v, src: 'visit date', status: RESULT['pt-date'].v ? 'auto' : 'empty', note: '' };
-    // ep-af-burden / ep-hvr are not directly reported in the .log — left blank for manual entry.
-
     GOTCHAS = [
       { tag: 'LOG', body: '<b>Abbott exports a scanned-image PDF</b> (no selectable text). Use the Merlin <b>.log</b> export instead — a flat key/value text dump this parser reads.' },
       { tag: 'CODE', body: '<b>The .log is FS-delimited</b> (ASCII 0x1C between code / name / value / unit). Values are keyed by their numeric code. Routing is structural — LV lead = CRT, shock evidence (HV impedance / charge) = defib.' },
-      { tag: 'PACE%', body: '<b>% paced</b> uses the recent Event Histogram values; the lifetime A/V-paced figures are noted for comparison and flagged to verify.' },
+      { tag: 'PACE%', body: '<b>% paced</b> uses recent Event Histogram values for non-CRT devices. CRT ventricular pacing uses Abbott\'s lifetime RVP / LVP / BP compartments so the combined ventricular total is not mistaken for RV-only pacing.' },
+      { tag: 'EPISODES', body: '<b>Aggregate episode data only.</b> AHR, ICD VT/VF counts, and the common last-cleared date are imported. Individual episode timestamps/durations/rates and a dependable nonzero AF burden percentage are not present in these .log exports.' },
       { tag: 'THR', body: '<b>Thresholds</b> come from the Capture Test results (atrial / RV), with the matching test pulse widths.' }
     ];
 
-    return { RESULT: RESULT, GOTCHAS: GOTCHAS, LEADS: LEADS, ROUTE: ROUTE, ORDER: ORDER_DUAL };
+    return { RESULT: RESULT, GOTCHAS: GOTCHAS, LEADS: LEADS, ROUTE: ROUTE, ORDER: ORDER_DUAL, EPISODES: EPISODES };
   }
 
   global.ABBOTT = {

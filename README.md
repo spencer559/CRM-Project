@@ -74,6 +74,7 @@ vendor/
   fonts/                            Self-hosted landing-page fonts
 tools/
   CIED PDF Extraction Harness.html  Dump a PDF's text items (parser authoring/debugging)
+  CIED Abbott Log Redactor.html     Locally inspect/redact Abbott .log files without damaging FS delimiters
   CIED_Medtronic_Parser_Preview_v2.html   Older preview harness
 tests/
   run.js                            Test runner — one child process per *.test.js (see Testing)
@@ -233,7 +234,9 @@ Unifying tricks:
 - The reader is **encoding-aware**: `handleFile` decodes with a BOM-sniffing `TextDecoder` (UTF-16/UTF-8); `runLog` also strips stray BOM/null bytes and accepts any line ending.
 - **Routing is structural**: an LV lead ⇒ CRT; shock evidence (HV-lead impedance / shock config / capacitor charge) ⇒ defibrillator. So CRT+shock = CRT-D, CRT no-shock = CRT-P, non-CRT+shock = ICD, else PPM.
 - Abbott uses **different codes for different lead types** — e.g. RV pace/sense lead (`2461/2470/2463/2460`) vs RV defib lead (`2448/2449|2450/2469/2451`); model can be "SJM …" vs "Other …". A `first(...candidates)` helper resolves each cell.
-- Key codes: `200/201` model, `202` serial, `203` interrogation, `2442` implant, `2430/2431` name/DOB, `301` mode, `302/323/406` LRL/UTR/USR, `337/322` sensed/paced AV, `320` rate-responsive AV (dynamic), `339` AMS, `512/507/2720` RA/RV/LV impedance, `2721/2722` RA/RV sensing, `1610/1606/1616` RA/RV/LV capture-test thresholds, `2730` HV (coil) impedance, `2745` charge time, `533` longevity.
+- Key codes: `200/201` model, `202` serial, `203` interrogation, `2442` implant, `2430/2431` name/DOB, `301` mode, `302/323/406` LRL/UTR/USR, `337/322` sensed/paced AV, `320` rate-responsive AV (dynamic), `339` AMS, `512/507/2720` RA/RV/LV impedance, `2721/2722` RA/RV sensing, `1610/1606/1616` RA/RV/LV capture-test thresholds, `2730` HV (coil) impedance, `2745` charge time, `533` longevity. CRT pacing compartments are `2709/2710/2711` (RVP/LVP/BP); episode aggregates are `2754` (AT/AF count), `2630` (ICD VT/VF count), and `2750/2642` (atrial/tachy last-cleared dates).
+- **Episode limits:** these `.log` exports contain aggregate counters but no individual episode timestamps, durations, or peak rates, so the parser cannot populate recent/longest logbook rows. Code `2755` is a raw unitless recent-week AT/AF time rather than the displayed since-clear burden percentage; only an unambiguous zero is auto-filled.
+- **Redacting samples:** `tools/CIED Abbott Log Redactor.html` accepts multiple logs entirely client-side, detects UTF-8/UTF-16LE/UTF-16BE, exposes the invisible FS-delimited fields in a table, and preselects common PHI plus device/lead serial numbers. Only selected value byte ranges are replaced; BOM, encoding, line endings, FS delimiters and all unselected bytes are retained. It can download one redacted `.log` or all loaded samples as a ZIP.
 
 ---
 
@@ -555,8 +558,8 @@ localStorage, and forgets the connection.
 
 **Known gaps / TODO ideas:**
 - Abbott PDF (scanned image) is **not** supported — `.log` only. (OCR would be the only PDF route.)
-- Abbott `ep-af-burden` / `ep-hvr` aren't pulled (no single value in the `.log`); left for manual entry.
-- Abbott `% paced` uses the recent Event-Histogram value; lifetime figures are in the note. Confirm which the clinic wants.
+- Abbott individual episode rows and nonzero AF burden cannot be derived from the tested `.log` exports. AHR and ICD VT/VF aggregate counters, zero burden, and a common last-cleared date are supported.
+- Abbott CRT ventricular percentages use the lifetime RVP/LVP/BP compartments; non-CRT V paced uses the recent Event-Histogram value.
 - A few Abbott edge cases (legacy/other-manufacturer leads) may leave a lead model blank (serial still captured).
 - Boston **single-chamber** and several less-common families are scaffolded but not validated with real exports.
 - **Biotronik** parser handles two report layouts (Home-Monitoring + Standard/BIOSTD), each validated against a dual-chamber PPM; ICD/CRT and single-chamber Biotronik are unverified.

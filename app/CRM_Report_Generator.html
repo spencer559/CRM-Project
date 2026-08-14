@@ -3078,7 +3078,7 @@ window.ensureReportPdfBuilder = function () {
         var aout = window.ABBOTT.runLog(txt);
         var amerge = !!(document.getElementById('pdp-merge')||{}).checked;
         if (!amerge && typeof resetFormState === 'function') resetWithRemoteMonitoring();
-        var ares = prefillForm(aout.RESULT, aout.LEADS, null, { merge: amerge });
+        var ares = prefillForm(aout.RESULT, aout.LEADS, aout.EPISODES, { merge: amerge });
         if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
         var adev = (aout.RESULT['dev-model']||{}).v || '';
         var amsg = '<b>'+ (aout.ROUTE.label || aout.ROUTE.dtype || 'Abbott device') +'</b>'
