@@ -161,10 +161,10 @@ Parsers capture **every** lead the report prints, including abandoned/capped one
 ### Field keys used by `RESULT`
 
 `pt-name, pt-dob, pt-mrn, pt-date, dev-implant, pt-provider, mfr, dtype, dev-model, dev-serial,
-bat-lon-cur, bat-lon-unit, bat-cc-cur, pct-a, pct-v, pct-lv, pct-biv, p-mode, p-lrl, p-utr, p-usr,
+bat-lon-cur, bat-lon-unit, bat-cc-cur, bat-status, pct-a, pct-v, pct-lv, pct-biv, p-mode, p-lrl, p-utr, p-usr,
 dyn-av, p-sav, p-sav-hi, p-pav, p-pav-hi, p-ms, p-msrate,
 lead-ra-{imp,sens,thr,pw}, lead-rv-{imp,sens,thr,pw}, lead-lv-{imp,sens,thr,pw},
-lead-rv-coil-imp, lead-svc-coil-imp, ep-af-burden, ep-ahr, ep-hvr, obs-yn, obs-text, rp-chg, sig-date`
+lead-rv-coil-imp, lead-svc-coil-imp, ep-af-burden, ep-ahr, ep-hvr, ep-pmt, obs-yn, obs-text, rp-chg, sig-date`
 
 **Conventions:**
 - `mfr` radio values: `Medtronic`, `Abbott`, `BSci`, `Biotronik`. (boston.js still returns the legacy `BSc`; `prefillForm` maps it to `BSci` — don't "fix" the parser, it would break nothing but it's shared history with older saves.)
@@ -173,7 +173,7 @@ lead-rv-coil-imp, lead-svc-coil-imp, ep-af-burden, ep-ahr, ep-hvr, obs-yn, obs-t
 - **Aveir (leadless)** has its own UI mode keyed off the `aveir-chamber` RA/RV checkboxes: the lead-info columns relabel "Lead …" → "Module …", the single Longevity row is replaced by per-module rows (`bat-lon-ra-cur`/`-unit`, `bat-lon-rv-cur`/`-unit`) shown only for implanted chambers, and A/V Paced % show only when the RA/RV module is present. There is no Aveir importer — it's filled manually.
 
 ### Optional bundle keys
-Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhythmia-log rows `{dt, dur, rate, types[], flags?, notes?}` that `prefillForm` writes into the logbook via `setEpisodeRows`. Currently only Boston populates it (the "Longest" AT/AF episode). Each logbook row has **flag checkboxes** (`Longest` / `Recent` / `Fastest`, name `ep{n}-flag`) that replaced the old "Approp.?" radios; a parser `notes` value that is *exactly* a flag name (e.g. Boston's `Longest`) checks the flag instead of filling Notes.
+Besides `RESULT`/`LEADS`, a parser may return `EPISODES` — an array of arrhythmia-log rows `{dt, dur, rate, types[], flags?, notes?}` that `prefillForm` writes into the logbook via `setEpisodeRows`. Boston populates its "Longest" AT/AF episode; Biotronik Home-Monitoring populates the dated AT/HVR recording inventory. Each logbook row has **flag checkboxes** (`Longest` / `Recent` / `Fastest`, name `ep{n}-flag`) that replaced the old "Approp.?" radios; a parser `notes` value that is *exactly* a flag name (e.g. Boston's `Longest`) checks the flag instead of filling Notes.
 
 ---
 
@@ -222,8 +222,9 @@ Biotronik exports come in (at least) **two very different templates**, and the p
 Unifying tricks:
 - **Dynamic label/value split** at `VSPLIT≈305`: tokens left of it are the (joined, de-spaced) label — so both fragmentation styles normalize to the same key (`leftStr`); tokens right of it are values. A value row's **first** value token = Atrial, **second** = Ventricular (`avField`); `-----` = not measured.
 - **Header** is read from the clean `PDF: BIOTRONIK - …` line when present, else from the `S/N:` line (model from the fragmented header tokens → flagged review).
-- **Leads**: Home-Monitoring lists per-lead blocks (with serials, deduped); Standard lists an A|V table (Type/Manufacturer/Position, no serials → uses the device implant date).
+- **Leads**: Home-Monitoring uses either per-lead blocks or a horizontal Lead Model / Manufacturer / Serial / Implantation / Channel inventory (with serials, deduped); Standard lists an A|V table (Type/Manufacturer/Position, no serials → uses the device implant date).
 - Dates `MM/DD/YYYY` → `bToISO`. Longevity from "Calculated/Expected ERI N Y. M Mo." → years. AV is dynamic (`300/260` → min–max + Dynamic AV = Yes) or fixed (`AV delay [ms] 240`). Multiple interrogations/test runs appear, so values come from the **last (non-empty)** matching row.
+- **Home-Monitoring diagnostics** map battery status, mode-switch state/rate, AHR/HVR/PMT counters, and the dated AT/HVR recording inventory into `EPISODES` (date/time, duration, mean ventricular rate). HVR rows stay explicitly flagged for rhythm classification instead of being guessed as VT/VF/NS-VT.
 - **Lead measurements (impedance / sensing / threshold / pulse width) are scoped to the last "Test results" block** (`avScoped`): if a chamber's row there shows `-----` (not measured), the field stays **blank**. Without this, the label "Pulse width [ms]" also appears in the programmed-output and test-program sections, and a whole-document "keep last non-empty" search leaked the *programmed* atrial pulse width (e.g. `1.0`) into a chamber whose measured value was `-----`. Fields whose row is genuinely absent from the block fall back to the wider search (e.g. the Home-Monitoring threshold lives in a different section).
 - **Validated against one dual-chamber PPM in each layout** — ICD/CRT and single-chamber Biotronik are unverified.
 
@@ -537,7 +538,7 @@ localStorage, and forgets the connection.
 - Medtronic PPM / ICD / CRT (incl. MVP, dynamic two-column split, verbatim inventory, Therapy-Summary-scoped pacing % with CRT `Total VP` / `Effective`→BiV; validated on Azure dual + Cobalt XT CRT).
 - Boston PPM-DC / ICD-DC / CRT-D / CRT-P (incl. quadripolar LV, dynamic AV, comparators, shock-based routing, and episode/arrhythmia-log mapping → HVR / AHR (prefers the `AT/AF Events` total, falls back to the bucket sum) + Longest AT/AF row).
 - Abbott PPM-DC / ICD-DC / CRT-D / CRT-P via `.log` (Fortify / Gallant DR/HF / Quadra Allure/Assure families).
-- Biotronik dual-chamber **PPM** via both report layouts (Home-Monitoring + Standard/BIOSTD); per-character text handling, A/V column split, and lead measurements scoped to the "Test results" block so an unmeasured (`-----`) chamber stays blank instead of inheriting the programmed pulse width.
+- Biotronik dual-chamber **PPM** via both report layouts (Home-Monitoring + Standard/BIOSTD); per-character text handling, horizontal lead inventory, diagnostics/episode import, A/V column split, and lead measurements scoped to the "Test results" block so an unmeasured (`-----`) chamber stays blank instead of inheriting the programmed pulse width.
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
 - **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
 - **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
@@ -554,7 +555,7 @@ localStorage, and forgets the connection.
 - Abbott `% paced` uses the recent Event-Histogram value; lifetime figures are in the note. Confirm which the clinic wants.
 - A few Abbott edge cases (legacy/other-manufacturer leads) may leave a lead model blank (serial still captured).
 - Boston **single-chamber** and several less-common families are scaffolded but not validated with real exports.
-- **Biotronik** parser handles two report layouts (Home-Monitoring + Standard/BIOSTD), each validated against one dual-chamber PPM; ICD/CRT and single-chamber Biotronik are unverified, and the Home-Monitoring `dev-model` needs verification (fragmented header text).
+- **Biotronik** parser handles two report layouts (Home-Monitoring + Standard/BIOSTD), each validated against a dual-chamber PPM; ICD/CRT and single-chamber Biotronik are unverified.
 - Lead-table cells have no `id`/`name`, so they're saved/restored via the dedicated `__leadinfo` array (handled — autosave + JSON now persist the lead table). Anything else without an id/name would still be missed by the generic serializer.
 
 ---

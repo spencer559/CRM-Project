@@ -45,7 +45,7 @@
   }
 
   function runMap(LINES, META) {
-    var RESULT = {}, LEADS = [], GOTCHAS = [], ROUTE;
+    var RESULT = {}, LEADS = [], EPISODES = [], GOTCHAS = [], ROUTE;
     var num = E.num;
     function set(field, label, v, src, status, note) {
       v = (v == null ? '' : String(v));
@@ -58,6 +58,11 @@
     function one(l) { return clean(vtoks(l)[0] || ''); }
     function av(l) { var t = vtoks(l); return { a: clean(t[0] || ''), v: clean(t[1] || '') }; }
     function findLbl(re, last) { var hit = null; LINES.forEach(function (l) { if (re.test(leftStr(l))) { if (last || !hit) hit = l; } }); return hit; }
+    function modelText(items) {
+      return items.map(function (it) { return it.str; }).join(' ')
+        .replace(/\b([A-Z][a-z]{2,})\s+([a-z])\b/g, '$1$2') // "Edor" + "a" -> "Edora"
+        .replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim();
+    }
     // scan all 2-value rows matching re; keep the LAST non-empty A and V (so blanks don't clobber)
     function avField(re) {
       var a = '', v = '';
@@ -82,9 +87,9 @@
         var hs = hdr.items.map(function (it) { return it.str; }).join('');
         var sn = hs.match(/S\/N:?(\d+)/i);
         set('dev-serial', 'Serial #', sn ? sn[1] : '', 'header', sn ? 'auto' : 'empty');
-        var modelToks = hdr.items.filter(function (it) { return it.x >= 245 && it.x <= 302; }).map(function (it) { return it.str; });
-        var model = modelToks.join(' ').replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim();
-        set('dev-model', 'Device Model', model, 'header', model ? 'review' : 'empty', 'Verify model — fragmented header text.');
+        var modelToks = hdr.items.filter(function (it) { return it.x >= 245 && it.x <= 302; });
+        var model = modelText(modelToks);
+        set('dev-model', 'Device Model', model, 'header', model ? 'review' : 'empty', model ? 'Verify model — reconstructed from fragmented header text.' : '');
         var dtok = hdr.items.find(function (it) { return /^\d{2}\/\d{2}\/\d{4}$/.test(it.str); });
         if (dtok) set('pt-date', 'Interrogation Date', bToISO(dtok.str), 'header', 'auto');
       }
@@ -122,6 +127,27 @@
         cur = null;
       }
     });
+    if (!LEADS.length) {  // Home-Monitoring horizontal inventory table
+      var leadHead = -1;
+      for (var li = 0; li < LINES.length; li++) {
+        var hi = LINES[li].items.map(function (it) { return it.str; }).join(' ');
+        if (/manufacturer/i.test(hi) && /serial/i.test(hi) && /implantation/i.test(hi) && /channels/i.test(hi)) { leadHead = li; break; }
+      }
+      if (leadHead >= 0) {
+        var leadPage = LINES[leadHead].page;
+        for (var lr = leadHead + 1; lr < LINES.length && LINES[lr].page === leadPage; lr++) {
+          var row = LINES[lr];
+          function col(lo, hi) {
+            return row.items.filter(function (it) { return it.x >= lo && it.x < hi; }).map(function (it) { return it.str; }).join(' ').replace(/\s+/g, ' ').trim();
+          }
+          var lm = col(130, 235);
+          if (!lm) continue;
+          var lead = { location: col(475, 540), manufacturer: col(235, 305), model: lm, serial: col(305, 370), date: col(405, 475) };
+          var lk = lead.serial || [lead.location, lead.model].join('|');
+          if (!seen[lk]) { seen[lk] = 1; LEADS.push(lead); }
+        }
+      }
+    }
     if (!LEADS.length) {  // table style
       var typeL = findLbl(/^type$/), posL = findLbl(/^leadposition$/), mfrL = findLbl(/^manufacturer$/);
       if (typeL && posL) {
@@ -147,6 +173,11 @@
     if (!utr) { var bru = findLbl(/^basicrate\/utr/, true); if (bru) { var p = one(bru).split('/'); if (p[1] && num(p[1])) utr = num(p[1]); } }
     if (utr) set('p-utr', 'Upper Track (UTR)', utr, 'params', 'auto');
     ln = findLbl(/^sensor\/ratefading/, true); if (ln) set('p-usr', 'Upper Sensor (USR)', num(one(ln)), 'params', 'auto');
+    ln = findLbl(/^modeswitching$/, true);
+    if (ln) set('p-ms', 'Mode Switch', /^on$/i.test(one(ln)) ? 'On' : (/^off$/i.test(one(ln)) ? 'Off' : ''), 'params', 'auto');
+    ln = findLbl(/^interventionrate/, true);
+    if (!ln) ln = findLbl(/^modeswitching\[bpm\]$/, true);
+    if (ln) set('p-msrate', 'Mode Switch Rate', num(one(ln)), 'params', 'auto');
 
     /* ---------- AV delay: dynamic ("300/260") or fixed ("240") ---------- */
     ln = findLbl(/^dynamicavdelay/, true);
@@ -177,6 +208,51 @@
       var eri = joinV(ln).match(/(\d+)\s*Y.*?(\d+)\s*Mo/i);
       if (eri) { var yrs = (+eri[1] + (+eri[2]) / 12).toFixed(1); set('bat-lon-cur', 'Longevity', yrs, 'status', 'review', 'Calculated ERI ' + eri[1] + ' Y ' + eri[2] + ' Mo — verify.'); set('bat-lon-unit', 'Longevity unit', 'years', 'status', 'auto'); }
     }
+    ln = findLbl(/^batterystatus$/, true);
+    if (ln) {
+      var bs = one(ln).toUpperCase();
+      if (/^(OK|ERI|EOL)$/.test(bs)) set('bat-status', 'Battery Status', bs, 'status', 'auto');
+    }
+
+    /* ---------- episode counters + Home-Monitoring recording table ---------- */
+    ln = findLbl(/^totalnumberofepisodes$/, true);
+    if (ln) set('ep-ahr', 'AHR (AT/AF/AFl)', num(one(ln)), 'diag', 'review', 'Total atrial episodes reported since the first interrogation; confirm the desired reporting interval.');
+    ln = findLbl(/^highventricularrateepisodes\[count\]$/, true);
+    if (ln) set('ep-hvr', 'HVR (VT/VF/NS-VT)', num(one(ln)), 'diag', 'review', 'BIOTRONIK high-ventricular-rate episode count; confirm rhythm classification.');
+    ln = findLbl(/^pmtepisodes\[count\]$/, true);
+    if (ln) set('ep-pmt', 'PMT', num(one(ln)), 'diag', 'auto');
+
+    function bDateTime(date, time) {
+      var m = String(date).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      return m ? (m[3] + '-' + m[1].padStart(2, '0') + '-' + m[2].padStart(2, '0') + 'T' + time) : '';
+    }
+    LINES.forEach(function (l) {
+      var dateIt = l.items.find(function (it) { return it.x >= 145 && it.x < 185 && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(it.str); });
+      var timeIt = l.items.find(function (it) { return it.x >= 185 && it.x < 240 && /^\d{1,2}:\d{2}$/.test(it.str); });
+      var durIt = l.items.find(function (it) { return it.x >= 260 && it.x < 360 && /^\d{2}:\d{2}:\d{2}$/.test(it.str); });
+      var trig = l.items.filter(function (it) { return it.x >= 380 && it.x < 440; }).map(function (it) { return it.str; }).join('').trim();
+      var rateIt = l.items.find(function (it) { return it.x >= 450 && it.x < 505 && /^\d+$/.test(it.str); });
+      if (!dateIt || !timeIt || !durIt || !/^(AT|HVR)$/i.test(trig)) return;
+      EPISODES.push({
+        dt: bDateTime(dateIt.str, timeIt.str),
+        dur: durIt.str,
+        rate: rateIt ? rateIt.str : '',
+        types: /^AT$/i.test(trig) ? ['AT'] : ['Other'],
+        flags: [],
+        notes: /^HVR$/i.test(trig) ? 'BIOTRONIK HVR trigger — verify rhythm classification.' : ''
+      });
+    });
+    if (EPISODES.length) {
+      function durSeconds(s) { var p = s.split(':').map(Number); return p[0] * 3600 + p[1] * 60 + p[2]; }
+      EPISODES[0].flags.push('Recent');
+      var longest = 0, fastest = 0;
+      for (var ei = 1; ei < EPISODES.length; ei++) {
+        if (durSeconds(EPISODES[ei].dur) > durSeconds(EPISODES[longest].dur)) longest = ei;
+        if (+EPISODES[ei].rate > +EPISODES[fastest].rate) fastest = ei;
+      }
+      EPISODES[longest].flags.push('Longest');
+      EPISODES[fastest].flags.push('Fastest');
+    }
 
     /* ---------- lead measurements (Atrial value -> RA, Ventricular -> RV) ----------
        Prefer the LAST "Test results" block so a chamber shown as "-----" stays blank — the
@@ -205,11 +281,12 @@
     GOTCHAS = [
       { tag: 'TWO LAYOUTS', body: '<b>Two report templates.</b> The Home-Monitoring report is per-character fragmented with far-right value columns; the Standard/BIOSTD report uses whole words and a clean <code>PDF: BIOTRONIK - model - serial - name</code> header. Both are handled.' },
       { tag: 'LABEL/VALUE', body: '<b>Dynamic split.</b> Tokens left of x=' + VSPLIT + ' are the (de-spaced, joined) label; tokens right of it are values. The first value token is Atrial, the second Ventricular (<code>avField</code>); "-----" = not measured.' },
-      { tag: 'LEADS', body: '<b>Two lead styles.</b> Home-Monitoring lists per-lead blocks (with serials); Standard lists an A|V table (Type/Manufacturer/Position, no serials → uses the device implant date).' },
+      { tag: 'LEADS', body: '<b>Three lead styles.</b> Home-Monitoring uses either per-lead blocks or a horizontal inventory table (both include serials); Standard lists an A|V table (Type/Manufacturer/Position, no serials → uses the device implant date).' },
+      { tag: 'EPISODES', body: '<b>Home-Monitoring episode inventory.</b> Dated AT/HVR recording rows populate the logbook with duration and mean ventricular rate; HVR rhythm type remains flagged for clinical classification.' },
       { tag: 'VALIDATED', body: '<b>Validated on a dual-chamber PPM in each layout.</b> ICD/CRT and single-chamber Biotronik are still unverified.' }
     ];
 
-    return { RESULT: RESULT, LEADS: LEADS, ROUTE: ROUTE, ORDER: null, GOTCHAS: GOTCHAS };
+    return { RESULT: RESULT, LEADS: LEADS, ROUTE: ROUTE, ORDER: null, GOTCHAS: GOTCHAS, EPISODES: EPISODES };
   }
 
   global.BIOTRONIK = {
