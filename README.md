@@ -164,7 +164,7 @@ Parsers capture **every** lead the report prints, including abandoned/capped one
 bat-lon-cur, bat-lon-unit, bat-cc-cur, bat-status, pct-a, pct-v, pct-lv, pct-biv, p-mode, p-lrl, p-utr, p-usr,
 dyn-av, p-sav, p-sav-hi, p-pav, p-pav-hi, p-ms, p-msrate,
 lead-ra-{imp,sens,thr,pw}, lead-rv-{imp,sens,thr,pw}, lead-lv-{imp,sens,thr,pw},
-lead-rv-coil-imp, lead-svc-coil-imp, ep-af-burden, ep-ahr, ep-hvr, ep-pmt, obs-yn, obs-text, rp-chg, sig-date`
+lead-rv-coil-imp, lead-svc-coil-imp, ep-since-date, ep-af-burden, ep-ahr, ep-hvr, ep-pmt, obs-yn, obs-text, rp-chg, sig-date`
 
 **Conventions:**
 - `mfr` radio values: `Medtronic`, `Abbott`, `BSci`, `Biotronik`. (boston.js still returns the legacy `BSc`; `prefillForm` maps it to `BSci` — don't "fix" the parser, it would break nothing but it's shared history with older saves.)
@@ -248,6 +248,7 @@ Unifying tricks:
 - **% paced & AF burden are text inputs** and comparator-aware (`<1` survives instead of becoming `1`).
 - **Aveir leadless mode** — picking the `Aveir` device type reveals RA/RV chamber checkboxes that drive the lead-info rows, per-module Longevity rows, and which pacing-% fields show (see Conventions above).
 - **Episode logbook** — a **"Logbook / Free text"** radio (`ep-mode`, default Logbook) lets you either use the row-based table or type a single free-text block (`ep-freetext`). The logbook defaults to 1 row ("+ Add Episode" for more); a parser's `EPISODES` rows are written in automatically. **Observations** (`obs-yn` + `obs-text`) live at the bottom of this section.
+  - Its section header carries a persistent **Since** date (`ep-since-date`) for the start of the interval represented by the episode counters/log. It is included in JSON, text, print and PDF outputs and can be filled by a future vendor parser through the normal `RESULT` contract.
 - **Section layout — follows the in-room device-check flow:** Patient & Device · Battery / Device Status · Stored Episodes / Arrhythmia Log (+ Observations) · Lead / Electrode Measurements · Programmed Parameters · **Final Session Summary** (a merge of Reprogramming changes + Remote Monitoring + the Device Technician / Date-Completed sign-off, all under one header). Rationale: interrogate → review counters/episodes → run lead tests → confirm/adjust programming → sign off. Sidebar groups mirror this (Interrogation / Testing / Programming / Documentation).
 - **Export buttons:** New Patient · Copy to Clipboard · Export .txt · **JSON** (a dropdown: Import / Export) · **PDF** (a dropdown: **Print** = browser print, **Save (PDF file)** = a real vector PDF built with jsPDF and saved like the JSON exports).
   - **JSON export/import** round-trips the whole form via `collectFormData()` / `applyFormData()`. It serializes the dynamic lead-table rows separately as `__leadinfo` (the cells have no id/name; blank rows aren't persisted — `setLeadInfoRows` would relabel a location-less row "Lead N" on restore and print it) and **excludes file inputs / auto-fill tool controls** (`pdp-*`, `json-import-file`) — those threw on import (you can't set `input[type=file].value`), which used to abort the whole restore. Import does a clean reset first.

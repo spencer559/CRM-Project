@@ -166,6 +166,18 @@ body { font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: 
 }
 .rate-calc input[type=number]:focus { background:#fff; border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.2); }
 .rate-calc output { min-width: 57px; color:#fff; text-align:left; font-variant-numeric:tabular-nums; }
+.episode-date {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  font: 700 9px Arial, Helvetica, sans-serif; letter-spacing: 0; text-transform: none;
+  white-space: nowrap;
+}
+.episode-date + .sec-clear { margin-left: 0; height:21px; min-height:21px; }
+.episode-date input[type=date] {
+  width: 126px; height: 21px; min-height: 21px; padding: 2px 5px;
+  border: 1px solid rgba(255,255,255,.55); border-radius: 3px;
+  background: rgba(255,255,255,.96); color: #111; font-size: 10px;
+}
+.episode-date input[type=date]:focus { background:#fff; border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.2); }
 .sec-body { padding: 12px 14px; }
 
 /* SUB LABEL */
@@ -259,6 +271,9 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   .rate-calc { gap:3px; }
   .rate-calc input[type=number] { width:48px; }
   .rate-calc output { min-width:50px; }
+  .episode-date { gap:3px; }
+  .episode-date > span { display:none; }
+  .episode-date input[type=date] { width:112px; }
 }
 
 /* PRINT */
@@ -617,7 +632,12 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
 <!-- §5 EPISODES (moved up — reviewed right after the interrogation summary, before testing) -->
 <div class="section" id="s-episodes" data-mode="crm">
-  <div class="sec-hdr">Stored Episodes / Arrhythmia Log<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Stored Episodes and Arrhythmia Log section">Clear section</button></div>
+  <div class="sec-hdr">Stored Episodes / Arrhythmia Log
+    <label class="episode-date" title="Start date represented by the stored episode counts and log">
+      <span>Since</span><input type="date" id="ep-since-date" aria-label="Stored episodes since date">
+    </label>
+    <button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Stored Episodes and Arrhythmia Log section">Clear section</button>
+  </div>
   <div class="sec-body">
     <div class="fg" style="grid-template-columns: 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="ep-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
@@ -1854,7 +1874,7 @@ function buildReportPdfBlob() {
     });
     if (lmBody.length){ h2('Lead / Electrode Measurements'); table(['Lead','Impedance (ohms)','Sensing (mV)','Threshold (V)','PW (ms)'], lmBody); }
 
-    var epAF=val('ep-af-burden'),epAhr=val('ep-ahr'),epHvr=val('ep-hvr'),epPmt=val('ep-pmt');
+    var epSince=usDate(val('ep-since-date')),epAF=val('ep-af-burden'),epAhr=val('ep-ahr'),epHvr=val('ep-hvr'),epPmt=val('ep-pmt');
     var epFree=(radio('ep-mode')==='freetext')?val('ep-freetext'):'', epBody=[];
     if (radio('ep-mode')!=='freetext'){
       document.querySelectorAll('#ep-tbody tr').forEach(function(tr){
@@ -1868,9 +1888,9 @@ function buildReportPdfBlob() {
         if (dt||types||dur) epBody.push([dt,types,dur,rate,ther,app,notes]);
       });
     }
-    if (epAF||epAhr||epHvr||epPmt||epBody.length||epFree){
+    if (epSince||epAF||epAhr||epHvr||epPmt||epBody.length||epFree){
       h2('Stored Episodes');
-      grid([['AF Burden (%)',epAF],['AHR',epAhr],['HVR',epHvr],['PMT',epPmt]]);
+      grid([['Episode Data Since',epSince],['AF Burden (%)',epAF],['AHR',epAhr],['HVR',epHvr],['PMT',epPmt]]);
       if (epFree) para('', epFree); else table(['Date/Time','Type','Duration','Rate','Therapy','Flags','Notes'], epBody);
     }
   }
@@ -2153,13 +2173,14 @@ function exportPDF() {
             + (lpFreeTxt ? '<p style="font-size:10px;margin:4px 0;white-space:pre-wrap">'+lpFreeTxt+'</p>'
                          : (lpRows ? '<table><thead><tr><th>#</th><th>Date/Time</th><th>Type</th><th>Duration</th><th>Rate</th><th>Flags</th><th>Symptoms / Notes</th></tr></thead><tbody>'+lpRows+'</tbody></table>' : ''));
         }
-        var epAF=v('ep-af-burden'), epAhr=v('ep-ahr'), epHvr=v('ep-hvr'), epPmt=v('ep-pmt');
-        var hasSummary = !!(epAF||epAhr||epHvr||epPmt);
+        var epSince=usDate(v('ep-since-date')), epAF=v('ep-af-burden'), epAhr=v('ep-ahr'), epHvr=v('ep-hvr'), epPmt=v('ep-pmt');
+        var hasSummary = !!(epSince||epAF||epAhr||epHvr||epPmt);
         var epModeEl = document.querySelector('input[name="ep-mode"]:checked');
         var epFreeTxt = (epModeEl && epModeEl.value === 'freetext') ? v('ep-freetext') : '';
         if (!epRows && !hasSummary && !epFreeTxt) return '';   // omit the whole section when there is no episode data
         return '<h2>Stored Episodes</h2>'
           + (hasSummary ? '<div class="row" style="margin-bottom:3px;">'
+              + pf('Episode Data Since', epSince)
               + (epAF ? '<div class="f"><span class="lbl">AF Burden (%)</span><span class="val">'+epAF+'</span></div>' : '')
               + pf('AHR', epAhr)
               + pf('HVR', epHvr)
@@ -2582,6 +2603,7 @@ function buildSummaryLines() {
     if (val('lp-pause')) epSum.push('Pause: ' + val('lp-pause'));
     if (val('lp-pta'))   epSum.push('Pt-Act: ' + val('lp-pta'));
   } else {
+    if (val('ep-since-date')) epSum.push('Since: ' + usDate(val('ep-since-date')));
     if (val('ep-af-burden')) epSum.push('AF: ' + pct(val('ep-af-burden')));
     if (val('ep-ahr'))       epSum.push('AHR: ' + val('ep-ahr'));
     if (val('ep-hvr'))       epSum.push('HVR: ' + val('ep-hvr'));
