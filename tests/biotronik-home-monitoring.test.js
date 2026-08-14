@@ -24,7 +24,9 @@ const out = global.BIOTRONIK.runMap([
   line(18, 313, [[96,"High"],[120,"ventricular"],[171,"rate"],[192,"episodes"],[235,"[Count]"],[490,"1"]]),
   line(18, 300, [[96,"PMT"],[118,"episodes"],[160,"[Count]"],[490,"0"]]),
   line(33, 600, [[107,"20"],[153,"07/22/2026"],[191,"21:08"],[273,"00:01:26"],[394,"AT"],[472,"135"]]),
+  line(33, 574, [[107,"18"],[153,"06/30/2026"],[191,"14:24"],[273,"00:09:02"],[394,"AT"],[473,"96"]]),
   line(33, 379, [[109,"3"],[153,"05/27/2026"],[191,"21:39"],[274,"00:00:04"],[391,"HVR"],[472,"194"]]),
+  line(33, 372, [[109,"4"],[153,"04/01/2026"],[191,"18:00"],[274,"00:00:12"],[391,"HVR"],[472,"150"]]),
   line(33, 366, [[109,"2"],[153,"12/30/2024"],[191,"23:06"],[274,"09:59:20"],[394,"AT"],[473,"69"]]),
   line(36, 417, [[96,"Battery"],[132,"status"],[483,"OK"]])
 ]);
@@ -44,8 +46,16 @@ assert.deepStrictEqual(out.LEADS, [
 ]);
 assert.strictEqual(out.EPISODES.length, 3);
 assert.deepStrictEqual(out.EPISODES[0].flags, ["Recent"]);
-assert.deepStrictEqual(out.EPISODES[1].flags, ["Fastest"]);
-assert.deepStrictEqual(out.EPISODES[2].flags, ["Longest"]);
-assert.deepStrictEqual(out.EPISODES[1].types, ["Other"]);
+assert.deepStrictEqual(out.EPISODES[1].flags, ["Longest"]);
+assert.deepStrictEqual(out.EPISODES[2].flags, ["Fastest"]);
+assert.deepStrictEqual(out.EPISODES.map((e) => e.dt), ["2026-07-22T21:08", "2024-12-30T23:06", "2026-05-27T21:39"]);
+assert.deepStrictEqual(out.EPISODES[2].types, ["Other"]);
+
+const overlap = global.BIOTRONIK.runMap([
+  line(1, 600, [[107,"2"],[153,"07/22/2026"],[191,"21:08"],[273,"00:10:00"],[394,"AT"],[472,"135"]]),
+  line(1, 580, [[107,"1"],[153,"07/20/2026"],[191,"20:00"],[273,"00:00:04"],[391,"HVR"],[472,"194"]])
+]);
+assert.strictEqual(overlap.EPISODES.length, 2, "an AHR that is both recent and longest should not be duplicated");
+assert.deepStrictEqual(overlap.EPISODES[0].flags, ["Recent", "Longest"]);
 
 console.log("all checks passed");

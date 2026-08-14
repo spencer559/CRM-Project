@@ -244,14 +244,23 @@
     });
     if (EPISODES.length) {
       function durSeconds(s) { var p = s.split(':').map(Number); return p[0] * 3600 + p[1] * 60 + p[2]; }
-      EPISODES[0].flags.push('Recent');
-      var longest = 0, fastest = 0;
-      for (var ei = 1; ei < EPISODES.length; ei++) {
-        if (durSeconds(EPISODES[ei].dur) > durSeconds(EPISODES[longest].dur)) longest = ei;
-        if (+EPISODES[ei].rate > +EPISODES[fastest].rate) fastest = ei;
+      var allEpisodes = EPISODES, ahrs = [], nonAhrs = [];
+      allEpisodes.forEach(function (ep) { (ep.types.indexOf('AT') >= 0 ? ahrs : nonAhrs).push(ep); });
+      var recentAhr = null, longestAhr = null, fastestNonAhr = null;
+      ahrs.forEach(function (ep) {
+        if (!recentAhr || ep.dt > recentAhr.dt) recentAhr = ep;
+        if (!longestAhr || durSeconds(ep.dur) > durSeconds(longestAhr.dur)) longestAhr = ep;
+      });
+      nonAhrs.forEach(function (ep) { if (!fastestNonAhr || +ep.rate > +fastestNonAhr.rate) fastestNonAhr = ep; });
+      EPISODES = [];
+      function select(ep, flag) {
+        if (!ep) return;
+        if (ep.flags.indexOf(flag) < 0) ep.flags.push(flag);
+        if (EPISODES.indexOf(ep) < 0) EPISODES.push(ep);
       }
-      EPISODES[longest].flags.push('Longest');
-      EPISODES[fastest].flags.push('Fastest');
+      select(recentAhr, 'Recent');
+      select(longestAhr, 'Longest');
+      select(fastestNonAhr, 'Fastest');
     }
 
     /* ---------- lead measurements (Atrial value -> RA, Ventricular -> RV) ----------
@@ -282,7 +291,7 @@
       { tag: 'TWO LAYOUTS', body: '<b>Two report templates.</b> The Home-Monitoring report is per-character fragmented with far-right value columns; the Standard/BIOSTD report uses whole words and a clean <code>PDF: BIOTRONIK - model - serial - name</code> header. Both are handled.' },
       { tag: 'LABEL/VALUE', body: '<b>Dynamic split.</b> Tokens left of x=' + VSPLIT + ' are the (de-spaced, joined) label; tokens right of it are values. The first value token is Atrial, the second Ventricular (<code>avField</code>); "-----" = not measured.' },
       { tag: 'LEADS', body: '<b>Three lead styles.</b> Home-Monitoring uses either per-lead blocks or a horizontal inventory table (both include serials); Standard lists an A|V table (Type/Manufacturer/Position, no serials → uses the device implant date).' },
-      { tag: 'EPISODES', body: '<b>Home-Monitoring episode inventory.</b> Dated AT/HVR recording rows populate the logbook with duration and mean ventricular rate; HVR rhythm type remains flagged for clinical classification.' },
+      { tag: 'EPISODES', body: '<b>Focused Home-Monitoring episode summary.</b> The logbook receives the most recent AHR, longest AHR, and fastest non-AHR recording (deduplicated when one AHR is both recent and longest). HVR rhythm type remains flagged for clinical classification.' },
       { tag: 'VALIDATED', body: '<b>Validated on a dual-chamber PPM in each layout.</b> ICD/CRT and single-chamber Biotronik are still unverified.' }
     ];
 
