@@ -23,7 +23,7 @@
   var COL_SPLIT = 310;  // x midpoint: atrial column < SPLIT <= RV column
   var DROPDOWN_MODES = ['AAI', 'AAIR', 'VVI', 'VVIR', 'DDD', 'DDDR', 'DDI', 'DDIR', 'VDI', 'VDIR', 'AOO', 'VOO', 'DOO', 'OOO'];
 
-  var ORDER_LEADLESS = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'pct-v', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'p-sav', 'p-ms', 'lead-leadless-imp', 'lead-leadless-sens', 'lead-leadless-thr', 'lead-leadless-pw', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
+  var ORDER_LEADLESS = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'pct-v', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'p-ms', 'lead-leadless-imp', 'lead-leadless-sens', 'lead-leadless-thr', 'lead-leadless-pw', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
   var ORDER_DUAL = ['pt-name', 'pt-dob', 'pt-mrn', 'pt-date', 'dev-implant', 'pt-provider', 'mfr', 'dtype', 'dev-model', 'dev-serial', 'bat-lon-cur', 'bat-lon-unit', 'bat-cc-cur', 'pct-a', 'pct-v', 'p-mode', 'p-lrl', 'p-utr', 'p-usr', 'p-sav', 'p-pav', 'p-ms', 'p-msrate', 'lead-ra-imp', 'lead-ra-sens', 'lead-ra-thr', 'lead-ra-pw', 'lead-rv-imp', 'lead-rv-sens', 'lead-rv-thr', 'lead-rv-pw', 'lead-lv-imp', 'lead-lv-sens', 'lead-lv-thr', 'lead-lv-pw', 'lead-rv-coil-imp', 'lead-svc-coil-imp', 'ep-af-burden', 'ep-ahr', 'ep-hvr', 'obs-yn', 'obs-text', 'rp-chg', 'sig-date'];
 
   /* ---------- device routing ---------- */
@@ -191,7 +191,8 @@
       h = findRight(/^Lower Rate$|^Lower$/, { prefer: 'final', match: /\d/ }); set('p-lrl', 'Lower Rate (LRL)', h && num(h.v), h ? 'p' + h.page : '');
       h = findRight(/Upper Track/, { prefer: 'final', match: /\d/ }); set('p-utr', 'Upper Track (UTR)', h && num(h.v), h ? 'p' + h.page : '');
       h = findRight(/Upper Sensor/, { prefer: 'final', match: /\d/ }); set('p-usr', 'Upper Sensor (USR)', h && num(h.v), h ? 'p' + h.page : '');
-      h = findRight(/Sensed AV/, { prefer: 'final', match: /\d/ }); set('p-sav', 'Sensed AV', h && num(h.v), h ? 'p' + h.page : '');
+      // Micra AV reports label the accelerometer AM-VP timing as "Sensed AV". That is not the
+      // conventional transvenous AV delay represented by p-sav, so leave AV-delay fields alone.
       h = findRight(/Activity Mode Switch/, { prefer: 'final' }); set('p-ms', 'Mode Switch', h && h.v, h ? 'p' + h.page : '');
       h = findRight(/Electrode Impedance/, { prefer: 'final', match: /\d/ }); set('lead-leadless-imp', 'Leadless Impedance (Ω)', h && num(h.v), h ? 'p' + h.page : '', 'review', 'Verify against PDF.');
       h = findRight(/Measured R Wave|R-Wave Amplitude/, { prefer: 'final', match: /\d/ }); set('lead-leadless-sens', 'Leadless Sensing (mV)', h && num(h.v), h ? 'p' + h.page : '', 'review', 'Final value, not implant baseline. Verify.');
