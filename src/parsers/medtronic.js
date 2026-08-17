@@ -53,7 +53,7 @@
     var lineWith = function (re) { return E.lineWith(LINES, re); };
     var text = E.text, toISO = E.toISO, num = E.num, cmpNum = E.cmpNum, MODES = E.MODES;
 
-    var RESULT = {}, LEADS = [], GOTCHAS = [], ROUTE = {};
+    var RESULT = {}, LEADS = [], EPISODES = [], GOTCHAS = [], ROUTE = {};
 
     function set(field, label, val, src, status, note) {
       RESULT[field] = { label: label, field: field, v: (val == null ? '' : String(val)), src: src || '', status: val ? (status || 'auto') : 'empty', note: note || '' };
@@ -410,6 +410,50 @@
 
       h = findRight(/VT-NS/); set('ep-hvr', 'HVR (VT/VF/NS-VT)', h && num(h.v), h ? 'p' + h.page : '', 'review', 'Non-sustained VT count this session. Confirm episode counts in the device log.');
 
+      // The Arrhythmia Episode List is already one row per episode. Keep only the most recent
+      // and longest AT/AF rows for the CRM logbook, deduplicating when one row is both. Medtronic
+      // durations omit leading zero fields (":36", ":01:36"), so normalize them to hh:mm:ss.
+      function episodeDateTime(date, time) {
+        var d = toISO(date), t = String(time).match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+        if (!d || !t) return '';
+        var hr = +t[1] % 12; if (/PM/i.test(t[3])) hr += 12;
+        return d + 'T' + String(hr).padStart(2, '0') + ':' + t[2];
+      }
+      function episodeDuration(raw) {
+        var p = String(raw).split(':').map(function (v) { return +(v || 0); });
+        while (p.length < 3) p.unshift(0);
+        return p.slice(-3).map(function (v) { return String(v).padStart(2, '0'); }).join(':');
+      }
+      function durationSeconds(s) {
+        var p = s.split(':').map(Number); return p[0] * 3600 + p[1] * 60 + p[2];
+      }
+      var listed = [];
+      LINES.forEach(function (l) {
+        if (!/Arrhythmia Episode List/i.test(l.section || '')) return;
+        var its = l.items; if (!its[0] || !/^AT\/AF$/i.test(its[0].str)) return;
+        var di = its.findIndex(function (it) { return /^[A-Za-z]{3}\/\d{1,2}\/\d{4}$/.test(it.str); });
+        if (di < 1) return;
+        var time = (its[di + 1] || {}).str || '', dt = episodeDateTime(its[di].str, time);
+        var durIt = its.slice(di + 2).find(function (it) { return /^\d*:\d{0,2}:?\d{2}$/.test(it.str); });
+        var rates = its.slice(di + 2).filter(function (it) { return /^\d+\/\d+$/.test(it.str); });
+        if (!dt || !durIt) return;
+        var dur = episodeDuration(durIt.str), max = rates[1] ? rates[1].str : '', avg = rates[0] ? rates[0].str : '';
+        var id = its.slice(1, di).find(function (it) { return /^\d+$/.test(it.str); });
+        var activity = (its[its.length - 1] || {}).str || '';
+        listed.push({ dt: dt, dur: dur, rate: max.split('/')[1] || '', types: ['AF/AHR'], flags: [],
+          notes: 'Medtronic AT/AF episode' + (id ? ' #' + id.str : '') + (avg ? '; avg A/V ' + avg + ' bpm' : '') +
+            (max ? '; max A/V ' + max + ' bpm' : '') + (activity && !/^\d+\/\d+$/.test(activity) ? '; onset: ' + activity : '') + '.' });
+      });
+      if (listed.length) {
+        var recent = listed[0], longest = listed[0];
+        listed.forEach(function (ep) {
+          if (ep.dt > recent.dt) recent = ep;
+          if (durationSeconds(ep.dur) > durationSeconds(longest.dur)) longest = ep;
+        });
+        recent.flags.push('Recent'); EPISODES.push(recent);
+        longest.flags.push('Longest'); if (longest !== recent) EPISODES.push(longest);
+      }
+
       mapLeadInventory();
       // Conduction-system pacing: the ventricular lead is at the LBB area / His bundle, but it uses
       // the RV port, so every measurement above came out of the column the device labels "RV". Note
@@ -450,7 +494,7 @@
     mapObsAndChanges();
 
     var ORDER = ROUTE.family === 'leadless' ? ORDER_LEADLESS : ORDER_DUAL;
-    return { RESULT: RESULT, GOTCHAS: GOTCHAS, LEADS: LEADS, ROUTE: ROUTE, ORDER: ORDER };
+    return { RESULT: RESULT, GOTCHAS: GOTCHAS, LEADS: LEADS, EPISODES: EPISODES, ROUTE: ROUTE, ORDER: ORDER };
   }
 
   global.MEDTRONIC = {
