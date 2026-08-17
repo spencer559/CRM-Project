@@ -6,8 +6,8 @@
 <!-- Content-Security-Policy: this page shares an origin with the CRM tool, which autosaves
      PHI to localStorage — so like every page on this origin it ships its own CSP.
      The ONLY script is the inline Access-session probe at the bottom (it fetches
-     dev/auth-check.json to see if a Cloudflare Access session exists and unlocks the
-     Developer Deck card), so connect-src is 'self' (same-origin only — still no external
+     protected/auth-check.json to see if a Cloudflare Access session exists and unlocks the
+     protected tools), so connect-src is 'self' (same-origin only — still no external
      egress); fonts are self-hosted in vendor/fonts (no CDN at runtime). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self' https://*.cloudflareaccess.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'">
 <title>Cardiac CRM Toolkit</title>
@@ -77,7 +77,7 @@
     transition:border-color .15s ease,color .15s ease;
   }
   .signout:hover{border-color:var(--muted);color:var(--ink);}
-  .auth-dev .signout, .auth-crm .signout{display:inline-flex;}
+  .auth-protected .signout{display:inline-flex;}
   .navlinks{display:flex;align-items:center;gap:10px;}
 
   /* ===== main ===== */
@@ -102,40 +102,37 @@
   .card .arrow{color:var(--accent);font-size:17px;transition:transform .2s ease;}
   .card:hover .arrow{transform:translateX(4px);}
 
-  /* signed-in swaps — the probes at the bottom add body.auth-dev / body.auth-crm
-     per Access application. .t-out/.i-lock show locked state, .t-in/.i-unlock unlocked. */
+  /* signed-in swaps — the probe at the bottom adds body.auth-protected.
+     .t-out/.i-lock show locked state, .t-in/.i-unlock unlocked. */
   .s-in, .t-in, .i-unlock{display:none;}
-  a.signin.s-in, a.signin.s-crm{display:none;}
-  .auth-crm .signin.s-out{display:none;}
-  .auth-crm .signin.s-crm{display:inline-flex;}
-  .auth-dev .signin.s-out{display:none;}
-  .auth-dev .signin.s-crm{display:none;}
-  .auth-dev .signin.s-in{display:inline-flex;}
-  .auth-dev .devcard .t-in{display:inline;}
-  .auth-dev .devcard .t-out{display:none;}
-  .auth-dev .devcard .i-unlock{display:block;}
-  .auth-dev .devcard .i-lock{display:none;}
-  .auth-dev .card.devcard{background:var(--surface);border-style:solid;border-color:var(--line);}
-  .auth-dev .card.devcard:hover{border-color:var(--ok);box-shadow:0 16px 34px rgba(0,0,0,.5);}
-  .auth-dev .card.devcard .icon{background:#12261f;}
-  .auth-dev .card.devcard .kicker{color:var(--ok);}
-  .auth-dev .card.devcard h2{color:var(--ink);}
-  .auth-dev .card.devcard p{color:var(--muted);}
-  .auth-dev .card.devcard .meta{color:var(--dim);}
-  .auth-dev .card.devcard .arrow{color:var(--ok);}
+  a.signin.s-in{display:none;}
+  .auth-protected .signin.s-out{display:none;}
+  .auth-protected .signin.s-in{display:inline-flex;}
+  .auth-protected .devcard .t-in{display:inline;}
+  .auth-protected .devcard .t-out{display:none;}
+  .auth-protected .devcard .i-unlock{display:block;}
+  .auth-protected .devcard .i-lock{display:none;}
+  .auth-protected .card.devcard{background:var(--surface);border-style:solid;border-color:var(--line);}
+  .auth-protected .card.devcard:hover{border-color:var(--ok);box-shadow:0 16px 34px rgba(0,0,0,.5);}
+  .auth-protected .card.devcard .icon{background:#12261f;}
+  .auth-protected .card.devcard .kicker{color:var(--ok);}
+  .auth-protected .card.devcard h2{color:var(--ink);}
+  .auth-protected .card.devcard p{color:var(--muted);}
+  .auth-protected .card.devcard .meta{color:var(--dim);}
+  .auth-protected .card.devcard .arrow{color:var(--ok);}
 
-  .auth-crm .crmcard .t-in{display:inline;}
-  .auth-crm .crmcard .t-out{display:none;}
-  .auth-crm .crmcard .i-unlock{display:block;}
-  .auth-crm .crmcard .i-lock{display:none;}
-  .auth-crm .card.crmcard{background:var(--surface);border-style:solid;border-color:var(--line);}
-  .auth-crm .card.crmcard:hover{border-color:var(--accent-solid);box-shadow:0 16px 34px rgba(0,0,0,.5);}
-  .auth-crm .card.crmcard .icon{background:var(--accent-tile);}
-  .auth-crm .card.crmcard .kicker{color:var(--accent);}
-  .auth-crm .card.crmcard h2{color:var(--ink);}
-  .auth-crm .card.crmcard p{color:var(--muted);}
-  .auth-crm .card.crmcard .meta{color:var(--dim);}
-  .auth-crm .card.crmcard .arrow{color:var(--accent);}
+  .auth-protected .crmcard .t-in{display:inline;}
+  .auth-protected .crmcard .t-out{display:none;}
+  .auth-protected .crmcard .i-unlock{display:block;}
+  .auth-protected .crmcard .i-lock{display:none;}
+  .auth-protected .card.crmcard{background:var(--surface);border-style:solid;border-color:var(--line);}
+  .auth-protected .card.crmcard:hover{border-color:var(--accent-solid);box-shadow:0 16px 34px rgba(0,0,0,.5);}
+  .auth-protected .card.crmcard .icon{background:var(--accent-tile);}
+  .auth-protected .card.crmcard .kicker{color:var(--accent);}
+  .auth-protected .card.crmcard h2{color:var(--ink);}
+  .auth-protected .card.crmcard p{color:var(--muted);}
+  .auth-protected .card.crmcard .meta{color:var(--dim);}
+  .auth-protected .card.crmcard .arrow{color:var(--accent);}
 
   .card.locked{background:var(--surface-2);border-style:dashed;border-color:#2b3742;}
   .card.locked:hover{border-color:#3a4753;box-shadow:0 16px 34px rgba(0,0,0,.4);}
@@ -164,9 +161,8 @@
     </a>
     <div class="navlinks">
       <a class="signout" href="/cdn-cgi/access/logout">Sign out</a>
-      <a class="signin s-out" href="auth/signin.html">Sign in <span aria-hidden="true">&rarr;</span></a>
-      <a class="signin s-crm" href="app/CRM_Report_Generator.html">Open CRM <span aria-hidden="true">&rarr;</span></a>
-      <a class="signin s-in" href="dev/index.html">Open deck <span aria-hidden="true">&rarr;</span></a>
+      <a class="signin s-out" href="protected/">Sign in <span aria-hidden="true">&rarr;</span></a>
+      <a class="signin s-in" href="protected/">Open deck <span aria-hidden="true">&rarr;</span></a>
     </div>
   </nav>
 
@@ -176,7 +172,7 @@
     <p class="lede">Interrogation reports, coverage mileage, and clinic reference — each running locally, nothing uploaded.</p>
 
     <div class="cards">
-      <a class="card locked crmcard" href="app/CRM_Report_Generator.html">
+      <a class="card locked crmcard" href="protected/CRM_Report_Generator.html">
         <span class="icon" aria-hidden="true">
           <svg class="i-lock" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7d8b95" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
           <svg class="i-unlock" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5cc8e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 13h1.5l1-3 1.5 5 1-2H15"/></svg>
@@ -190,7 +186,7 @@
         </div>
       </a>
 
-      <a class="card" href="app/Mileage_Calculator.html">
+      <a class="card" href="mileage/">
         <span class="icon" aria-hidden="true">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5cc8e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V9a3 3 0 0 1 3-3h6a3 3 0 0 0 3-3"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="4" r="2"/></svg>
         </span>
@@ -203,7 +199,7 @@
         </div>
       </a>
 
-      <a class="card locked devcard" href="dev/index.html">
+      <a class="card locked devcard" href="protected/">
         <span class="icon" aria-hidden="true">
           <svg class="i-lock" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7d8b95" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
           <svg class="i-unlock" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#34c98a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.5-2"/></svg>
@@ -220,8 +216,8 @@
   </main>
 
 <script>
-/* Access-session probe: dev/auth-check.json sits behind the same Cloudflare Access gate as
-   the Developer Deck. Signed in -> 200 and the page flips to its unlocked state; signed out
+/* Access-session probe: protected/auth-check.json sits behind the same Cloudflare Access gate as
+   every protected tool. Signed in -> 200 and both cards flip to their unlocked state; signed out
    -> Access answers with a login redirect (opaqueredirect / error) and nothing changes.
    Same-origin request only — the CSP forbids any other destination. */
 (function () {
@@ -231,16 +227,13 @@
       .then(function (r) { return !!r.ok; })
       .catch(function () { return false; });
   }
-  /* Access sessions are per-application. If the first probe fails, the visitor may
-     still hold a team-level session from signing in to the OTHER tool — a hidden
-     iframe lets Access run its silent redirect chain (page -> team domain -> back),
-     which mints this app's cookie if their account is authorized; a second probe
-     then succeeds. Anonymous visitors: the chain parks on the (hidden) login page
-     and the second probe fails too — card stays locked. */
-  function probe(path, cls) {
-    if (document.body.classList.contains(cls)) return;   // already lit
+  function unlockProtectedTools() {
+    document.body.classList.add('auth-protected');
+  }
+  function probe(path) {
+    if (document.body.classList.contains('auth-protected')) return;   // already lit
     check(path).then(function (ok) {
-      if (ok) { document.body.classList.add(cls); return; }
+      if (ok) { unlockProtectedTools(); return; }
       // Warm-up: the iframe stays alive while we poll, so the Access redirect chain
       // is never aborted mid-mint (a fixed teardown here used to require refreshes).
       var f = document.createElement('iframe');
@@ -252,7 +245,7 @@
       var deadline = Date.now() + 7000;
       (function poll() {
         check(path).then(function (ok2) {
-          if (ok2) { document.body.classList.add(cls); f.remove(); }
+          if (ok2) { unlockProtectedTools(); f.remove(); }
           else if (Date.now() > deadline) { f.remove(); }   // no session / not authorized
           else { setTimeout(poll, 500); }
         });
@@ -260,8 +253,7 @@
     });
   }
   function runProbes() {
-    probe('dev/auth-check.json', 'auth-dev');       // Developer Deck Access app
-    probe('app/crm-auth-check.json', 'auth-crm');   // CRM Report Generator Access app
+    probe('protected/auth-check.json');
   }
   runProbes();
   /* iOS Safari restores this page from the back-forward cache when the user returns

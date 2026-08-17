@@ -1,0 +1,17 @@
+# Public mileage compatibility routes. Keep these explicit: never redirect all of /app/*
+# through an Access-protected namespace.
+/app/Mileage_Calculator.html       /mileage/                              301
+/app/Mileage_Calculator            /mileage/                              301
+/app/mileage-sync.js               /mileage/mileage-sync.js               301
+
+# Protected-tool compatibility routes.
+/app/CRM_Report_Generator.html     /protected/CRM_Report_Generator.html    301
+/app/CRM_Report_Generator          /protected/CRM_Report_Generator.html    301
+/app/PDF_Viewer.html               /protected/PDF_Viewer.html              301
+/app/PDF_Viewer                    /protected/PDF_Viewer.html              301
+/app/crm-auth-check.json           /protected/auth-check.json              301
+/dev                               /protected/                             301
+/dev/                              /protected/                             301
+/dev/*                             /protected/:splat                       301
+/auth/signin.html                  /protected/                             302
+/auth/signin                       /protected/                             302

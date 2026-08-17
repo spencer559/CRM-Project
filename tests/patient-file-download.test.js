@@ -17,7 +17,7 @@ function functionSource(source, name) {
   assert.fail("Could not find the end of " + name);
 }
 
-const html = fs.readFileSync(path.join(__dirname, "..", "dev", "Patient_Schedule.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "..", "protected", "Patient_Schedule.html"), "utf8");
 const source = functionSource(html, "savePatientFile");
 
 assert.match(html, /data-download=/, "each Files-menu row should include a save-original control");

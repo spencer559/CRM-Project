@@ -19,7 +19,7 @@ function functionSource(source, name) {
   assert.fail("Could not find the end of " + name);
 }
 
-const reportHtml = fs.readFileSync(path.join(__dirname, "..", "app", "CRM_Report_Generator.html"), "utf8");
+const reportHtml = fs.readFileSync(path.join(__dirname, "..", "protected", "CRM_Report_Generator.html"), "utf8");
 const reportSource = functionSource(reportHtml, "generatedReportFilename");
 const fields = {
   "pt-name": { value: "LASTNAME, FIRSTNAME M" },
@@ -40,7 +40,7 @@ fields["pt-name"].value = "García-López, Ana";
 assert.strictEqual(reportName("not-a-date"), "Garcia-Lopez_2026-08-14_CRM_Report.pdf",
   "last names should be normalized to a safe filename");
 
-const scheduleHtml = fs.readFileSync(path.join(__dirname, "..", "dev", "Patient_Schedule.html"), "utf8");
+const scheduleHtml = fs.readFileSync(path.join(__dirname, "..", "protected", "Patient_Schedule.html"), "utf8");
 const scheduleSource = functionSource(scheduleHtml, "generatedReportFilename");
 const state = { dates: { "2026-08-13": [{ time: "09:30", pt: "SMITH, JOHN Q" }] } };
 const WS = { slotName: (time, patient) => time + "_" + patient.replace(/\W/g, "") };

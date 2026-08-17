@@ -24,7 +24,7 @@
   /* ---------- pdf.js worker (self-hosted, no CDN) ----------
        Point the worker at the locally-vendored pdf.worker.min.js. We derive its URL from the
        page's own <script src=".../pdf.min.js"> tag, so it resolves correctly no matter what
-       folder the host page lives in (app/, tools/, …). If the page already set workerSrc
+       folder the host page lives in (protected/, tools/, …). If the page already set workerSrc
        explicitly, we leave it alone. No network fetch — works under a strict CSP. */
   function initWorker() {
     if (typeof pdfjsLib === 'undefined') return;

@@ -5,11 +5,11 @@ A small suite of browser tools for a cardiac device clinic, served as a static s
 | Page | What it is |
 |---|---|
 | `index.html` | Public landing page — self-contained static page (own CSP, self-hosted fonts) |
-| `app/CRM_Report_Generator.html` | **The flagship** — CIED interrogation report generator (bulk of this README) |
-| `app/Mileage_Calculator.html` | Clinic-coverage mileage log → one-click expense-form .xlsx, optional cloud sync |
-| `dev/index.html` | Developer deck — landing page for dev-only tools (`/dev/*` is gated by Cloudflare Access) |
-| `dev/dashboard.html` | Command center: markets, device-check tally, clinical reference, notes/to-do |
-| `dev/Patient_Schedule.html` | Daily clinic schedule — full patient names, zero network egress, print-formatted day sheet; stores the schedule **and** every patient's files in one portable `.crmdb` database (iPad-ready) |
+| `protected/CRM_Report_Generator.html` | **The flagship** — CIED interrogation report generator (bulk of this README) |
+| `mileage/index.html` | **Public** clinic-coverage mileage log → one-click expense-form .xlsx, optional cloud sync |
+| `protected/index.html` | Developer deck — landing page for protected tools (`/protected/*` is gated by Cloudflare Access) |
+| `protected/dashboard.html` | Command center: markets, device-check tally, clinical reference, notes/to-do |
+| `protected/Patient_Schedule.html` | Daily clinic schedule — full patient names, zero network egress, print-formatted day sheet; stores the schedule **and** every patient's files in one portable `.crmdb` database (iPad-ready) |
 | `mileage-backend/` | Cloudflare Worker + D1 backend for mileage cloud sync (see its `DEPLOY.md`) |
 
 > This README doubles as a **project handoff / context document** — if you're an AI assistant (e.g. Claude in Cowork) being pointed here to continue the work, read the whole thing; it captures the architecture, conventions, and the vendor-specific gotchas that took real reports to discover.
@@ -44,17 +44,17 @@ Supported inputs:
 index.html                          Public landing page (self-contained static page, single file)
 _headers                            Cloudflare Pages security headers (frame-ancestors, HSTS, nosniff…)
 assets/                             Background images for the landing pages
-auth/
-  signin.html                       Sign-in landing for the Cloudflare Access gate on /dev/*
-app/
+mileage/
+  index.html                        Public mileage log → expense-form .xlsx (fully self-contained)
+  mileage-sync.js                   Optional cloud-sync client; its login is not Cloudflare Access
+protected/
+  index.html                        Developer deck (Cloudflare Access gates /protected and /protected/*)
   CRM_Report_Generator.html         THE ACTIVE APP — edit this one
-  Mileage_Calculator.html           Mileage log → expense-form .xlsx (fully self-contained)
-  mileage-sync.js                   Optional cloud-sync client for the calculator
-dev/
-  index.html                        Developer deck (Cloudflare Access gates /dev/*)
+  PDF_Viewer.html                   Local PDF viewer used by the Schedule
   dashboard.html                    Command-center dashboard (single file)
   Patient_Schedule.html             Daily clinic schedule — the .crmdb's other page (see below)
   crmdb-container-design.md         Design note for the .crmdb container (written before the migration)
+  auth-check.json                   Same-origin Access-session probe used by the landing page
 mileage-backend/
   src/worker.js  wrangler.toml      Cloudflare Worker + D1 sync backend
   schema.sql  DEPLOY.md             (see DEPLOY.md for one-time setup)
@@ -83,15 +83,15 @@ tests/
 package.json                        No dependencies and no build step — it exists to give `npm test` an entrypoint
 ```
 
-**Path conventions:** the app lives in `app/`, so its includes are relative — `../src/engine.js`,
+**Path conventions:** protected pages live together at one directory depth, so their includes are relative — `../src/engine.js`,
 `../src/parsers/*.js`, `../vendor/pdf.min.js`, and `pdfjsLib.GlobalWorkerOptions.workerSrc =
-'../vendor/pdf.worker.min.js'`. The two dev tools in `tools/` use the same `../src` / `../vendor`
-prefixes. The developer tools under `tools/` follow the same convention. Test fixtures
+'../vendor/pdf.worker.min.js'`. The standalone utilities in `tools/` use the same `../src` / `../vendor`
+prefixes. Test fixtures
 (`Abbott Test Cases/`) stay local and are git-ignored.
 
 | Component | Role |
 |---|---|
-| `app/CRM_Report_Generator.html` | **The active app.** Form UI, auto-fill drop panel, `prefillForm`, lead tables, report builders, save/restore, JSON import/export. |
+| `protected/CRM_Report_Generator.html` | **The active app.** Form UI, auto-fill drop panel, `prefillForm`, lead tables, report builders, save/restore, JSON import/export. |
 | `src/engine.js` | Shared **PDF extraction engine** (pdf.js based) + anchor helpers + cleaners. |
 | `src/parsers/medtronic.js` | Medtronic PDF parser → `window.MEDTRONIC.runMap(LINES, META)` |
 | `src/parsers/boston.js` | Boston Scientific PDF parser → `window.BOSTON.runMap(LINES, META)` |
@@ -104,7 +104,7 @@ prefixes. The developer tools under `tools/` follow the same convention. Test fi
 ## How it works (data flow)
 
 ```
-file dropped → handleFile(file)               [in app/CRM_Report_Generator.html]
+file dropped → handleFile(file)               [in protected/CRM_Report_Generator.html]
    ├─ .log / .txt  → ABBOTT.runLog(text)       (read as text, BOM/encoding-aware)
    └─ .pdf         → pdf.js → Engine.extractItems → Engine.normalize → Engine.tagSections
                      → Engine.guessVendor → PARSERS[vendor].runMap(LINES)
@@ -239,11 +239,11 @@ Unifying tricks:
 - Key codes: `200/201` model, `202` serial, `203` interrogation, `2442` implant, `2430/2431` name/DOB, `301` mode, `302/323/406` LRL/UTR/USR, `337/322` sensed/paced AV, `320` rate-responsive AV (dynamic), `339` AMS, `512/507/2720` RA/RV/LV impedance, `2721/2722` RA/RV sensing, `1610/1606/1616` RA/RV/LV capture-test thresholds, `2730` HV (coil) impedance, `2745` charge time, `533` longevity. CRT pacing compartments are `2709/2710/2711` (RVP/LVP/BP); episode aggregates are `2754` (AT/AF count), `2630` (ICD VT/VF count), and `2750/2642` (atrial/tachy last-cleared dates).
 - **Episode limits:** these `.log` exports contain aggregate counters but no individual episode timestamps, durations, or peak rates, so the parser cannot populate recent/longest logbook rows. Code `2755` is a raw unitless recent-week AT/AF time rather than the displayed since-clear burden percentage; only an unambiguous zero is auto-filled.
 - **Redacting samples:** `tools/CIED Abbott Log Redactor.html` accepts multiple logs entirely client-side, detects UTF-8/UTF-16LE/UTF-16BE, exposes the invisible FS-delimited fields in a table, and preselects common PHI plus device/lead serial numbers. Only selected value byte ranges are replaced; BOM, encoding, line endings, FS delimiters and all unselected bytes are retained. It can download one redacted `.log` or all loaded samples as a ZIP.
-- **Redacting vendor PDFs:** `tools/CIED PDF Redactor.html` handles Medtronic, Boston Scientific, Biotronik, and scanned Abbott PDFs entirely client-side. On load it scans **every page before enabling download**, auto-boxing common identifiers (including names, MRNs, providers/facilities, contacts, device/lead serials, and patient-related dates); the all-page rescan preserves click-drag manual boxes. Its taller preview fits one complete page using both available width and height, refits on resize, and wheel-navigates one page at a time like `app/PDF_Viewer.html`. It exports generic filenames. The output is rebuilt from page pixels plus a new selectable text layer made from pdf.js items that do **not** intersect any redaction. Automatic boxes contribute structure-preserving synthetic values: serials/MRNs retain character counts and punctuation (`ABC-12345` -> `XXX-00000`), dates retain ordering, separators, month-word style, and time punctuation (`Aug/16/2026` -> `Jan/01/2000`), and phone numbers retain their displayed pattern. An inline label/value item is rebuilt as the original label plus the synthetic value instead of a generic token. This keeps regex anchors and realistic value formats available to the extraction harness while preventing source selectable/hidden PHI, metadata, annotations, attachments, and layers from surviving. Automatic detection is only a first pass; every page must be reviewed, and scanned PDFs need manual boxes.
+- **Redacting vendor PDFs:** `tools/CIED PDF Redactor.html` handles Medtronic, Boston Scientific, Biotronik, and scanned Abbott PDFs entirely client-side. On load it scans **every page before enabling download**, auto-boxing common identifiers (including names, MRNs, providers/facilities, contacts, device/lead serials, and patient-related dates); the all-page rescan preserves click-drag manual boxes. Its taller preview fits one complete page using both available width and height, refits on resize, and wheel-navigates one page at a time like `protected/PDF_Viewer.html`. It exports generic filenames. The output is rebuilt from page pixels plus a new selectable text layer made from pdf.js items that do **not** intersect any redaction. Automatic boxes contribute structure-preserving synthetic values: serials/MRNs retain character counts and punctuation (`ABC-12345` -> `XXX-00000`), dates retain ordering, separators, month-word style, and time punctuation (`Aug/16/2026` -> `Jan/01/2000`), and phone numbers retain their displayed pattern. An inline label/value item is rebuilt as the original label plus the synthetic value instead of a generic token. This keeps regex anchors and realistic value formats available to the extraction harness while preventing source selectable/hidden PHI, metadata, annotations, attachments, and layers from surviving. Automatic detection is only a first pass; every page must be reviewed, and scanned PDFs need manual boxes.
 
 ---
 
-## Form / UI features (in `app/CRM_Report_Generator.html`)
+## Form / UI features (in `protected/CRM_Report_Generator.html`)
 
 - **Auto-fill drop panel** accepts PDF (Medtronic/Boston) and `.log` (Abbott). Its `#pdp-merge` checkbox is hidden but live — it's the state behind the Import menu's **Merge** toggle (see the data-flow section).
 - **Import toast** (`#pdp-status`, a fixed-position card under the app bar) — after a successful import it shows route/model/`N fields filled`, then after `PDP_LINGER` (6 s) **collapses to just the parser's `Verify:` list**, which stays until the **×** dismisses it. It obstructed the form at some window sizes, and the summary has no use once read. Hovering pauses the collapse and leaving re-arms it (never leave it paused — a stray hover stranding the card is the bug this fixed). **Errors never auto-clear**, and the transient "Reading…" line gets no ×. `setStatus(html, cls, keep)` — `keep` is the HTML that outlives the timeout.
@@ -273,26 +273,28 @@ Unifying tricks:
 
 ## The other tools
 
-### Landing pages (`index.html`, `dev/index.html`)
+### Landing pages (`index.html`, `protected/index.html`)
 
-Both landing pages were redesigned Jul 2026 as **single self-contained static pages**: no scripts, cards hardcoded in the HTML, inline styles, fonts self-hosted in `vendor/fonts` (no Google Fonts at runtime), and each ships its own CSP (`script-src 'none'; connect-src 'none'`, no external origins) per the per-page-CSP rule below. **Adding/editing a tool card is an edit in the page itself.** The old shared renderer (`home.js`) and theme (`assets/site.css`) were removed with this redesign (git history has them).
+Both landing pages are **single self-contained static pages**: cards are hardcoded in the HTML, inline styles, and fonts are self-hosted in `vendor/fonts` (no Google Fonts at runtime). The public index has one small same-origin Access-session probe; the protected deck needs no auth script because Cloudflare gates the whole namespace. **Adding/editing a tool card is an edit in the page itself.** The old shared renderer (`home.js`) and theme (`assets/site.css`) were removed with this redesign (git history has them).
 
-- `index.html` — public index (Public Sans + JetBrains Mono). Shows the two public tools plus a locked "Developer Deck" card.
-- `dev/index.html` — developer deck, pirate-themed (Pirata One / Cinzel / Spectral, background `assets/dev-bg-crew.webp`). Lists all four tools. Card hrefs are relative (`../app/…`), so it works from `file://` and from the web root. The `/dev/*` gate is Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces it.
+- `index.html` — public index (Public Sans + JetBrains Mono). The Mileage card is always public; the CRM and Developer Deck cards unlock together after the single protected-session probe succeeds.
+- `protected/index.html` — developer deck, pirate-themed (Pirata One / Cinzel / Spectral, background `assets/dev-bg-crew.webp`). Lists all four tools. The `/protected` and `/protected/*` gates are Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces them.
 
-### Mileage Calculator (`app/Mileage_Calculator.html` + `app/mileage-sync.js`)
+### Mileage Calculator (`mileage/index.html` + `mileage/mileage-sync.js`)
 
 Logs clinic-coverage days (AM clinic → PM clinic) and computes reimbursable miles by the home-adjustment method: `(home→AM) + (AM↔PM leg) + (PM→home) − normal round-trip commute to the base clinic`, floored at 0. Up to 5 locations with per-user distances, drag-to-reorder log, config/profile JSON import-export, and a one-click **expense-form .xlsx** (xlsx-js-style embedded inline — no CDN). State lives in localStorage (`mileageToolV1`); new rows default to the **local** date (not UTC — that bug put evening entries on tomorrow).
 
 **Cloud sync** is an optional layer in `mileage-sync.js`: username/passphrase accounts (invite-code gated), 12-hour JWT sessions, offline-first with a debounced push on every save, pull-then-reconcile on load, and last-write-wins conflict resolution keyed off a server-side version number. If `WORKER_URL` is blank the file does nothing and the page stays local-only.
 
+The calculator deliberately lives outside `protected/`. Its optional Worker login belongs only to mileage sync and must never be replaced by or placed behind Cloudflare Access; the calculator remains usable without signing in and when the Worker is unavailable.
+
 ### Mileage sync backend (`mileage-backend/`)
 
 Cloudflare Worker + D1 (`mileage-sync.spencer559.workers.dev`). One JSON blob per user, PBKDF2-SHA256 password hashing, HS256 JWTs, optimistic-concurrency writes (stale version → 409 with the server copy; `force:true` for a client-resolved LWW push), CORS restricted to the origins in `wrangler.toml` `ALLOWED_ORIGIN`. Secrets (`JWT_SECRET`, `INVITE_CODE`) are set with `wrangler secret put`; setup steps are in `DEPLOY.md`. **It only ever touches mileage data — no PHI.** The local `.wrangler/` cache is git-ignored.
 
-### Developer dashboard (`dev/dashboard.html`)
+### Developer dashboard (`protected/dashboard.html`)
 
-Single-file command center behind the `/dev/` gate: clock + Open-Meteo weather (currently hard-coded to LA coords); Finnhub-powered watchlist, index strip and sector heatmap (bring your own free key, stored locally; requests are queued/paced/cached to respect the 60-calls-per-minute free tier); a device-check tally with 7-day history; clinical reference tabs (portals, a **Timing Lab** — ms⇄bpm + TARP/upper-rate calculators, EGM gain/sweep box-scale calculators, and a DDD timing-cycle simulator (static canvas marker-channel strip — simulates to steady state and redraws on any change — showing 1:1 tracking / pseudo-Wenckebach / 2:1 block / LRL pacing) — a **Tachy Lab** (zone/therapy planner: VT-1/VT/VF boundaries with detection and therapy sequences, SVT-discriminator limit, a color-banded rate ladder in bpm+ms, and a rate probe reporting zone / discriminator status / time-to-detect / therapy path) — measurement ranges, SVT–VT discriminators, patient alerts, troubleshooting, MRI lookups, magnet rates) plus an EGM marker glossary; notes and a to-do list. A **Modules** dropdown in the header (left of the panel filter) links to the other tools so the dashboard can serve as home base.
+Single-file command center behind the `/protected/` gate: clock + Open-Meteo weather (currently hard-coded to LA coords); Finnhub-powered watchlist, index strip and sector heatmap (bring your own free key, stored locally; requests are queued/paced/cached to respect the 60-calls-per-minute free tier); a device-check tally with 7-day history; clinical reference tabs (portals, a **Timing Lab** — ms⇄bpm + TARP/upper-rate calculators, EGM gain/sweep box-scale calculators, and a DDD timing-cycle simulator (static canvas marker-channel strip — simulates to steady state and redraws on any change — showing 1:1 tracking / pseudo-Wenckebach / 2:1 block / LRL pacing) — a **Tachy Lab** (zone/therapy planner: VT-1/VT/VF boundaries with detection and therapy sequences, SVT-discriminator limit, a color-banded rate ladder in bpm+ms, and a rate probe reporting zone / discriminator status / time-to-detect / therapy path) — measurement ranges, SVT–VT discriminators, patient alerts, troubleshooting, MRI lookups, magnet rates) plus an EGM marker glossary; notes and a to-do list. A **Modules** dropdown in the header (left of the panel filter) links to the other tools so the dashboard can serve as home base.
 
 Persistence details worth knowing before editing:
 
@@ -301,9 +303,9 @@ Persistence details worth knowing before editing:
 - Tally keys use **local** dates (`localISO()`), not `toISOString()` (UTC), so evening checks don't land on tomorrow's tally.
 - Its CSP allows egress only to `api.open-meteo.com` and `finnhub.io`, and no third-party scripts run (TradingView widgets were removed for exactly this reason).
 
-### Patient Schedule (`dev/Patient_Schedule.html`)
+### Patient Schedule (`protected/Patient_Schedule.html`)
 
-A daily device-clinic schedule behind the `/dev/` Cloudflare Access gate. Rows hold time, the patient's **full name**, manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…" dropdown** beside the date picker contains the destination date and confirmation controls; it reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
+A daily device-clinic schedule behind the `/protected/` Cloudflare Access gate. Rows hold time, the patient's **full name**, manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…" dropdown** beside the date picker contains the destination date and confirmation controls; it reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
 
 Workflow/storage: the schedule **and every patient's files** now live in a **single `.crmdb` database file** — see *The `.crmdb` database container* below for the full model. On Mac/PC it auto-saves in place as you edit; on iPad you press **Save** to write it back through the Files sheet. Data-lifetime is user-controlled **per database** via the **Memory** menu (retention window + Clear-all-past + a size readout; default is keep-everything — the old fixed 7-day purge is gone). Also: a header **All patients** overview, a manual **+ PDF** attach chip per row (for device types with no parser), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** action (now inside the Memory menu) that saves the database, wipes localStorage, and forgets the connection — the file keeps the data; only the browser is cleaned. Optional per-database password protection encrypts both the `.crmdb` file and its IndexedDB working copy entirely on-device; protected databases suppress the plaintext schedule localStorage mirror. There is deliberately no password recovery or server involvement. Never wire this page to the mileage sync Worker or any other backend.
 
@@ -535,9 +537,9 @@ localStorage, and forgets the connection.
 - **Self-hosted libraries** — `vendor/pdf.min.js` + `pdf.worker.min.js` (pdf.js v3.11.174) **and** `jspdf.umd.min.js` + `jspdf.plugin.autotable.min.js` (the vector-PDF generator) are committed to the repo; nothing is pulled from a CDN at runtime. `engine.js` derives the worker URL from the page's own `pdf.min.js` `<script>` tag (and respects a `workerSrc` the page set explicitly), so no third-party script ever runs in the same context as PHI.
 - **Content-Security-Policy** — the app HTML ships a `<meta http-equiv="Content-Security-Policy">` whose key directive is `connect-src 'none'`: the page cannot make *any* network request, so PHI cannot be exfiltrated. `script-src`/`style-src` keep `'unsafe-inline'` only because the form uses inline handlers + `<script>` blocks (that allowance grants no network egress); `worker-src 'self' blob:` lets the local pdf.js worker run.
 - **Per-page CSPs across the origin** — every page on this origin shares localStorage with the CRM autosave, so each ships its own CSP: the Mileage Calculator's `connect-src` permits only the sync Worker, and the dashboard's only its two data feeds (Open-Meteo, Finnhub). No page may load third-party scripts.
-- **HTTP security headers** — the root `_headers` file makes Cloudflare Pages send real headers on every response: `X-Frame-Options: DENY` + `frame-ancestors 'none'` (note: `frame-ancestors` in a `<meta>` CSP is ignored per spec, so the header is the one that actually prevents framing), `nosniff`, `Referrer-Policy: no-referrer` (outbound portal clicks don't leak URLs), a locked-down `Permissions-Policy`, and HSTS. The per-page meta CSPs remain as defense-in-depth.
+- **HTTP security headers** — the root `_headers` file makes Cloudflare Pages send real headers on every response: `X-Frame-Options: SAMEORIGIN` + `frame-ancestors 'self'` (the Schedule embeds the CRM and PDF viewer from the same origin), `nosniff`, `Referrer-Policy: no-referrer` (outbound portal clicks don't leak URLs), a locked-down `Permissions-Policy`, and HSTS. The per-page meta CSPs remain as defense-in-depth.
 - **CRM autosave retention** — the `crm-digital` autosave carries a `__savedAt` stamp; saves older than **24 h** are cleared on load instead of restored (the autosave exists to survive a refresh mid-visit, not to store records).
-- **Hosting** — Cloudflare Pages (`device-tech.pages.dev`), with `/dev/*` behind Cloudflare Access. The old GitHub Pages origin is kept in the Worker's `ALLOWED_ORIGIN` during the transition; drop it once disabled.
+- **Hosting** — Cloudflare Pages (`device-tech.pages.dev`), with only `/protected` and `/protected/*` behind Cloudflare Access. `/mileage/` must remain outside every Access application. The old GitHub Pages origin is kept in the Worker's `ALLOWED_ORIGIN` during the transition; drop it once disabled. Exact dashboard steps are in `docs/cloudflare-access.md`.
 - **Still out of scope (deployment-level):** access controls on the public tools, audit logging, encryption at rest (localStorage + downloaded files are plaintext), and the fact that a public static host is not automatically HIPAA-eligible. See any compliance review before clinical use.
 
 ---
@@ -552,11 +554,11 @@ localStorage, and forgets the connection.
 - **Aveir** dual-chamber leadless — manual entry only (no importer), with per-module lead rows, longevity, and pacing % driven by the RA/RV chamber checkboxes.
 - **JSON export/import** round-trips a full record (incl. the lead table); **pdf.js self-hosted** under a strict CSP (no network egress).
 - **Workflow / UI:** merge-import (keep live-typed data), episode logbook ↔ free-text toggle, merged **Final Session Summary** section, save-location-aware exports (desktop picker / iOS share sheet), and a mobile-fixed JSON menu.
-- **Patient Schedule** (full-name day sheet, print view, walk-away wipe) behind the `/dev/` gate — now backed by the `.crmdb` container (below) with per-database Memory retention, an All-patients overview, and manual PDF attach.
+- **Patient Schedule** (full-name day sheet, print view, walk-away wipe) behind the `/protected/` gate — now backed by the `.crmdb` container (below) with per-database Memory retention, an All-patients overview, and manual PDF attach.
 - **`.crmdb` single-file database (Jul 2026):** the shared USB workspace was rebuilt from a live folder tree into one portable ZIP (`schedule.crmdb`) so the Schedule **and** the CRM Report Generator work on **iPad** as well as desktop. New `src/crmdb-store.js` (CRMWorkspace API over an in-memory bundle + IndexedDB cross-page copy + desktop file-handle autosave / iPad share-sheet save) and `vendor/crmdb-zip.js` (dependency-free, CSP-safe ZIP). Verified headlessly in Node: bundle round-trips (valid zip per `unzip -t`), slot moves/renames, file counts, retention pruning, per-database `retentionDays` persistence, delete-with-files, and the two-page handoff sequence. Browser click-through (iPad share sheet, desktop reconnect) has since been confirmed on real hardware.
 - **Vendor detection rewritten (Jul 2026):** a Boston Scientific report carrying an **Abbott / St. Jude RV lead** was detected as Abbott and refused to import — `guessVendor` joined every page into one string and took the *first* matching signature, and `boston.js` reads the Leads table verbatim by design, so one foreign lead row decided the routing (Abbott sits higher in the list, and Abbott has no PDF parser → hard dead end). `Engine.scoreVendors` now ranks vendors by **page spread**: a report's own brand repeats in the page furniture on every page, a foreign lead is one cell on one page. The importer also gained a **"Parse as:" override** (buttons in the status box that re-parse the cached text) so no misdetect can wall off the auto-fill again, the Abbott dead end now points at the Merlin `.log` export, and the parsers' dead `sig` regexes — which had drifted a full 10 Boston families ahead of the engine — are gone. Covered by `tests/vendor-detect.test.js`.
 - **Latency overhaul (Jul 2026):** committing re-serialized the **whole** database and wrote it into the shared IndexedDB working copy, and both pages did that on their typing debounce — so every ~1.5s pause cost a multi-megabyte round trip, and it got worse the bigger the `.crmdb` grew. Four changes, all of them about *when* and *how much*: (1) an edit now **stages** into the in-memory bundle (`{ defer: true }` on `writeFile` / `createWritable`), which is free; (2) new `src/crmdb-commit-cadence.js` owns **when** staged edits publish — at most once every 30s, plus an immediate commit on every deliberate exit (patient switch, Save, tab-hide, pagehide, unload). Continuous typing can't starve it, because `stage()` deliberately does *not* restart an in-flight timer; and one page exit is **one** commit even though a browser fires up to three teardown events for it, so a page that claims its own teardown work isn't doubled up. The cadence window is therefore only ever exposed by a hard crash, never a normal close. (3) a commit costs the **delta** rather than the whole database — unchanged entries are carried by reference instead of re-deflated; (4) `CRMDB.readBlob` reads a container we wrote ourselves **by reference** — nothing but the central directory is parsed and each entry comes back as a `blob.slice()` view, so a page load holds one copy of the database instead of the two or three `read()` materialized. Anything unfamiliar (a DEFLATE entry, a layout whose local headers don't tile) falls back to `read()`. Covered by `tests/crmdb-commit-cadence.test.js`, `crmdb-commit-cost.test.js`, `crmdb-deferred-write.test.js`, `crmdb-zero-copy-read.test.js`.
-- **Remote-monitoring status shared between the two pages (Jul 2026):** the Schedule's **Remote** precharting column and the Report Generator's Final Session Summary **Status** dropdown are one field, not two — it travels in the schedule row (`r.rm`) inside `schedule.json`. Opening a patient pulls the precharted value into the form (the schedule wins, since that's where precharting happens; if it's blank and the report has a value, the schedule is seeded instead so the two never disagree), and changing it in the report writes back, bumps `schedule.json`'s revision stamp and broadcasts a `committed` message — otherwise an open Schedule tab would treat its own copy as newer and put the old value straight back. Covered by `tests/crmdb-schedule-rm-share.test.js`. **Coupling to keep in mind:** the `RMS` list in `dev/Patient_Schedule.html` and the `#rm-status` `<select>` in `app/CRM_Report_Generator.html` must stay in step (both carry a comment saying so).
+- **Remote-monitoring status shared between the two pages (Jul 2026):** the Schedule's **Remote** precharting column and the Report Generator's Final Session Summary **Status** dropdown are one field, not two — it travels in the schedule row (`r.rm`) inside `schedule.json`. Opening a patient pulls the precharted value into the form (the schedule wins, since that's where precharting happens; if it's blank and the report has a value, the schedule is seeded instead so the two never disagree), and changing it in the report writes back, bumps `schedule.json`'s revision stamp and broadcasts a `committed` message — otherwise an open Schedule tab would treat its own copy as newer and put the old value straight back. Covered by `tests/crmdb-schedule-rm-share.test.js`. **Coupling to keep in mind:** the `RMS` list in `protected/Patient_Schedule.html` and the `#rm-status` `<select>` in `protected/CRM_Report_Generator.html` must stay in step (both carry a comment saying so).
 - **Site passover (Jul 2026):** dashboard data-file snapshot/restore whitelisted to dashboard-owned keys (a full-localStorage mirror was writing the CRM PHI autosave into exports); tally + mileage "Add day" switched to local dates (UTC `toISOString` rolled evening entries to tomorrow); Mileage Calculator got a CSP matching the other pages; `mileage-backend/.wrangler/` untracked and git-ignored.
 
 **Known gaps / TODO ideas:**
@@ -572,7 +574,7 @@ localStorage, and forgets the connection.
 
 ## Testing / continuing the work
 
-- **Manual:** open `app/CRM_Report_Generator.html` locally (or on the Pages site) and drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
+- **Manual:** open `protected/CRM_Report_Generator.html` locally (or on the Pages site) and drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
 - **PDF authoring:** use `tools/CIED PDF Extraction Harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parser under `src/parsers/`.
 - **Node tests:** `npm test` (or `node tests/run.js`) runs the whole suite. The runner gives each
   `tests/*.test.js` its **own child process** on purpose — every file installs its own fake
@@ -608,13 +610,13 @@ localStorage, and forgets the connection.
 ### To add a new vendor
 1. Add a parser file under `src/parsers/` exposing `runMap(LINES)` (PDF) or a text entry point (like Abbott's `runLog`), returning the `{RESULT, LEADS, ROUTE, ORDER, GOTCHAS}` bundle (optionally `EPISODES`) with the field keys above.
 2. Register it: PDF vendors go in `Engine.VENDORS` + the `PARSERS` map in the app HTML; a text format gets its own branch in `handleFile`. `engine.js` is the **only** detection list — parser modules deliberately carry no signature of their own (two lists drift, and they did). A `VENDORS` entry is `{ name, strong, weak }`: `strong` = company / remote-system names that print in the page header or footer, written as separate `|` alternatives (`scoreVendors` counts how many distinct ones matched); `weak` = device family names, which are only suggestive because a family name can also appear in a lead row.
-3. Add the `<script src="../src/parsers/yourvendor.js">` include in `app/CRM_Report_Generator.html` (after `../src/engine.js`).
+3. Add the `<script src="../src/parsers/yourvendor.js">` include in `protected/CRM_Report_Generator.html` (after `../src/engine.js`).
 
 ---
 
 ## Privacy note
 
-This repo is **public** and the site is served from Cloudflare Pages (`device-tech.pages.dev`); only `/dev/*` sits behind Cloudflare Access.
+This repo is **public** and the site is served from Cloudflare Pages (`device-tech.pages.dev`); only `/protected` and `/protected/*` sit behind Cloudflare Access.
 - Keep patient data (names, DOBs, device serial numbers, raw vendor exports) out of anything committed. Sample/scratch files used for testing should stay local or be `.gitignore`d (currently `Info.txt`, `Abbott Test Cases/`, and `mileage-backend/.wrangler/`).
 - The app itself never transmits data — all parsing happens in the browser, pdf.js is self-hosted, and the CSP's `connect-src 'none'` blocks every network request (see **Security / hosting**).
 - This covers only what the page controls. Hosting, access control, audit logging, and encryption at rest are deployment concerns a compliance review must address before clinical use.

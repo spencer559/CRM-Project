@@ -309,14 +309,6 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
    `window.parent !== window` is deliberate: ?embed=1 typed into a top-level tab is not an embed,
    and the exits below must never post to a parent that is really this window. */
 (function () {
-  // Cloudflare Access sessions are scoped separately for /dev/ and /app/. When the Schedule opens
-  // this URL in a user-initiated helper window, reaching this script proves /app/ authorization;
-  // notify the opener and close before presenting a second copy of the form.
-  if (/(?:^|[?&])authwarm=1(?:&|$)/.test(location.search)) {
-    var authOrigin = location.origin === 'null' ? '*' : location.origin;
-    try { if (window.opener) window.opener.postMessage({ type: 'crm:access-ready' }, authOrigin); } catch (e) {}
-    try { window.close(); } catch (e) {}
-  }
   var embedded = /(?:^|[?&])embed=1(?:&|$)/.test(location.search) && window.parent !== window;
   window.CRM_EMBED = embedded;
   if (embedded) document.documentElement.classList.add('embedded');
@@ -743,7 +735,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 
     <!-- Status is the SAME field as the Patient Schedule's "Remote" precharting column: opening a
          patient pulls the scheduled value in, and changing it here writes straight back. Options
-         must stay in step with RMS in dev/Patient_Schedule.html. -->
+         must stay in step with RMS in protected/Patient_Schedule.html. -->
     <div class="sub-lbl" style="margin-top:12px;">Remote Monitoring</div>
     <div class="fg" style="grid-template-columns: 140px 130px;">
       <div class="field"><span class="lbl">Status</span>
@@ -3471,7 +3463,7 @@ window.ensureReportPdfBuilder = function () {
     // navigating the frame into it. Either way the exit finalizes first, below.
     var go = EMBED
       ? function () { postHost({ type: 'crm:collapse' }); }
-      : function () { location.href = '../dev/Patient_Schedule.html'; };
+      : function () { location.href = 'Patient_Schedule.html'; };
     // Rebuild the FULL report set (json+txt+pdf) whenever a patient is selected, so leaving
     // always assigns an up-to-date PDF to that patient — even if the form wasn't edited this
     // visit (e.g. opened an older json-only slot and just reviewed it). Not gated on `dirty`:

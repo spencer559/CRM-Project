@@ -10,7 +10,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const source = fs.readFileSync(path.join(__dirname, "../app/CRM_Report_Generator.html"), "utf8");
+const source = fs.readFileSync(path.join(__dirname, "../protected/CRM_Report_Generator.html"), "utf8");
 
 function functionBody(name) {
   const start = source.indexOf("function " + name + "(");

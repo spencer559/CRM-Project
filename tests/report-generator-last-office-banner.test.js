@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const report = fs.readFileSync(path.join(__dirname, "..", "app", "CRM_Report_Generator.html"), "utf8");
+const report = fs.readFileSync(path.join(__dirname, "..", "protected", "CRM_Report_Generator.html"), "utf8");
 
 const patientPos = report.indexOf('id="patient-btn"');
 const officePos = report.indexOf('id="last-office-status"');

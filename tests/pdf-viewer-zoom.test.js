@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const viewer = fs.readFileSync(path.join(__dirname, "..", "app", "PDF_Viewer.html"), "utf8");
+const viewer = fs.readFileSync(path.join(__dirname, "..", "protected", "PDF_Viewer.html"), "utf8");
 
 assert.match(viewer, /var ZOOM_STEPS = \[1, 1\.25, 1\.5, 2, 2\.5, 3\]/,
   "zoom should be bounded and retain Fit as its first/default step");

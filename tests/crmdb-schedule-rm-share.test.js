@@ -14,7 +14,7 @@
  *     to decide who wins — without the bump it would put the stale status straight back.
  *
  * The mutation itself is replicated here rather than imported: it lives inline in
- * app/CRM_Report_Generator.html (see pushRmToSchedule), which has no module boundary.
+ * protected/CRM_Report_Generator.html (see pushRmToSchedule), which has no module boundary.
  *
  * Run with:  node tests/crmdb-schedule-rm-share.test.js
  */

@@ -5,7 +5,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "app", "CRM_Report_Generator.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "..", "protected", "CRM_Report_Generator.html"), "utf8");
 
 assert.match(html, /class="episode-date"[\s\S]*?<input type="date" id="ep-since-date"/,
   "the Stored Episodes header should contain a parser-addressable date input");

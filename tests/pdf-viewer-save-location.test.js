@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const viewer = fs.readFileSync(path.join(__dirname, "..", "app", "PDF_Viewer.html"), "utf8");
+const viewer = fs.readFileSync(path.join(__dirname, "..", "protected", "PDF_Viewer.html"), "utf8");
 const handler = viewer.slice(viewer.indexOf('$("downloadBtn").addEventListener'), viewer.indexOf("// The lesson from the importer"));
 
 assert.ok(handler.includes("showSaveFilePicker"),

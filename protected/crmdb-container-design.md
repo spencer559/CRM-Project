@@ -202,10 +202,10 @@ on both platforms use the bundle.
 - `src/workspace.js` — `moveSlot` / `slotDir` directory operations retire in favor
   of in-memory key relabels; `readText`/`writeFile` get bundle-aware equivalents.
   Keep the directory reader for the one-time migration only.
-- `dev/Patient_Schedule.html` — swap the `dataFileHandle` + `wsRoot` dual layer for
+- `protected/Patient_Schedule.html` — swap the `dataFileHandle` + `wsRoot` dual layer for
   the single `db` model above; the existing `syncTimer`, visibility-flush, and
   `<input type=file>` import are reused almost as-is.
-- `app/CRM_Report_Generator.html` — its tiered saver (`showSaveFilePicker` →
+- `protected/CRM_Report_Generator.html` — its tiered saver (`showSaveFilePicker` →
   `<a download>`) already matches this split; point it at the shared bundle.
 - Add JSZip (one small vendored file) to `vendor/`.
 
