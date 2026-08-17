@@ -33,6 +33,7 @@ assert.strictEqual(sample[0].dt, "2026-08-04T06:31");
 assert.strictEqual(sample[0].dur, "19:55:19");
 assert.strictEqual(sample[0].rate, "136", "logbook rate should use the maximum ventricular rate");
 assert.deepStrictEqual(sample[0].types, ["AF/AHR"]);
+assert.strictEqual(sample[0].notes, "Episode #3", "notes should contain only the Medtronic episode number");
 
 const split = parse([
   line(1, 610, [[71,"AT/AF"],[225,"9"],[246,"Aug/05/2026"],[312,"12:05 AM"],[382,":36"],[423,"55/67"],[470,"194/77"],[526,"Rest"]]),

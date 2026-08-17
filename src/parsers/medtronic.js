@@ -437,12 +437,10 @@
         var durIt = its.slice(di + 2).find(function (it) { return /^\d*:\d{0,2}:?\d{2}$/.test(it.str); });
         var rates = its.slice(di + 2).filter(function (it) { return /^\d+\/\d+$/.test(it.str); });
         if (!dt || !durIt) return;
-        var dur = episodeDuration(durIt.str), max = rates[1] ? rates[1].str : '', avg = rates[0] ? rates[0].str : '';
+        var dur = episodeDuration(durIt.str), max = rates[1] ? rates[1].str : '';
         var id = its.slice(1, di).find(function (it) { return /^\d+$/.test(it.str); });
-        var activity = (its[its.length - 1] || {}).str || '';
         listed.push({ dt: dt, dur: dur, rate: max.split('/')[1] || '', types: ['AF/AHR'], flags: [],
-          notes: 'Medtronic AT/AF episode' + (id ? ' #' + id.str : '') + (avg ? '; avg A/V ' + avg + ' bpm' : '') +
-            (max ? '; max A/V ' + max + ' bpm' : '') + (activity && !/^\d+\/\d+$/.test(activity) ? '; onset: ' + activity : '') + '.' });
+          notes: id ? 'Episode #' + id.str : '' });
       });
       if (listed.length) {
         var recent = listed[0], longest = listed[0];
