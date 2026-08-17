@@ -75,6 +75,7 @@ vendor/
 tools/
   CIED PDF Extraction Harness.html  Dump a PDF's text items (parser authoring/debugging)
   CIED Abbott Log Redactor.html     Locally inspect/redact Abbott .log files without damaging FS delimiters
+  CIED PDF Redactor.html            Locally redact/flatten vendor PDFs before sharing samples
   CIED_Medtronic_Parser_Preview_v2.html   Older preview harness
 tests/
   run.js                            Test runner — one child process per *.test.js (see Testing)
@@ -85,7 +86,8 @@ package.json                        No dependencies and no build step — it exi
 **Path conventions:** the app lives in `app/`, so its includes are relative — `../src/engine.js`,
 `../src/parsers/*.js`, `../vendor/pdf.min.js`, and `pdfjsLib.GlobalWorkerOptions.workerSrc =
 '../vendor/pdf.worker.min.js'`. The two dev tools in `tools/` use the same `../src` / `../vendor`
-prefixes. Test fixtures (`Abbott Test Cases/`) stay local and are git-ignored.
+prefixes. The developer tools under `tools/` follow the same convention. Test fixtures
+(`Abbott Test Cases/`) stay local and are git-ignored.
 
 | Component | Role |
 |---|---|
@@ -237,6 +239,7 @@ Unifying tricks:
 - Key codes: `200/201` model, `202` serial, `203` interrogation, `2442` implant, `2430/2431` name/DOB, `301` mode, `302/323/406` LRL/UTR/USR, `337/322` sensed/paced AV, `320` rate-responsive AV (dynamic), `339` AMS, `512/507/2720` RA/RV/LV impedance, `2721/2722` RA/RV sensing, `1610/1606/1616` RA/RV/LV capture-test thresholds, `2730` HV (coil) impedance, `2745` charge time, `533` longevity. CRT pacing compartments are `2709/2710/2711` (RVP/LVP/BP); episode aggregates are `2754` (AT/AF count), `2630` (ICD VT/VF count), and `2750/2642` (atrial/tachy last-cleared dates).
 - **Episode limits:** these `.log` exports contain aggregate counters but no individual episode timestamps, durations, or peak rates, so the parser cannot populate recent/longest logbook rows. Code `2755` is a raw unitless recent-week AT/AF time rather than the displayed since-clear burden percentage; only an unambiguous zero is auto-filled.
 - **Redacting samples:** `tools/CIED Abbott Log Redactor.html` accepts multiple logs entirely client-side, detects UTF-8/UTF-16LE/UTF-16BE, exposes the invisible FS-delimited fields in a table, and preselects common PHI plus device/lead serial numbers. Only selected value byte ranges are replaced; BOM, encoding, line endings, FS delimiters and all unselected bytes are retained. It can download one redacted `.log` or all loaded samples as a ZIP.
+- **Redacting vendor PDFs:** `tools/CIED PDF Redactor.html` handles Medtronic, Boston Scientific, Biotronik, and scanned Abbott PDFs entirely client-side. On load it scans **every page before enabling download**, auto-boxing common identifiers (including names, MRNs, providers/facilities, contacts, device/lead serials, and patient-related dates); the all-page rescan preserves click-drag manual boxes. Its taller preview fits one complete page using both available width and height, refits on resize, and wheel-navigates one page at a time like `app/PDF_Viewer.html`. It exports generic filenames. The output is rebuilt from page pixels plus a new selectable text layer made from pdf.js items that do **not** intersect any redaction. Automatic boxes contribute structure-preserving synthetic values: serials/MRNs retain character counts and punctuation (`ABC-12345` -> `XXX-00000`), dates retain ordering, separators, month-word style, and time punctuation (`Aug/16/2026` -> `Jan/01/2000`), and phone numbers retain their displayed pattern. An inline label/value item is rebuilt as the original label plus the synthetic value instead of a generic token. This keeps regex anchors and realistic value formats available to the extraction harness while preventing source selectable/hidden PHI, metadata, annotations, attachments, and layers from surviving. Automatic detection is only a first pass; every page must be reviewed, and scanned PDFs need manual boxes.
 
 ---
 

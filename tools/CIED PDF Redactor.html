@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<title>CIED PDF Redactor</title>
+<style>
+:root{--navy:#1e3a5f;--navy2:#142d4b;--bg:#d9dee5;--card:#fff;--line:#c5cfda;--text:#171b20;--muted:#65717d;--green:#267746;--amber:#9a5b00;--red:#a12f2f}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:13px/1.4 Arial,Helvetica,sans-serif}button,input{font:inherit}.wrap{max-width:1420px;margin:auto;padding:18px}
+header{display:flex;align-items:flex-end;gap:12px;margin-bottom:10px}h1{margin:0;color:var(--navy);font-size:22px;text-transform:uppercase;letter-spacing:.5px}.sub{color:var(--muted)}
+.privacy{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:12px;border:1px solid #b6d9c3;border-radius:5px;background:#eaf5ee;color:var(--green);font-weight:700}.privacy i{width:8px;height:8px;border-radius:50%;background:var(--green)}
+#drop{display:block;padding:34px;border:2px dashed #a9b7c6;border-radius:8px;background:#fff;text-align:center;cursor:pointer}#drop:hover,#drop.over{border-color:var(--navy);background:#f8fbff}#drop strong{display:block;color:var(--navy);font-size:16px;text-transform:uppercase}#drop span{display:block;margin-top:5px;color:var(--muted)}#pick{display:none}
+.workspace{display:none;grid-template-columns:250px minmax(0,1fr);gap:12px;margin-top:12px}.panel{background:var(--card);border:1px solid var(--line);border-radius:7px}.side{padding:10px;align-self:start}.side-head,.toolbar{display:flex;align-items:center;gap:7px}.side-head{justify-content:space-between;margin-bottom:8px;color:var(--navy);font-size:10px;font-weight:800;text-transform:uppercase}.file-btn{display:block;width:100%;margin-bottom:5px;padding:8px;border:1px solid transparent;border-radius:5px;background:#f2f5f8;text-align:left;cursor:pointer}.file-btn.active{border-color:var(--navy);background:#e7eff7}.file-btn b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.file-btn small{color:var(--muted)}
+.toolbar{padding:9px;border-bottom:1px solid var(--line);flex-wrap:wrap}.toolbar .grow{flex:1}.btn{padding:6px 10px;border:1px solid var(--navy);border-radius:4px;background:var(--navy);color:#fff;font-size:11px;font-weight:700;cursor:pointer}.btn:hover{background:var(--navy2)}.btn.secondary{background:#fff;color:var(--navy)}.btn.danger{border-color:#b77;background:#fff;color:var(--red)}.btn:disabled{opacity:.45;cursor:not-allowed}.check{display:flex;align-items:center;gap:5px;color:var(--muted)}
+.notice{margin:10px;padding:9px;border:1px solid #e2c28c;border-radius:5px;background:#fff6e6;color:#674100}.summary{padding:0 10px 8px;color:var(--muted);font-size:11px}.summary b{color:var(--navy)}
+.viewer{display:grid;grid-template-columns:100px minmax(0,1fr);height:clamp(680px,78vh,840px);min-height:0;border-top:1px solid var(--line);background:#343a42}.pages{height:100%;padding:8px;overflow:auto;border-right:1px solid #4b535d}.page-btn{display:block;width:100%;margin-bottom:6px;padding:6px 3px;border:1px solid #606975;border-radius:4px;background:#272c32;color:#dfe5eb;font-size:10px;cursor:pointer}.page-btn.active{border-color:#8ec1ff;background:#263d59}.page-btn em{display:block;color:#e4b66e;font-style:normal}.stage-wrap{display:flex;align-items:center;justify-content:center;height:100%;overflow:hidden;padding:16px}.stage{position:relative;flex:none;background:#fff;box-shadow:0 3px 16px rgba(0,0,0,.5);cursor:crosshair;touch-action:none;user-select:none}.stage canvas{display:block;width:100%;height:100%}.redaction{position:absolute;border:2px solid #e34b4b;background:#080808;color:#fff;overflow:hidden;cursor:pointer}.redaction.auto{background:rgba(0,0,0,.88)}.redaction span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:1px;color:#fff;font-size:9px;font-weight:700;white-space:nowrap}.redaction:hover{outline:2px solid #ffcf55}.draft{position:absolute;border:2px dashed #ffcf55;background:rgba(0,0,0,.45);pointer-events:none}.empty{padding:100px 20px;text-align:center;color:#ccd3db}.footer{display:flex;align-items:center;gap:7px;padding:10px;border-top:1px solid var(--line)}.status{flex:1;color:var(--green);font-size:11px;font-weight:700}
+@media(max-width:780px){.wrap{padding:9px}.workspace{grid-template-columns:1fr}.side{max-height:160px;overflow:auto}.viewer{grid-template-columns:72px minmax(0,1fr);height:68vh;min-height:520px;max-height:680px}.toolbar .grow{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>CIED PDF Redactor</h1><div class="sub">Medtronic, Boston Scientific, Biotronik, and scanned Abbott reports</div></header>
+  <div class="privacy"><i></i>Local only - files never leave this browser. Exports use flattened page images plus a rebuilt, PHI-filtered selectable text layer.</div>
+  <label id="drop" for="pick"><strong>Drop vendor PDF reports here</strong><span>or click to select one or many PDFs</span></label>
+  <input id="pick" type="file" accept="application/pdf,.pdf" multiple>
+  <div class="workspace" id="workspace">
+    <aside class="panel side"><div class="side-head"><span>Loaded files</span><button class="btn danger" id="clear-files" type="button">Clear</button></div><div id="files"></div></aside>
+    <main class="panel">
+      <div class="toolbar">
+        <button class="btn secondary" id="prev" type="button">Previous</button><button class="btn secondary" id="next" type="button">Next</button>
+        <span class="grow"></span>
+        <label class="check"><input id="strict-dates" type="checkbox" checked> Redact patient-related dates</label>
+        <button class="btn secondary" id="rescan" type="button">Auto-detect all pages</button><button class="btn danger" id="clear-page" type="button">Clear page</button>
+      </div>
+      <div class="notice"><b>Review every page before sharing.</b> Automatic boxes cover common names, IDs, contacts, providers, facilities, serial numbers, and dates. Drag anywhere on the page to add a box; click an existing box to remove it. Unredacted text stays selectable for the extraction harness; boxed values become structure-preserving synthetic data, and inline labels are preserved. Scanned reports require manual boxes.</div>
+      <div class="summary" id="summary"></div>
+      <div class="viewer"><nav class="pages" id="pages" aria-label="PDF pages"></nav><div class="stage-wrap" id="stage-wrap"><div class="empty" id="empty">Select a PDF.</div><div class="stage" id="stage" hidden><canvas id="canvas"></canvas><div id="boxes"></div></div></div></div>
+      <div class="footer"><span class="status" id="status" role="status"></span><button class="btn secondary" id="download-one" type="button">Download this redacted PDF</button><button class="btn" id="download-all" type="button">Download all as ZIP</button></div>
+    </main>
+  </div>
+</div>
+<script src="../vendor/pdf.min.js"></script>
+<script src="../vendor/jspdf.umd.min.js"></script>
+<script src="../vendor/crmdb-zip.js"></script>
+<script src="../src/cied-pdf-redactor.js"></script>
+<script>
+(function(){
+  "use strict";
+  pdfjsLib.GlobalWorkerOptions.workerSrc="../vendor/pdf.worker.min.js";
+  var models=[],active=0,pageNo=1,renderToken=0,drag=null;
+  function $(id){return document.getElementById(id)}
+  function fileModel(file,index){
+    return file.arrayBuffer().then(function(ab){return pdfjsLib.getDocument({data:new Uint8Array(ab)}).promise}).then(function(pdf){
+      return{filename:file.name,pdf:pdf,pages:Array.from({length:pdf.numPages},function(){return{boxes:[],scanned:false,scannedDone:false}}),index:index};
+    });
+  }
+  function readFiles(list){
+    var files=Array.from(list).filter(function(f){return /\.pdf$/i.test(f.name)||f.type==="application/pdf"});
+    if(!files.length)return;
+    setBusy(true);setStatus("Reading "+files.length+" PDF"+(files.length===1?"":"s")+"...");
+    Promise.all(files.map(fileModel)).then(function(added){
+      return Promise.all(added.map(function(m,fileIndex){return scanAllPages(m,function(done,total){setStatus("Scanning report "+(fileIndex+1)+" of "+added.length+" - page "+done+" of "+total+"...")})})).then(function(){return added});
+    }).then(function(added){models=models.concat(added);active=models.length-added.length;pageNo=1;render();setBusy(false);setStatus("Every page was scanned. Review the automatic boxes before sharing.")}).catch(function(e){setBusy(false);setStatus("Could not read or scan PDF: "+e.message,true)});
+  }
+  function current(){return models[active]||null}function pageState(){var m=current();return m?m.pages[pageNo-1]:null}
+  function setStatus(msg,err){$("status").textContent=msg||"";$("status").style.color=err?"var(--red)":"var(--green)"}
+  function renderFiles(){
+    $("files").innerHTML="";models.forEach(function(m,i){var count=m.pages.reduce(function(n,p){return n+p.boxes.length},0),b=document.createElement("button");b.type="button";b.className="file-btn"+(i===active?" active":"");b.innerHTML="<b></b><small></small>";b.querySelector("b").textContent=m.filename;b.querySelector("small").textContent=m.pdf.numPages+" page"+(m.pdf.numPages===1?"":"s")+" - "+count+" boxes";b.onclick=function(){active=i;pageNo=1;render()};$("files").appendChild(b)})
+  }
+  function renderPageButtons(){
+    var m=current(),nav=$("pages");nav.innerHTML="";if(!m)return;m.pages.forEach(function(p,i){var b=document.createElement("button");b.type="button";b.className="page-btn"+(i+1===pageNo?" active":"");b.innerHTML="Page "+(i+1)+"<em>"+p.boxes.length+" box"+(p.boxes.length===1?"":"es")+"</em>";b.onclick=function(){pageNo=i+1;renderPage()};nav.appendChild(b)})
+  }
+  function extractItems(page,viewport){return page.getTextContent().then(function(tc){return tc.items.map(function(it){var tx=pdfjsLib.Util.transform(viewport.transform,it.transform),h=Math.max(4,Math.hypot(tx[2],tx[3]));return{text:it.str,x:tx[4],y:tx[5]-h,width:Math.max(2,it.width*viewport.scale),height:h}})})}
+  function scanPage(page,viewport,state,replace){return extractItems(page,viewport).then(function(items){state.scanned=items.length===0;state.scannedDone=true;var detected=CIEDPdfRedactor.detect(items,viewport.width,viewport.height,{strictDates:$("strict-dates").checked});if(replace){state.boxes=state.boxes.filter(function(box){return !box.automatic}).concat(detected)}else state.boxes=state.boxes.concat(detected);return detected.length})}
+  function scanAllPages(m,onProgress){
+    var totalBoxes=0,chain=Promise.resolve();m.pages.forEach(function(state,index){chain=chain.then(function(){return m.pdf.getPage(index+1)}).then(function(page){var viewport=page.getViewport({scale:1});return scanPage(page,viewport,state,true).then(function(count){totalBoxes+=count;if(typeof page.cleanup==="function"){try{page.cleanup()}catch(e){}}if(onProgress)onProgress(index+1,m.pdf.numPages)})})});return chain.then(function(){return totalBoxes})
+  }
+  function fitScale(page){var base=page.getViewport({scale:1}),pane=$("stage-wrap"),availableW=Math.max(160,pane.clientWidth-32),availableH=Math.max(200,pane.clientHeight-32);return Math.min(1.6,availableW/base.width,availableH/base.height)}
+  function renderPage(){
+    var m=current(),token=++renderToken;if(!m)return;pageNo=Math.max(1,Math.min(pageNo,m.pdf.numPages));$("empty").hidden=true;$("stage").hidden=false;
+    m.pdf.getPage(pageNo).then(function(page){var viewport=page.getViewport({scale:fitScale(page)}),canvas=$("canvas"),ctx=canvas.getContext("2d");if(token!==renderToken)return;canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);$("stage").style.width=viewport.width+"px";$("stage").style.height=viewport.height+"px";return page.render({canvasContext:ctx,viewport:viewport}).promise.then(function(){var state=pageState();if(!state.scannedDone)return scanPage(page,viewport,state,true);return 0}).then(function(){if(token!==renderToken)return;renderBoxes();renderPageButtons();renderFiles();renderSummary()})}).catch(function(e){setStatus("Could not render page: "+e.message,true)})
+  }
+  function renderBoxes(){
+    var host=$("boxes"),state=pageState();host.innerHTML="";if(!state)return;state.boxes.forEach(function(box,index){var r=box.rect,el=document.createElement("div");el.className="redaction"+(box.automatic?" auto":"");el.style.left=(r.x*100)+"%";el.style.top=(r.y*100)+"%";el.style.width=(r.w*100)+"%";el.style.height=(r.h*100)+"%";el.title="Click to remove - "+(box.source||box.kind);if(box.replacement){var s=document.createElement("span");s.textContent=box.replacement;el.appendChild(s)}el.onclick=function(e){e.stopPropagation();state.boxes.splice(index,1);renderBoxes();renderPageButtons();renderFiles();renderSummary()};host.appendChild(el)})
+  }
+  function renderSummary(){var m=current(),state=pageState(),total=m?m.pages.reduce(function(n,p){return n+p.boxes.length},0):0,text=m?("<b>"+escapeHtml(m.filename)+"</b> - page "+pageNo+" of "+m.pdf.numPages+" - "+total+" total redaction"+(total===1?"":"s")):"";if(state&&state.scanned)text+=" - no text layer found; add manual boxes";$("summary").innerHTML=text}
+  function escapeHtml(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML}
+  function setBusy(busy){$("download-one").disabled=busy;$("download-all").disabled=busy;$("rescan").disabled=busy;$("strict-dates").disabled=busy}
+  function render(){var has=!!models.length;$("workspace").style.display=has?"grid":"none";if(!has)return;renderFiles();renderPageButtons();renderPage();$("download-one").disabled=false;$("download-all").disabled=false}
+  function goPage(target){var m=current();if(!m)return;target=Math.max(1,Math.min(m.pdf.numPages,target));if(target===pageNo)return;pageNo=target;renderPageButtons();renderSummary();renderPage();requestAnimationFrame(function(){var activeBtn=$("pages").querySelector(".page-btn.active");if(activeBtn)activeBtn.scrollIntoView({block:"nearest"})})}
+  function point(e){var r=$("stage").getBoundingClientRect();return{x:Math.max(0,Math.min(r.width,e.clientX-r.left)),y:Math.max(0,Math.min(r.height,e.clientY-r.top)),w:r.width,h:r.height}}
+  $("stage").addEventListener("pointerdown",function(e){if(e.target.closest(".redaction"))return;var p=point(e),draft=document.createElement("div");draft.className="draft";$("stage").appendChild(draft);drag={start:p,draft:draft};$("stage").setPointerCapture(e.pointerId)});
+  $("stage").addEventListener("pointermove",function(e){if(!drag)return;var p=point(e),x=Math.min(p.x,drag.start.x),y=Math.min(p.y,drag.start.y);drag.draft.style.left=x+"px";drag.draft.style.top=y+"px";drag.draft.style.width=Math.abs(p.x-drag.start.x)+"px";drag.draft.style.height=Math.abs(p.y-drag.start.y)+"px"});
+  $("stage").addEventListener("pointerup",function(e){if(!drag)return;var p=point(e),box=CIEDPdfRedactor.manualBox(drag.start.x,drag.start.y,p.x,p.y,p.w,p.h);drag.draft.remove();drag=null;if(box){pageState().boxes.push(box);renderBoxes();renderPageButtons();renderFiles();renderSummary()}});
+  function drawBox(ctx,box,w,h){var r=box.rect,x=r.x*w,y=r.y*h,bw=r.w*w,bh=r.h*h;ctx.fillStyle="#000";ctx.fillRect(x,y,bw,bh);if(box.replacement&&bh>=8){ctx.save();ctx.beginPath();ctx.rect(x,y,bw,bh);ctx.clip();ctx.fillStyle="#fff";ctx.textAlign="center";ctx.textBaseline="middle";ctx.font="bold "+Math.max(7,Math.min(14,bh*.55))+"px Arial";ctx.fillText(box.replacement,x+bw/2,y+bh/2,Math.max(1,bw-4));ctx.restore()}}
+  function addSelectableText(doc,items,boxes,w,h){
+    var safe=CIEDPdfRedactor.selectableText(items,boxes,w,h);doc.setFont("helvetica","normal");
+    safe.forEach(function(it){var text=String(it.text||"");if(!text)return;var size=Math.max(3,Math.min(36,Number(it.height||8))),baseline=Number(it.y||0)+size*.82;doc.setFontSize(size);var natural=doc.getTextWidth(text),scale=natural>0?Math.max(.08,Math.min(12,Number(it.width||natural)/natural)):1;doc.text(text,Number(it.x||0),baseline,{renderingMode:"invisible",horizontalScale:scale})})
+  }
+  function buildPdf(m){
+    var jsPDF=window.jspdf.jsPDF,out=null,chain=Promise.resolve();setStatus("Creating flattened PDF with safe selectable text...");
+    for(let n=1;n<=m.pdf.numPages;n++){chain=chain.then(function(){return m.pdf.getPage(n)}).then(function(page){var base=page.getViewport({scale:1}),scale=Math.min(3,1800/base.width),view=page.getViewport({scale:scale}),c=document.createElement("canvas"),ctx=c.getContext("2d",{alpha:false});c.width=Math.ceil(view.width);c.height=Math.ceil(view.height);return Promise.all([page.render({canvasContext:ctx,viewport:view,background:"white"}).promise,extractItems(page,base)]).then(function(results){m.pages[n-1].boxes.forEach(function(box){drawBox(ctx,box,c.width,c.height)});var w=base.width,h=base.height,orientation=w>h?"landscape":"portrait";if(!out)out=new jsPDF({orientation:orientation,unit:"pt",format:[w,h],compress:true});else out.addPage([w,h],orientation);out.addImage(c.toDataURL("image/jpeg",.93),"JPEG",0,0,w,h,undefined,"FAST");addSelectableText(out,results[1],m.pages[n-1].boxes,w,h)})});}
+    return chain.then(function(){out.setProperties({title:"Redacted CIED Report",subject:"De-identified vendor report",author:"",creator:"CIED PDF Redactor",keywords:""});return new Uint8Array(out.output("arraybuffer"))})
+  }
+  function save(bytes,name,type){var blob=bytes instanceof Blob?bytes:new Blob([bytes],{type:type||"application/pdf"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.style.display="none";document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url)},60000);setStatus("Download started: "+name)}
+  $("download-one").onclick=function(){var m=current();if(!m)return;buildPdf(m).then(function(bytes){save(bytes,CIEDPdfRedactor.safeOutputName(0))}).catch(function(e){setStatus("Could not create PDF: "+e.message,true)})};
+  $("download-all").onclick=function(){if(!models.length)return;var entries=[],chain=Promise.resolve();models.forEach(function(m,i){chain=chain.then(function(){return buildPdf(m)}).then(function(bytes){entries.push({name:CIEDPdfRedactor.safeOutputName(i),data:bytes})})});chain.then(function(){save(CRMDB.write(entries),"redacted-cied-reports.zip","application/zip")}).catch(function(e){setStatus("Could not create ZIP: "+e.message,true)})};
+  $("prev").onclick=function(){goPage(pageNo-1)};$("next").onclick=function(){goPage(pageNo+1)};
+  $("stage-wrap").addEventListener("wheel",function(ev){if(!current()||Math.abs(ev.deltaY)<Math.abs(ev.deltaX))return;ev.preventDefault();var amount=Math.abs(ev.deltaY),legacy=Math.abs(ev.wheelDelta||0);if(amount<.5)return;var steps=legacy>=120&&legacy%120===0?Math.round(legacy/120):1;goPage(pageNo+(ev.deltaY>0?1:-1)*Math.min(steps,10))},{passive:false});
+  var resizeTimer=null;window.addEventListener("resize",function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(function(){if(current())renderPage()},150)});
+  function rescanCurrentReport(){var m=current();if(!m)return;setBusy(true);scanAllPages(m,function(done,total){setStatus("Rescanning page "+done+" of "+total+"...")}).then(function(n){setBusy(false);renderBoxes();renderPageButtons();renderFiles();renderSummary();setStatus(n+" automatic identifier box"+(n===1?"":"es")+" detected across all pages")}).catch(function(e){setBusy(false);setStatus("Could not rescan PDF: "+e.message,true)})}
+  $("rescan").onclick=rescanCurrentReport;
+  $("clear-page").onclick=function(){var p=pageState();if(p){p.boxes=[];renderBoxes();renderPageButtons();renderFiles();renderSummary()}};
+  $("strict-dates").onchange=rescanCurrentReport;
+  $("clear-files").onclick=function(){models.forEach(function(m){try{m.pdf.destroy()}catch(e){}});models=[];active=0;pageNo=1;$("workspace").style.display="none";setStatus("")};
+  var drop=$("drop");["dragenter","dragover"].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.add("over")})});["dragleave","drop"].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.remove("over")})});drop.addEventListener("drop",function(e){readFiles(e.dataTransfer.files)});$("pick").addEventListener("change",function(e){readFiles(e.target.files);e.target.value=""});
+})();
+</script>
+</body>
+</html>
