@@ -21,7 +21,13 @@
   var DATE_LABEL = /\b(?:interrogation|session|report|transmission|implant|visit|check|last\s+(?:office|follow[- ]?up)|episode)\s*(?:date|created|time)?\b|\bdate\s*(?:of\s*)?(?:service|implant|interrogation|transmission|visit|completion|completed)\b/i;
   var DATE_VALUE = /\b(?:\d{1,2}[\/-]\d{1,2}[\/-](?:\d{2}|\d{4})|\d{4}[\/-]\d{1,2}[\/-]\d{1,2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s\/-]+\d{1,2}(?:,|[\s\/.-])+(?:19|20)\d{2}|\d{1,2}[\s\/-]+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s\/-]+(?:19|20)\d{2})\b/i;
   var EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
-  var PHONE = /(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}/;
+  var PHONE = /(?:\+?1[\s.-]?)?(?:\(\d{3}\)\s*\d{3}[\s.-]?\d{4}|\d{3}[\s.-]\d{3}[\s.-]\d{4})/;
+  // A value that is nothing but phone punctuation and digits can safely keep its shape; anything
+  // carrying letters is a mixed text item whose non-digit characters would survive digit-zeroing.
+  var PHONE_SHAPE = /^[\s()+.\d-]+$/;
+  // A trailing clock/time-zone shape is safe to keep (its digits get zeroed). Uppercase-only zone
+  // letters keep ordinary words like "Rest" from qualifying as a time zone.
+  var CLOCK_TAIL = /^[\s,]*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AaPp]\.?[Mm]\.?)?\s*(?:[A-Z]{2,5})?\s*$/;
   var MONTH_NAME = /^(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)$/i;
 
   function clean(s) { return String(s == null ? "" : s).replace(/\s+/g, " ").trim(); }
@@ -61,8 +67,12 @@
       }
     }
     if (!m || !replacement) return fallback || "01/01/2000";
-    // Preserve a following time/time-zone shape, but zero every digit it carried.
-    return replacement + text.slice(m.index + m[0].length).replace(/\d/g, "0");
+    // Preserve a following time/time-zone shape, but zero every digit it carried. Any other tail
+    // (a provider name, a comment sharing this text item) is dropped rather than echoed: only
+    // digits are rewritten here, so letters in the tail would survive redaction untouched.
+    var tail = text.slice(m.index + m[0].length);
+    if (tail && !CLOCK_TAIL.test(tail)) return replacement;
+    return replacement + tail.replace(/\d/g, "0");
   }
 
   function nameReplacement(value, fallback) {
@@ -79,7 +89,7 @@
     if (!value) return fallback || "";
     if (kind === "date" || kind === "dob") return dateReplacement(value, fallback);
     if (kind === "serial" || kind === "id") return maskAlphaNum(value) || fallback;
-    if (kind === "phone") return value.replace(/\d/g, "0");
+    if (kind === "phone") return PHONE_SHAPE.test(value) ? value.replace(/\d/g, "0") : (fallback || "000-000-0000");
     if (kind === "name") return nameReplacement(value, fallback);
     return fallback || "";
   }
@@ -125,6 +135,7 @@
       row.center = row.items.reduce(function (sum, x) { return sum + Number(x.y || 0) + Number(x.height || 0) / 2; }, 0) / row.items.length;
     });
     rows.forEach(function (r) { r.items.sort(function (a, b) { return a.x - b.x; }); });
+    rows.sort(function (a, b) { return a.center - b.center; });
     return rows;
   }
 
@@ -147,10 +158,22 @@
     return String(label.match || "").trim() + separator + " " + (replacement || label.replacement);
   }
 
+  function overlapsX(a, b) {
+    var a1 = Number(a.x || 0), a2 = a1 + Math.max(2, Number(a.width || 0));
+    var b1 = Number(b.x || 0), b2 = b1 + Math.max(2, Number(b.width || 0));
+    return Math.min(a2, b2) - Math.max(a1, b1) > 0;
+  }
+
+  // A label cell, or a bare "Something:" heading. Used both to stop the same-row value scan and to
+  // keep the row beneath a label from being mistaken for that label's value.
+  function isLabelLike(text, strictDates) {
+    return !!classifyLabel(text, strictDates) || /^[A-Za-z][A-Za-z /()-]{2,}:$/.test(text);
+  }
+
   function detect(items, pageWidth, pageHeight, options) {
     options = options || {};
-    var strictDates = options.strictDates !== false, found = [];
-    lineGroups(items).forEach(function (row) {
+    var strictDates = options.strictDates !== false, found = [], rows = lineGroups(items);
+    rows.forEach(function (row, rowIndex) {
       row.items.forEach(function (item, index) {
         var text = clean(item.text), direct = isStandaloneIdentifier(text), label = classifyLabel(text, strictDates);
         if (direct) {
@@ -167,12 +190,24 @@
 
         var candidates = [];
         for (var j = index + 1; j < row.items.length; j++) {
-          var next = row.items[j], nextText = clean(next.text);
-          if (classifyLabel(nextText, strictDates)) break;
-          if (/^[A-Za-z][A-Za-z /()-]{2,}:$/.test(nextText)) break;
+          var next = row.items[j];
+          if (isLabelLike(clean(next.text), strictDates)) break;
           candidates.push(next);
         }
-        if (!candidates.length && index + 1 < row.items.length) candidates.push(row.items[index + 1]);
+        // Nothing usable to the right - either the label ends the row, or the next cell is itself
+        // a label. Vendor headers routinely stack the value directly beneath its label instead, so
+        // look one row down for x-overlapping non-label items. (The previous fallback here grabbed
+        // row.items[index + 1] unconditionally, which could only ever fire when that item was the
+        // label the scan had just rejected, boxing a neighbouring label and protecting nothing.)
+        if (!candidates.length) {
+          var below = rows[rowIndex + 1];
+          if (below && below.center - row.center <= Math.max(14, Number(item.height || 10) * 2.2)) {
+            below.items.forEach(function (cand) {
+              if (isLabelLike(clean(cand.text), strictDates) || !overlapsX(item, cand)) return;
+              candidates.push(cand);
+            });
+          }
+        }
         candidates.slice(0, 3).forEach(function (valueItem) {
           found.push({ rect: normalizedRect(valueItem, pageWidth, pageHeight), kind: label.kind, replacement: structuredReplacement(label.kind, clean(valueItem.text), label.replacement), source: text, automatic: true });
         });
@@ -180,7 +215,7 @@
     });
 
     if (strictDates) {
-      lineGroups(items).forEach(function (row) {
+      rows.forEach(function (row) {
         var joined = row.items.map(function (it) { return clean(it.text); }).join(" ");
         if (!DATE_LABEL.test(joined)) return;
         row.items.forEach(function (item) {

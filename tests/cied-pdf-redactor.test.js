@@ -91,6 +91,47 @@ assert(!safeLayer.some((x) => x.text === "Jane Example"), "automatic-box PHI mus
 assert(!safeLayer.some((x) => x.text === "123456"), "manual-box text must be absent from the rebuilt text layer");
 assert.strictEqual(safeLayer.filter((x) => x.text === "DOE, TEST").length, 1, "an automatic box gets one type-shaped selectable placeholder");
 
+/* Shape-preserving replacements must never echo the source item's own text. pdf.js hands back
+   whole-line items on some vendor layouts (the Biotronik header above is one), so a replacement
+   that only rewrites digits would carry every surrounding letter straight into the export. */
+assert.strictEqual(R.structuredReplacement("phone", "Contact John Smith at 555-123-4567", "000-000-0000"), "000-000-0000",
+  "a phone sharing a text item with a name must fall back to the generic placeholder");
+assert.strictEqual(R.structuredReplacement("phone", "555-1212 (home) Dr. Roe", "000-000-0000"), "000-000-0000",
+  "a labelled phone value with trailing free text must not keep that text");
+assert.strictEqual(R.dateReplacement("Interrogation 01/02/2026 by Dr. Jane Roe", "01/01/2000"), "01/01/2000",
+  "a date sharing a text item with a provider name must drop the tail");
+assert.strictEqual(R.dateReplacement("08/16/2026 14:35 Rest", "01/01/2000"), "01/01/2000",
+  "only a clock/time-zone tail may survive; an ordinary word must not");
+assert.strictEqual(R.dateReplacement("08/16/2026 14:35 EST", "01/01/2000"), "01/01/2000 00:00 EST",
+  "a genuine time-zone tail still rides along with its digits zeroed");
+assert.strictEqual(R.isStandaloneIdentifier("(555)123-4567").kind, "phone",
+  "a parenthesized area code with no following separator is still a phone number");
+assert.strictEqual(R.isStandaloneIdentifier("1234567890"), null,
+  "a bare digit run must not be mistaken for a phone number");
+
+/* Vendor headers routinely stack a value directly beneath its label rather than beside it. */
+const stacked = R.detect([
+  { text: "Patient Name", x: 40, y: 40, width: 60, height: 10 },
+  { text: "Date of Birth", x: 200, y: 40, width: 62, height: 10 },
+  { text: "SMITH, JOHN Q", x: 40, y: 56, width: 65, height: 10 },
+  { text: "01/02/1960", x: 200, y: 56, width: 50, height: 10 }
+], 612, 792, { strictDates: true });
+assert(stacked.some((b) => b.source === "Patient Name" && b.replacement === "DOE, TEST" && b.rect.y > 0.06),
+  "a label must redact the x-overlapping value on the row beneath it");
+assert(stacked.some((b) => b.source === "Date of Birth" && b.replacement === "01/01/2000"),
+  "each stacked label must claim its own column");
+
+/* Two labels side by side: the left one has no value of its own and must not box its neighbour. */
+const adjacent = R.detect([
+  { text: "Name:", x: 40, y: 40, width: 26, height: 10 },
+  { text: "DOB:", x: 200, y: 40, width: 22, height: 10 },
+  { text: "01/02/1960", x: 260, y: 40, width: 50, height: 10 }
+], 612, 792, { strictDates: true });
+assert(!adjacent.some((b) => b.kind === "name"),
+  "a label with no value must not fall back to boxing the adjacent label");
+assert(adjacent.some((b) => b.kind === "dob" && b.replacement === "01/01/2000"),
+  "the adjacent label still redacts its own value");
+
 const html = fs.readFileSync(path.join(__dirname, "..", "tools", "CIED PDF Redactor.html"), "utf8");
 assert.match(html, /connect-src 'none'/, "PHI tool must prohibit network access");
 assert.match(html, /toDataURL\("image\/jpeg"/, "output must be rasterized to remove hidden PDF content");
