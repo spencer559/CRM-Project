@@ -41,10 +41,12 @@ assert.strictEqual(reportName("not-a-date"), "Garcia-Lopez_2026-08-14_CRM_Report
   "last names should be normalized to a safe filename");
 
 const scheduleHtml = fs.readFileSync(path.join(__dirname, "..", "protected", "Patient_Schedule.html"), "utf8");
-const scheduleSource = functionSource(scheduleHtml, "generatedReportFilename");
+// The Schedule's slot lookup and the naming rule it defers to (shared with the bulk export).
+const scheduleSource = functionSource(scheduleHtml, "generatedReportFilename") +
+  "\n" + functionSource(scheduleHtml, "chartReportFilename");
 const state = { dates: { "2026-08-13": [{ time: "09:30", pt: "SMITH, JOHN Q" }] } };
 const WS = { slotName: (time, patient) => time + "_" + patient.replace(/\W/g, "") };
-const scheduleName = new Function("state", "curDate", "WS", "return (" + scheduleSource + ");")(
+const scheduleName = new Function("state", "curDate", "WS", scheduleSource + "\nreturn generatedReportFilename;")(
   state, "2026-08-13", WS
 );
 assert.strictEqual(scheduleName("09:30_SMITHJOHNQ", "2026-08-13"), "SMITH_2026-08-13_CRM_Report.pdf",

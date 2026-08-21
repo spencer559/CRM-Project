@@ -390,6 +390,7 @@
       <div id="providerMenu" class="provider-menu" role="menu" hidden></div>
     </div>
     <button onclick="printSchedule()">Print schedule</button>
+    <button id="dlPatientsBtn" type="button" onclick="downloadPatients()" disabled>Download patients</button>
     <span id="counts"></span>
   </div>
   <div class="twrap">
@@ -1499,9 +1500,19 @@
       });
   });
   function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scanSlots, 600); }
+  function updateDownloadPatientsBtn() {
+    var b = $("dlPatientsBtn"); if (!b) return;
+    b.disabled = !wsRoot;
+    b.title = !wsRoot
+      ? "Open a database first — patient files live inside it"
+      : "Save this day's files to a folder you pick (USB included), as " + curDate +
+        "\\<patient name>\\ — one folder per patient, ready to attach in Cerner" +
+        (providerFilter ? "\nOnly " + providerFilter + "'s patients, matching the current filter." : "");
+  }
   var slotFiles = {};
   function scanSlots() {
     closeFileMenu();
+    updateDownloadPatientsBtn();
     var cells = document.querySelectorAll("td.fbadges"), rs = rows();
     document.querySelectorAll("td.crm-cell").forEach(function (td) {
       var r = rs[+td.dataset.cslot], b = td.querySelector(".crm-link");
@@ -1556,12 +1567,18 @@
     for (var i = 0; i < day.length; i++) {
       if (WS && WS.slotName(day[i].time, day[i].pt) === slot) { patient = day[i].pt || ''; break; }
     }
-    var last = patient.indexOf(',') >= 0
-      ? patient.split(',')[0].trim()
-      : ((patient.trim().split(/\s+/).filter(Boolean).pop()) || 'Patient');
+    return chartReportFilename(patient, date || curDate);
+  }
+  // The rule itself, taking the name directly \u2014 the bulk export knows each patient already and
+  // has no slot to look one up by.
+  function chartReportFilename(patientName, date) {
+    var raw = String(patientName || '').trim();
+    var last = raw.indexOf(',') >= 0
+      ? raw.split(',')[0].trim()
+      : ((raw.split(/\s+/).filter(Boolean).pop()) || 'Patient');
     last = last.normalize ? last.normalize('NFKD').replace(/[\u0300-\u036f]/g, '') : last;
     last = last.replace(/[^A-Za-z0-9-]+/g, '_').replace(/^_+|_+$/g, '') || 'Patient';
-    return last + '_' + (date || curDate) + '_CRM_Report.pdf';
+    return last + '_' + date + '_CRM_Report.pdf';
   }
   function renderSlotCell(td, slot, knownNames) {
     var namesPromise = knownNames !== null && knownNames !== undefined
@@ -1701,6 +1718,211 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
     setWsStatus("Downloaded original " + name, "ok");
   }
+
+  /* ---------- Download patients: the whole day as folders -------------------------------
+     Nothing inside a .crmdb is reachable from a native file dialog — the database is one ZIP —
+     so until now a stored file only left it by being dragged out, one at a time. A chart upload
+     wants real files on disk, so this writes the day out in one pass, to a location picked in
+     the OS file dialog (Downloads, a USB stick, a network share — anywhere):
+
+         <chosen folder>/<YYYY-MM-DD>/<Patient name>/<file>
+
+     Only the files the Files menu lists travel: the generated report plus the raw programmer
+     exports. report.json / report.txt stay behind — they are this app's support files, not
+     documents anyone uploads to a chart.
+
+     Scope follows "Print schedule": whatever the provider filter is currently showing.
+
+     Firefox and iPad have no directory picker at all. There the identical tree is delivered as
+     one .zip, expanded wherever the tech wants it. */
+
+  // A folder name Explorer and Finder both accept, while still reading like the schedule entry.
+  // Reserved characters become "-", control bytes go, and the trailing dot or space Windows
+  // silently refuses is trimmed. Device names (CON, LPT1, …) cannot be folder names either.
+  function safeFolderName(name) {
+    var s = String(name || '').replace(/[\\/:*?"<>|]/g, '-').replace(/[\x00-\x1f\x7f]/g, '')
+      .replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '');
+    if (/^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$/i.test(s)) s += '_';
+    return s.slice(0, 80).replace(/[. ]+$/, '') || 'Unnamed patient';
+  }
+
+  // Lay the day out as folders. Deliberately pure — no DOM, no database — because the naming
+  // rules are what actually lands on the stick and they are worth testing on their own.
+  // `entries` is [{ slot, time, pt, names }] in the order the folders should be written.
+  function buildPatientExportPlan(date, entries) {
+    var kept = [], skipped = 0, counts = {};
+    (entries || []).forEach(function (e) {
+      var names = (e.names || []).filter(isScheduleReport).sort(function (a, b) {
+        return (chipOrder(a) - chipOrder(b)) || a.localeCompare(b);
+      });
+      if (!names.length) { skipped++; return; }          // no empty folders on the stick
+      var base = safeFolderName(e.pt);
+      counts[base.toLowerCase()] = (counts[base.toLowerCase()] || 0) + 1;
+      kept.push({ base: base, entry: e, names: names });
+    });
+    var used = {}, folders = [];
+    kept.forEach(function (k) {
+      // Two appointments under one name (a check and a re-check the same day) would land in one
+      // folder and overwrite each other, so a repeated name carries its appointment time.
+      var stem = counts[k.base.toLowerCase()] > 1
+        ? k.base + ' ' + ((String(k.entry.time || '').replace(/[^0-9]/g, '') || '0000').slice(0, 4))
+        : k.base;
+      var folder = stem, n = 2;
+      while (used[folder.toLowerCase()]) folder = stem + ' (' + (n++) + ')';
+      used[folder.toLowerCase()] = true;
+      folders.push({
+        folder: folder,
+        slot: k.entry.slot,
+        patient: k.entry.pt || '',
+        files: k.names.map(function (name) {
+          return {
+            stored: name,
+            out: String(name).toLowerCase() === 'report.pdf' ? chartReportFilename(k.entry.pt, date) : name
+          };
+        })
+      });
+    });
+    return { date: date, folders: folders, skipped: skipped };
+  }
+
+  // The rows the export covers: the visible day, earliest first, one entry per patient folder.
+  function currentExportEntries() {
+    var seen = {}, out = [];
+    var indexed = (WS && WS.filesBySlot) ? WS.filesBySlot(curDate) : {};
+    visibleRows().map(function (x) { return x.r; })
+      .sort(function (a, b) { return timeVal(a.time) - timeVal(b.time); })
+      .forEach(function (r) {
+        var slot = WS ? WS.slotName(r.time, r.pt) : '';
+        if (!slot || seen[slot]) return;               // identical time+name rows share one folder
+        seen[slot] = true;
+        out.push({ slot: slot, time: r.time, pt: r.pt, names: (indexed[slot] || []).slice() });
+      });
+    return out;
+  }
+
+  // Pull every planned file out of the bundle as bytes. Blobs, never text — an Abbott .log
+  // carries control delimiters that no decode/re-encode round trip would survive.
+  function readPlanFiles(plan) {
+    var jobs = [];
+    plan.folders.forEach(function (f) {
+      f.files.forEach(function (item) {
+        jobs.push(WS.slotDir(wsRoot, plan.date, f.slot, false)
+          .then(function (dir) { return dir.getFileHandle(item.stored); })
+          .then(function (fh) { return fh.getFile(); })
+          .then(function (file) { return { folder: f.folder, name: item.out, file: file }; }));
+      });
+    });
+    return Promise.all(jobs);
+  }
+
+  // Write the tree under the picked directory. Sequential on purpose: a USB stick serves one
+  // write at a time anyway, and each folder must exist before its files are created in it.
+  function writeExportTree(root, plan, items) {
+    var dirs = {};
+    return Promise.resolve(root.requestPermission ? root.requestPermission({ mode: 'readwrite' }) : 'granted')
+      .then(function (p) {
+        if (p !== 'granted') { var e = new Error('write access to that folder was not granted'); e.name = 'NotAllowedError'; throw e; }
+        return root.getDirectoryHandle(plan.date, { create: true });
+      })
+      .then(function (dayDir) {
+        return items.reduce(function (chain, item) {
+          return chain.then(function () {
+            if (!dirs[item.folder]) dirs[item.folder] = dayDir.getDirectoryHandle(item.folder, { create: true });
+            return dirs[item.folder]
+              .then(function (dir) { return dir.getFileHandle(item.name, { create: true }); })
+              .then(function (fh) { return fh.createWritable(); })
+              .then(function (w) { return w.write(item.file).then(function () { return w.close(); }); });
+          });
+        }, Promise.resolve());
+      })
+      .then(function () { return (root.name ? root.name + '/' : '') + plan.date; });
+  }
+
+  // The same tree as one .zip, for the browsers with no directory picker. STORE-only, like the
+  // database container itself, so Explorer and Finder expand it with nothing extra installed.
+  function buildExportZip(plan, items) {
+    return Promise.all(items.map(function (item) {
+      return item.file.arrayBuffer().then(function (buf) {
+        return { name: plan.date + '/' + item.folder + '/' + item.name, data: new Uint8Array(buf) };
+      });
+    })).then(function (entries) { return window.CRMDB.write(entries); });
+  }
+  function deliverExportZip(handle, blob, name) {
+    if (handle) {
+      return handle.createWritable()
+        .then(function (w) { return w.write(blob).then(function () { return w.close(); }); })
+        .then(function () { return handle.name || name; });
+    }
+    var payload = new File([blob], name, { type: 'application/zip' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [payload] })) {
+        return navigator.share({ files: [payload] }).then(function () { return name + ' — choose Save to Files'; });
+      }
+    } catch (e) { /* fall through to a plain download */ }
+    var a = document.createElement('a'), url = URL.createObjectURL(payload);
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    return Promise.resolve('Downloads/' + name);
+  }
+
+  // The OS dialog has to be opened from the click itself. Anything awaited first (finalizing the
+  // open report, reading the bundle) spends the transient user activation the File System Access
+  // API requires, and the picker then throws instead of appearing — so this goes first and the
+  // rest of the export catches up with it.
+  function pickExportDestination() {
+    if (window.showDirectoryPicker) {
+      return { kind: 'dir', handle: window.showDirectoryPicker({ id: 'crmPatientExport', mode: 'readwrite', startIn: 'downloads' }) };
+    }
+    var name = 'Patients_' + curDate + '.zip';
+    if (window.showSaveFilePicker) {
+      return {
+        kind: 'zip', name: name,
+        handle: window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }] })
+      };
+    }
+    return { kind: 'zip', name: name, handle: Promise.resolve(null) };
+  }
+
+  function runPatientExport(dest) {
+    var plan = buildPatientExportPlan(curDate, currentExportEntries());
+    var picked = dest.handle || Promise.resolve(null);
+    if (!plan.folders.length) {
+      picked.catch(function () {});                    // the dialog may still be open; ignore it
+      setWsStatus('Nothing to download — no saved files on ' + curDate +
+        (providerFilter ? ' for ' + providerFilter : '') + '.', 'warn');
+      return;
+    }
+    var total = plan.folders.reduce(function (n, f) { return n + f.files.length; }, 0);
+    var summary = total + ' file' + (total === 1 ? '' : 's') + ' for ' + plan.folders.length +
+      ' patient' + (plan.folders.length === 1 ? '' : 's');
+    setWsStatus('Collecting ' + summary + '…');
+    Promise.all([picked, readPlanFiles(plan)])
+      .then(function (r) {
+        var handle = r[0], items = r[1];
+        if (dest.kind === 'dir') return writeExportTree(handle, plan, items);
+        return buildExportZip(plan, items).then(function (blob) { return deliverExportZip(handle, blob, dest.name); });
+      })
+      .then(function (where) {
+        setWsStatus('Downloaded ' + summary + ' to ' + where +
+          (plan.skipped ? ' — ' + plan.skipped + ' patient' + (plan.skipped === 1 ? '' : 's') + ' had no files' : ''), 'ok');
+      })
+      .catch(function (e) {
+        if (e && e.name === 'AbortError') { setWsStatus('Download cancelled', 'warn'); return; }
+        setWsStatus('Could not download patient files: ' + ((e && e.message) || 'unknown error'), 'warn');
+      });
+  }
+
+  window.downloadPatients = function () {
+    if (!wsRoot || !WS) { setWsStatus('Open a database first — patient files live inside it.', 'warn'); return; }
+    var dest = pickExportDestination();                // first, while the click still counts
+    // A patient whose report is open in the panel has only STAGED edits: their stored report.pdf
+    // is as old as the last finalize. Rebuild that one before exporting, or the copy that reaches
+    // the chart is behind the form. Every other patient was finalized when their panel closed.
+    var openSlot = (panel && panel.date === curDate) ? panel.slot : null;
+    if (openSlot) withPanelFilesFresh(openSlot, function () { runPatientExport(dest); });
+    else runPatientExport(dest);
+  };
+
   function validateGeneratedPdf(file) {
     if (!file || file.size < 16) return Promise.reject(new Error("the generated file is empty"));
     return Promise.all([file.slice(0, 5).text(), file.slice(Math.max(0, file.size - 64)).text()])
