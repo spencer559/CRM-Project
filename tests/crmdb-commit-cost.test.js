@@ -212,6 +212,25 @@ async function run() {
     assert.strictEqual(cost.bytes, 0, "committing after a prune must not re-read the survivors");
   }
 
+  /* Peak memory is the other half of a commit's cost, and it cannot be measured from Node — but
+     the shape that causes it can be pinned. WebCrypto has no streaming AES-GCM, so a protected
+     database is unavoidably resident twice while it encrypts: once as the plaintext ArrayBuffer,
+     once as the ciphertext. It must not be resident a THIRD time as the zip Blob those bytes were
+     read from, which is what happens the moment anything keeps a reference to it across the await. */
+  {
+    const src = require("fs").readFileSync(path.resolve(__dirname, "../src/crmdb-store.js"), "utf8");
+    const encrypt = src.slice(src.indexOf("function encryptZip("), src.indexOf("function serialize()"));
+    assert.match(encrypt, /var reading = blob\.arrayBuffer\(\);\s*\n\s*blob = null;/,
+      "encryptZip must drop the zip Blob as soon as its bytes are on the heap");
+    assert.ok(!/blob\.arrayBuffer\(\)\.then/.test(encrypt),
+      "chaining straight off blob.arrayBuffer() pins the Blob for the whole encrypt");
+    const forCommit = src.slice(src.indexOf("function serializeForCommit("), src.indexOf("function serializeForCommit(") + 700);
+    assert.match(forCommit, /encryptZip\(r\.blob, function \(\) \{ r\.blob = null; \}\)/,
+      "the caller must release its own reference too, or dropping the parameter achieves nothing");
+    assert.ok(!/r\.crcs/.test(forCommit.slice(forCommit.indexOf("encryptZip("))),
+      "the CRC map must be captured before the encrypt so `r` itself need not survive it");
+  }
+
   console.log("crmdb commit cost: an unchanged file is never re-read or re-CRC'd — a commit now costs the delta, not the database — passed");
 }
 

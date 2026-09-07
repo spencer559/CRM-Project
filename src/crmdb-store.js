@@ -384,14 +384,23 @@
     }, Promise.resolve()).then(finish);
   }
   function serializeZip() { return buildZip().then(function (r) { return r.blob; }); }
-  function encryptZip(blob) {
+  // WebCrypto cannot stream AES-GCM, so the plaintext and the ciphertext are both fully resident
+  // while this runs — two complete copies of the database on the heap, unavoidably. What IS
+  // avoidable is a third: the zip Blob those bytes came from used to stay pinned by this
+  // function's parameter (and by the caller's) for the whole encrypt, even though nothing reads it
+  // again once arrayBuffer() has resolved. On a protected database that was a third of the peak,
+  // paid on every commit. `release` lets the caller drop its own reference at the same moment.
+  function encryptZip(blob, release) {
     if (!protection) return Promise.resolve(blob);
     var c = cryptoApi(), iv = new Uint8Array(12); c.getRandomValues(iv);
     var header = new Uint8Array(ENC_HEADER_SIZE);
     header.set(ENC_MAGIC, 0); header[8] = ENC_VERSION;
     new DataView(header.buffer).setUint32(9, protection.iterations, false);
     header.set(protection.salt, 13); header.set(iv, 29);
-    return blob.arrayBuffer().then(function (plain) {
+    var reading = blob.arrayBuffer();
+    blob = null;
+    return reading.then(function (plain) {
+      if (release) release();
       return c.subtle.encrypt({ name: "AES-GCM", iv: iv, additionalData: header, tagLength: 128 }, protection.key, plain);
     }).then(function (ciphertext) { return new Blob([header, ciphertext], { type: "application/octet-stream" }); });
   }
@@ -399,10 +408,13 @@
   // serialize() plus the CRC map for the container it produced — what commit() publishes.
   function serializeForCommit() {
     return buildZip().then(function (r) {
-      return encryptZip(r.blob).then(function (out) {
+      // Hold the CRCs, not the zip: `r` outlives the encrypt below, and pinning its Blob there
+      // would keep a whole extra copy of the database alive for the length of the encryption.
+      var crcs = r.crcs;
+      return encryptZip(r.blob, function () { r.blob = null; }).then(function (out) {
         // An encrypted container is re-read by decrypting it whole, never through the by-reference
         // path, so a stored memo would only ever be dead weight there.
-        return { blob: out, crcs: protection ? null : r.crcs };
+        return { blob: out, crcs: protection ? null : crcs };
       });
     });
   }

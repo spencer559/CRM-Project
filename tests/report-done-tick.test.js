@@ -58,8 +58,10 @@ const cernerHead = sched.indexOf('<th class="cerner"');
 const rmHead = sched.indexOf(">Remote</th>");
 assert.ok(rmHead >= 0 && rmHead < doneHead && doneHead < cernerHead,
   "Done belongs between Remote and Cerner — the report is finished before it is filed");
-assert.match(sched, /data-f="done" title="Report finished"/,
+assert.match(sched, /data-i="' \+ i \+ '" data-f="done"/,
   "the column's checkbox must edit r.done through the row-field delegation");
+assert.match(sched, /"Report finished"/,
+  "an unticked box still says plainly what the column means");
 assert.match(sched, /if \(r\.done === undefined\) r\.done = false;/,
   "a database written before the Done column must read as not-done, not as undefined");
 assert.match(sched, /rows\(\)\.push\(\{[^}]*done: false,/,
@@ -74,32 +76,21 @@ assert.ok(!/colspan="13"/.test(sched), "no full-width row may still be spanning 
 assert.strictEqual((sched.match(/colspan="14"/g) || []).length, 2,
   "both the notes row and the CRM panel row must span the whole table");
 
-/* ---- A tick is an end-of-day marker, so it has to stop being true when the report moves on ---- */
+/* ---- The tick records when, and the day says what is left ---- */
 
-assert.match(report, /doneAt: el\.checked \? Date\.now\(\) : 0, doneStale: false/,
-  "ticking records WHEN, and clears any earlier staleness — a fresh tick is current by definition");
-assert.match(report, /document\.addEventListener\('input', function \(ev\) \{ if \(ev\.isTrusted\) userTypedSinceOpen = true; \}, true\)/,
-  "only real typing may age a tick; restoring a slot fires programmatic input events that must not");
-assert.match(report, /function markDoneStale\(\)[\s\S]{0,300}?if \(!userTypedSinceOpen\) return[\s\S]{0,200}?if \(!el \|\| !el\.checked\) return/,
-  "staleness needs both a real edit and something claiming to be finished");
-assert.match(report, /function openSlot[\s\S]{0,900}?userTypedSinceOpen = false;/,
-  "the previous patient's typing must not age the incoming patient's tick");
-// The live sync is the honest signal of an edit. finalizeReports also writes report.json, but it
-// only materializes what is already there — hooking it would flag every close as an edit.
-const liveSync = report.slice(report.indexOf("function writeJsonNow"), report.indexOf("function writeJsonNow") + 900);
-assert.ok(/markDoneStale\(\)/.test(liveSync), "the typing-pause sync is what ages a tick");
-const finalize = report.slice(report.indexOf("function finalizeReports"), report.indexOf("function finalizeReports") + 1200);
-assert.ok(!/markDoneStale\(\)/.test(finalize),
-  "finalize must NOT age a tick — ticking Done and closing would otherwise flag itself instantly");
-
+assert.match(report, /doneAt: el\.checked \? Date\.now\(\) : 0/,
+  "ticking records WHEN, so the Schedule can show it on the row");
 assert.match(sched, /if \(r\.doneAt === undefined\) r\.doneAt = 0;/,
   "a database written before the stamp reads as unstamped, not undefined");
-assert.match(sched, /if \(r\.doneStale === undefined\) r\.doneStale = false;/);
-assert.match(sched, /if \(el\.dataset\.f === "done"\) \{[\s\S]{0,200}?r\.doneAt = el\.checked \? Date\.now\(\) : 0;[\s\S]{0,120}?r\.doneStale = false;/,
+assert.match(sched, /if \(el\.dataset\.f === "done"\) r\.doneAt = el\.checked \? Date\.now\(\) : 0;/,
   "ticking from the Schedule side must stamp the same way the report side does");
-assert.match(sched, /r\.done && r\.doneStale[\s\S]{0,200}?done-stale/,
-  "a report edited after its tick must say so on the row");
+assert.match(sched, /el\.dataset\.f === "done"\) renderCounts\(\)/,
+  "ticking must refresh the day's counts, or the number left goes stale on screen");
 assert.match(sched, /left \+ " report" \+ \(left === 1 \? "" : "s"\) \+ " left"/,
   "the day's counts must answer the question Done exists for: what is still on my list?");
+// Deliberately NOT tracked: whether a report was edited after its tick. It was built, tried, and
+// removed as noise — the tick is a personal marker, not a claim about the report's contents.
+assert.ok(!/doneStale/.test(report) && !/doneStale/.test(sched),
+  "no staleness tracking on the Done tick");
 
 console.log("PASS report-done-tick");

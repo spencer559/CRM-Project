@@ -3557,7 +3557,6 @@ window.ensureReportPdfBuilder = function () {
         // "Captured" (not "Saved") is the honest word here: the edit is in the working copy but
         // hasn't been written out yet. The cadence upgrades it to Saved once it has.
         setSync('Captured ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-        return markDoneStale();
       })
       .catch(function (e) { setSync('Sync failed — reconnect', true); });
   }
@@ -3808,19 +3807,8 @@ window.ensureReportPdfBuilder = function () {
   function pushDoneToSchedule() {
     var el = doneEl();
     if (!el) return Promise.resolve();
-    // Stamp when it was ticked and clear any earlier "edited after done": this tick is current.
-    return pushRowFields({ done: !!el.checked, doneAt: el.checked ? Date.now() : 0, doneStale: false });
-  }
-  // A tick is an end-of-day marker, so it has to stop being true when the report moves on under it.
-  // isTrusted is the discriminator that matters: restoring a slot fires plenty of programmatic
-  // input events, and none of them are the technician changing their mind about a finding.
-  var userTypedSinceOpen = false;
-  document.addEventListener('input', function (ev) { if (ev.isTrusted) userTypedSinceOpen = true; }, true);
-  function markDoneStale() {
-    if (!userTypedSinceOpen) return Promise.resolve();
-    var el = doneEl();
-    if (!el || !el.checked) return Promise.resolve();     // nothing claims to be finished
-    return pushRowFields({ doneStale: true });
+    // Stamp when it was ticked, so the Schedule can show the time on the row.
+    return pushRowFields({ done: !!el.checked, doneAt: el.checked ? Date.now() : 0 });
   }
   (function () {
     var el = rmStatusEl();
@@ -3839,7 +3827,6 @@ window.ensureReportPdfBuilder = function () {
     // Blank the banner and the tick for the incoming patient; pullRmFromSchedule below fills
     // both in from their row. Leaving the last patient's tick up would be a lie in the meantime.
     (function () { var b = doneEl(); if (b) { b.checked = false; updateDoneToggle(!b.disabled); } })();
-    userTypedSinceOpen = false;
     setPatientBtn();
     disarm();
     if (!slotRoot) { toast('Connect the USB workspace (Patient List) to load this patient.', 'err'); return; }
