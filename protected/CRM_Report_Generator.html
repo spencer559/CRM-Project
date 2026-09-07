@@ -3557,6 +3557,7 @@ window.ensureReportPdfBuilder = function () {
         // "Captured" (not "Saved") is the honest word here: the edit is in the working copy but
         // hasn't been written out yet. The cadence upgrades it to Saved once it has.
         setSync('Captured ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        return markDoneStale();
       })
       .catch(function (e) { setSync('Sync failed — reconnect', true); });
   }
@@ -3766,14 +3767,22 @@ window.ensureReportPdfBuilder = function () {
   // newer than its own copy instead of putting the old value straight back. Both row fields this
   // page owns — the precharted RM status and the Done tick — write back through here.
   function pushRowField(field, value) {
+    var fields = {}; fields[field] = value;
+    return pushRowFields(fields);
+  }
+  function pushRowFields(fields) {
     if (!slotRoot || !slotDate || !slotName) return Promise.resolve();
     return readSchedule().then(function (sched) {
       var row = scheduleRowFor(sched, slotDate, slotName);
       if (!row) return;                                  // not on the schedule
-      var same = (typeof value === 'boolean') ? (!!row[field] === value)
-                                              : (String(row[field] || '') === value);
+      var names = Object.keys(fields);
+      var same = names.every(function (field) {
+        var value = fields[field];
+        return (typeof value === 'boolean') ? (!!row[field] === value)
+                                            : (String(row[field] || '') === String(value == null ? '' : value));
+      });
       if (same) return;                                  // already agrees
-      row[field] = value;
+      names.forEach(function (field) { row[field] = fields[field]; });
       sched._updatedAt = Math.max(Date.now(), Number(sched._updatedAt || 0) + 1);
       sched._updatedBy = RG_TAB_ID;
       var text = JSON.stringify(sched, null, 2);
@@ -3799,7 +3808,19 @@ window.ensureReportPdfBuilder = function () {
   function pushDoneToSchedule() {
     var el = doneEl();
     if (!el) return Promise.resolve();
-    return pushRowField('done', !!el.checked);
+    // Stamp when it was ticked and clear any earlier "edited after done": this tick is current.
+    return pushRowFields({ done: !!el.checked, doneAt: el.checked ? Date.now() : 0, doneStale: false });
+  }
+  // A tick is an end-of-day marker, so it has to stop being true when the report moves on under it.
+  // isTrusted is the discriminator that matters: restoring a slot fires plenty of programmatic
+  // input events, and none of them are the technician changing their mind about a finding.
+  var userTypedSinceOpen = false;
+  document.addEventListener('input', function (ev) { if (ev.isTrusted) userTypedSinceOpen = true; }, true);
+  function markDoneStale() {
+    if (!userTypedSinceOpen) return Promise.resolve();
+    var el = doneEl();
+    if (!el || !el.checked) return Promise.resolve();     // nothing claims to be finished
+    return pushRowFields({ doneStale: true });
   }
   (function () {
     var el = rmStatusEl();
@@ -3818,6 +3839,7 @@ window.ensureReportPdfBuilder = function () {
     // Blank the banner and the tick for the incoming patient; pullRmFromSchedule below fills
     // both in from their row. Leaving the last patient's tick up would be a lie in the meantime.
     (function () { var b = doneEl(); if (b) { b.checked = false; updateDoneToggle(!b.disabled); } })();
+    userTypedSinceOpen = false;
     setPatientBtn();
     disarm();
     if (!slotRoot) { toast('Connect the USB workspace (Patient List) to load this patient.', 'err'); return; }

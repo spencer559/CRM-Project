@@ -40,12 +40,14 @@ assert.match(report, /function openSlot[\s\S]{0,600}?b\.checked = false; updateD
 
 assert.match(report, /box\.checked = !!\(row && row\.done\)/,
   "the tick must be read from r.done on the matching schedule row");
-assert.match(report, /function pushDoneToSchedule\(\)[\s\S]{0,300}?pushRowField\('done', !!el\.checked\)/,
+assert.match(report, /function pushDoneToSchedule\(\)[\s\S]{0,400}?pushRowFields\(\{ done: !!el\.checked/,
   "ticking must write r.done back to the schedule row");
 assert.match(report, /pushRowField\('rm', el\.value \|\| ''\)/,
   "the precharted status must still write back through the shared row-field path");
-assert.match(report, /var same = \(typeof value === 'boolean'\)[\s\S]{0,160}?if \(same\) return;/,
-  "an unchanged value must not rewrite schedule.json — booleans compared as booleans");
+assert.match(report, /var same = names\.every\(function \(field\)[\s\S]{0,300}?if \(same\) return;/,
+  "an unchanged value must not rewrite schedule.json, however many fields are pushed at once");
+assert.match(report, /\(typeof value === 'boolean'\) \? \(!!row\[field\] === value\)/,
+  "booleans must still be compared as booleans, not stringified");
 assert.match(report, /box\.addEventListener\('change', function \(\) \{[\s\S]{0,160}?pushDoneToSchedule\(\)/,
   "the write-back must be wired to the checkbox's change event");
 
@@ -71,5 +73,33 @@ assert.strictEqual((head.match(/<th\b[^>]*>/g) || []).length, 14,
 assert.ok(!/colspan="13"/.test(sched), "no full-width row may still be spanning 13 columns");
 assert.strictEqual((sched.match(/colspan="14"/g) || []).length, 2,
   "both the notes row and the CRM panel row must span the whole table");
+
+/* ---- A tick is an end-of-day marker, so it has to stop being true when the report moves on ---- */
+
+assert.match(report, /doneAt: el\.checked \? Date\.now\(\) : 0, doneStale: false/,
+  "ticking records WHEN, and clears any earlier staleness — a fresh tick is current by definition");
+assert.match(report, /document\.addEventListener\('input', function \(ev\) \{ if \(ev\.isTrusted\) userTypedSinceOpen = true; \}, true\)/,
+  "only real typing may age a tick; restoring a slot fires programmatic input events that must not");
+assert.match(report, /function markDoneStale\(\)[\s\S]{0,300}?if \(!userTypedSinceOpen\) return[\s\S]{0,200}?if \(!el \|\| !el\.checked\) return/,
+  "staleness needs both a real edit and something claiming to be finished");
+assert.match(report, /function openSlot[\s\S]{0,900}?userTypedSinceOpen = false;/,
+  "the previous patient's typing must not age the incoming patient's tick");
+// The live sync is the honest signal of an edit. finalizeReports also writes report.json, but it
+// only materializes what is already there — hooking it would flag every close as an edit.
+const liveSync = report.slice(report.indexOf("function writeJsonNow"), report.indexOf("function writeJsonNow") + 900);
+assert.ok(/markDoneStale\(\)/.test(liveSync), "the typing-pause sync is what ages a tick");
+const finalize = report.slice(report.indexOf("function finalizeReports"), report.indexOf("function finalizeReports") + 1200);
+assert.ok(!/markDoneStale\(\)/.test(finalize),
+  "finalize must NOT age a tick — ticking Done and closing would otherwise flag itself instantly");
+
+assert.match(sched, /if \(r\.doneAt === undefined\) r\.doneAt = 0;/,
+  "a database written before the stamp reads as unstamped, not undefined");
+assert.match(sched, /if \(r\.doneStale === undefined\) r\.doneStale = false;/);
+assert.match(sched, /if \(el\.dataset\.f === "done"\) \{[\s\S]{0,200}?r\.doneAt = el\.checked \? Date\.now\(\) : 0;[\s\S]{0,120}?r\.doneStale = false;/,
+  "ticking from the Schedule side must stamp the same way the report side does");
+assert.match(sched, /r\.done && r\.doneStale[\s\S]{0,200}?done-stale/,
+  "a report edited after its tick must say so on the row");
+assert.match(sched, /left \+ " report" \+ \(left === 1 \? "" : "s"\) \+ " left"/,
+  "the day's counts must answer the question Done exists for: what is still on my list?");
 
 console.log("PASS report-done-tick");

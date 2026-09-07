@@ -37,6 +37,8 @@
               display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
   /* header dropdown — same pattern as the dashboard's Storage menu */
   .hdr-menu { position:relative; }
+  .done-stale { display:block; margin-top:2px; font-size:9px; line-height:1; color:var(--amber);
+               text-transform:uppercase; letter-spacing:.3px; cursor:help; }
   .storage-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--muted); margin-right:6px; vertical-align:middle; }
   /* Always visible, never overwritten by transient narration: the one control that answers
      "where does my work actually live right now?" */
@@ -565,6 +567,10 @@
         if (r.lastOff === undefined) r.lastOff = ""; // added Jul 2026
         if (r.cerner === undefined) r.cerner = false; // "Uploaded to Cerner", added Jul 2026
         if (r.done === undefined) r.done = false;     // "Report finished", added Sep 2026
+        // Done is a personal end-of-day marker: these say WHEN it was ticked and whether the
+        // report was edited afterwards, so a tick cannot quietly go out of date.
+        if (r.doneAt === undefined) r.doneAt = 0;
+        if (r.doneStale === undefined) r.doneStale = false;
         r.provider = String(r.provider || "Tech").trim() || "Tech"; // provider assignment added Jul 2026
         if (!s.providers.some(function (p) { return p.toLowerCase() === r.provider.toLowerCase(); })) s.providers.push(r.provider);
       });
@@ -882,7 +888,12 @@
         '<td><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
         '<td class="lo"><input type="date" title="Date of the last in-office check" data-i="' + i + '" data-f="lastOff" value="' + esc(r.lastOff) + '"></td>' +
         '<td><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
-        '<td class="done"><input type="checkbox" data-i="' + i + '" data-f="done" title="Report finished"' + (r.done ? " checked" : "") + "></td>" +
+        '<td class="done"><input type="checkbox" data-i="' + i + '" data-f="done" title="Report finished"' + (r.done ? " checked" : "") + ">" +
+          (r.done && r.doneStale
+            ? '<span class="done-stale" title="This report was edited after you marked it done' +
+              (r.doneAt ? " (" + esc(new Date(r.doneAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) + ")" : "") +
+              '. Re-tick it once you are happy, and re-run Download patients.">edited</span>'
+            : "") + "</td>" +
         '<td class="cerner"><input type="checkbox" data-i="' + i + '" data-f="cerner" title="Uploaded to Cerner"' + (r.cerner ? " checked" : "") + "></td>" +
         '<td class="crm-cell" data-cslot="' + i + '"><button class="crm-link" type="button" disabled>Open</button></td>' +
         '<td class="fbadges" data-fslot="' + i + '"><span class="fnone">&mdash;</span></td>' +
@@ -914,10 +925,18 @@
     var all = rows(), rs = visibleRows().map(function (x) { return x.r; }), by = {};
     rs.forEach(function (r) { by[r.check] = (by[r.check] || 0) + 1; });
     var rmIssues = rs.filter(function (r) { return RM_ISSUES.indexOf(r.rm) !== -1; }).length;
+    // Done is tracked for exactly this: at the end of the day, what is still on my list?
+    var doneN = rs.filter(function (r) { return r.done; }).length;
+    var staleN = rs.filter(function (r) { return r.done && r.doneStale; }).length;
+    var left = rs.length - doneN;
+    var progress = rs.length
+      ? " · " + (left ? left + " report" + (left === 1 ? "" : "s") + " left" : "all reports done") +
+        (staleN ? " · " + staleN + " edited after done" : "")
+      : "";
     $("counts").textContent = rs.length
       ? rs.length + (providerFilter ? " of " + all.length : "") + " appointment" + (rs.length === 1 ? "" : "s") + " · " +
         CHECKS.filter(function (c) { return by[c]; }).map(function (c) { return by[c] + " " + c.toLowerCase(); }).join(" · ") +
-        (rmIssues ? " · " + rmIssues + " RM issue" + (rmIssues === 1 ? "" : "s") : "")
+        (rmIssues ? " · " + rmIssues + " RM issue" + (rmIssues === 1 ? "" : "s") : "") + progress
       : (providerFilter ? "no " + providerFilter + " appointments" : "no appointments yet");
   }
 
@@ -927,10 +946,14 @@
     var r = rows()[+el.dataset.i]; if (!r) return;
     if (el.type === "checkbox") r[el.dataset.f] = el.checked;
     else r[el.dataset.f] = el.value;
+    if (el.dataset.f === "done") {
+      r.doneAt = el.checked ? Date.now() : 0;
+      r.doneStale = false;        // a fresh tick is current by definition
+    }
     if (el.dataset.f === "notes" && el.tagName === "TEXTAREA") autoGrow(el);
     save();
     if (el.dataset.f === "provider") { render(); return; }
-    if (el.dataset.f === "check" || el.dataset.f === "rm") renderCounts();
+    if (el.dataset.f === "check" || el.dataset.f === "rm" || el.dataset.f === "done") renderCounts();
     if (el.dataset.f === "time" || el.dataset.f === "pt") scheduleScan();
   });
   $("schedBody").addEventListener("click", function (ev) {
@@ -2088,18 +2111,21 @@
   // open editor expects them, and preSlot keeps pointing at the folder they are really in.
   function relocateSlotFiles(i, oldSlot, newSlot) {
     var move = function () {
-      // Keep the baseline current: a time/patient field can fire several change events in one
-      // focus (editing the hour then the minute, using the steppers, etc.). Updating preSlot to
-      // the new slot — instead of deleting it — lets each successive edit relocate the files from
-      // wherever they are now, so the association is never lost between saves.
-      preSlot[i] = newSlot;
-      if (!wsRoot) { scanSlots(); return; }   // no database open — nothing reachable to move
+      if (!wsRoot) { preSlot[i] = newSlot; scanSlots(); return; }   // nothing reachable to move
       WS.moveSlot(wsRoot, curDate, oldSlot, newSlot)
         .then(function (moved) {
+          // Keep the baseline current: a time/patient field can fire several change events in one
+          // focus (editing the hour then the minute, using the steppers, etc.). Updating preSlot to
+          // the new slot — instead of deleting it — lets each successive edit relocate the files
+          // from wherever they are now, so the association is never lost between saves.
+          preSlot[i] = newSlot;
           if (moved) setWsStatus("Moved patient files " + oldSlot + " → " + newSlot, "ok");
           scanSlots();
         })
         .catch(function (e) {
+          // Baseline deliberately NOT advanced: the move was refused, so the files are still at
+          // oldSlot and the next edit has to relocate them from there. Advancing it would point
+          // the row at an empty folder and orphan the real one.
           setWsStatus("Could not move files " + oldSlot + " → " + newSlot + ": " + e.message, "warn");
           scanSlots();
         });

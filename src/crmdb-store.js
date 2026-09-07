@@ -1388,7 +1388,17 @@
   function moveSlot(root, date, oldSlot, newSlot) {
     if (!oldSlot || !newSlot || oldSlot === newSlot) return Promise.resolve(false);
     var op = slotPrefix(date, oldSlot), np = slotPrefix(date, newSlot), moved = false;
-    Array.from(bundle.keys()).forEach(function (k) {
+    var keys = Array.from(bundle.keys());
+    // Two appointments can normalize to one slot name — 08:00 "Demo, A-B" and 08:00 "Demo, AB" both
+    // give 0800_DEMOAB — and this used to copy straight over whatever was already there, destroying
+    // the other patient's files with no trace. Until visits have stable IDs, refuse: the caller
+    // reports it and leaves the files where they are, which is recoverable. Silently overwriting
+    // clinical records is not.
+    if (keys.some(function (k) { return k.indexOf(np) === 0; })) {
+      return Promise.reject(new Error("another appointment already has files at " + newSlot +
+        " — give one of them a different time or name, then try again"));
+    }
+    keys.forEach(function (k) {
       if (k.indexOf(op) === 0) { bset(np + k.slice(op.length), bundle.get(k)); bdel(k); moved = true; }
     });
     if (moved) persist();

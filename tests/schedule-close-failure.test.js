@@ -13,7 +13,7 @@ function extract(name) {
   return match[0];
 }
 
-let destroyed, scans, adopted, statuses, moves, finalizeReply, answer;
+let destroyed, scans, adopted, statuses, moves, finalizeReply, answer, moveRefusal;
 const context = {
   panel: null, wsRoot: 'root', curDate: '2026-08-22', preSlot: {},
   finalizePanel(cb) { cb.apply(null, finalizeReply); },
@@ -22,12 +22,15 @@ const context = {
   destroyPanel() { destroyed++; context.panel = null; },
   scanSlots() { scans++; },
   adoptWorkingCopy(cb) { adopted++; cb(); },
-  WS: { moveSlot(root, date, from, to) { moves.push([date, from, to].join('|')); return Promise.resolve(true); } }
+  WS: { moveSlot(root, date, from, to) {
+    moves.push([date, from, to].join('|'));
+    return moveRefusal ? Promise.reject(new Error(moveRefusal)) : Promise.resolve(true);
+  } }
 };
 vm.runInNewContext(extract('closePanel') + '\n' + extract('relocateSlotFiles'), context);
 const { closePanel, relocateSlotFiles } = context;
 function reset(panel, reply, confirmAnswer) {
-  destroyed = 0; scans = 0; adopted = 0; statuses = []; moves = [];
+  destroyed = 0; scans = 0; adopted = 0; statuses = []; moves = []; moveRefusal = null;
   context.panel = panel; context.preSlot = {};
   finalizeReply = reply; answer = confirmAnswer;
 }
@@ -69,30 +72,49 @@ assert.equal(destroyed, 1); assert.equal(ran, 3);
 assert.match(statuses.join(' '), /Closed without rebuilding/);
 
 /* ---- relocating a slot's files may never outrun the editor that writes into it ---- */
+// moveSlot resolves asynchronously, and the baseline is only advanced once it has, so these await.
+const settle = () => new Promise((r) => setTimeout(r, 0));
+async function relocations() {
+  // No editor open: the move happens straight away.
+  reset(null, [true, '']);
+  relocateSlotFiles('0', 'old', 'new');
+  await settle();
+  assert.deepEqual(moves, ['2026-08-22|old|new']); assert.equal(context.preSlot['0'], 'new');
 
-// No editor open: the move happens straight away.
-reset(null, [true, '']);
-relocateSlotFiles('0', 'old', 'new');
-assert.deepEqual(moves, ['2026-08-22|old|new']); assert.equal(context.preSlot['0'], 'new');
+  // An editor on a different slot cannot be holding these files.
+  reset(openPanel('other'), [true, '']);
+  relocateSlotFiles('0', 'old', 'new');
+  await settle();
+  assert.deepEqual(moves, ['2026-08-22|old|new']); assert.equal(destroyed, 0);
 
-// An editor on a different slot cannot be holding these files.
-reset(openPanel('other'), [true, '']);
-relocateSlotFiles('0', 'old', 'new');
-assert.deepEqual(moves, ['2026-08-22|old|new']); assert.equal(destroyed, 0);
+  // An editor on THIS slot: the move waits for the close, then runs.
+  reset(openPanel(), [true, '']);
+  relocateSlotFiles('0', 'old', 'new');
+  assert.equal(destroyed, 1, 'the close must happen before the move starts');
+  await settle();
+  assert.deepEqual(moves, ['2026-08-22|old|new']); assert.equal(context.preSlot['0'], 'new');
 
-// An editor on THIS slot: the move waits for the close, then runs.
-reset(openPanel(), [true, '']);
-relocateSlotFiles('0', 'old', 'new');
-assert.equal(destroyed, 1);
-assert.deepEqual(moves, ['2026-08-22|old|new']); assert.equal(context.preSlot['0'], 'new');
+  // An editor on THIS slot whose close is refused: no move at all, and the baseline still points at
+  // the folder the files are really in, so the next edit can retry from there.
+  reset(openPanel(), [true, 'Report generation timed out'], false);
+  context.preSlot['0'] = 'old';
+  relocateSlotFiles('0', 'old', 'new');
+  await settle();
+  assert.equal(destroyed, 0);
+  assert.deepEqual(moves, [], 'files must not move out from under an editor that is still writing');
+  assert.equal(context.preSlot['0'], 'old', 'the baseline must keep naming the real folder');
+  assert.match(statuses.join(' '), /patient files stay at old/);
 
-// An editor on THIS slot whose close is refused: no move at all, and the baseline still points at
-// the folder the files are really in, so the next edit can retry from there.
-reset(openPanel(), [true, 'Report generation timed out'], false);
-context.preSlot['0'] = 'old';
-relocateSlotFiles('0', 'old', 'new');
-assert.equal(destroyed, 0);
-assert.deepEqual(moves, [], 'files must not move out from under an editor that is still writing');
-assert.equal(context.preSlot['0'], 'old', 'the baseline must keep naming the real folder');
-assert.match(statuses.join(' '), /patient files stay at old/);
-console.log('PASS failed rebuild keeps the editor, and blocks the slot move behind it');
+  // A move the STORE refuses — an occupied destination — must not advance the baseline either.
+  // Pointing it at the empty new folder would orphan the files still sitting in the old one.
+  reset(null, [true, '']);
+  context.preSlot['0'] = 'old';
+  moveRefusal = 'another appointment already has files at new';
+  relocateSlotFiles('0', 'old', 'new');
+  await settle();
+  assert.equal(context.preSlot['0'], 'old', 'a refused move leaves the baseline naming the real folder');
+  assert.match(statuses.join(' '), /Could not move files old . new: another appointment/);
+
+  console.log('PASS failed rebuild keeps the editor, and blocks the slot move behind it');
+}
+relocations().catch((e) => { console.error(e); process.exit(1); });
