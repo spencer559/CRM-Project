@@ -103,8 +103,8 @@
   var REV_KEY = "rev", BUNDLE_KEY = "bundle", CRC_KEY = "crcs";
   // Record a mutation as well as applying it, so a later rebase can replay it. Any edit means the
   // cache no longer matches the bound file until the next successful write-through.
-  function bset(path, blob) { bundle.set(path, blob); journal.set(path, blob); cacheMatchesFile = false; mutSeq++; }
-  function bdel(path) { var had = bundle.delete(path); journal.set(path, null); cacheMatchesFile = false; mutSeq++; return had; }
+  function bset(path, blob) { bundle.set(path, blob); journal.set(path, blob); cacheMatchesFile = false; mutSeq++; markEdited(); }
+  function bdel(path) { var had = bundle.delete(path); journal.set(path, null); cacheMatchesFile = false; mutSeq++; markEdited(); return had; }
   function applyJournal() {
     journal.forEach(function (blob, path) {
       if (blob === null) bundle.delete(path); else bundle.set(path, blob);
@@ -124,6 +124,54 @@
   var SESSION_UNLOCK_KEY = "crmdbSessionUnlockV1";
 
   function status(msg, cls) { try { if (statusCb) statusCb(msg, cls); } catch (e) {} }
+
+  /* --------------------------------------------------------------- the save contract
+   * `status` is transient narration — the next message overwrites it, so a failed save can
+   * be buried by anything that happens next. This answers a different and more important
+   * question, durably: where does my work actually live right now?
+   *
+   *   closed   nothing open
+   *   edited   staged in this tab only; the browser copy does not have it yet
+   *   saving   a commit — and on desktop the file write behind it — is in flight
+   *   browser  in this browser's copy; the portable .crmdb does NOT have it. On iPad this
+   *            is the resting state until an explicit export, not a transient one.
+   *   file     written through to the bound .crmdb. This is NOT proof that OneDrive has
+   *            synced it, and it is never claimed for a share-sheet export, which the page
+   *            has no way to confirm landed on the file the user intended.
+   *   blocked  refusing to touch the file until this session has verified freshness
+   *   failed   the last commit or file write failed; the work is still here, unsaved
+   *
+   * A failure holds until something actually succeeds. Editing does not clear it.
+   */
+  var saveStateCb = null;
+  var saveState = { state: "closed", detail: "", bound: false, at: 0 };
+  function emitSaveState(state, detail) {
+    saveState = { state: state, detail: detail || "", bound: !!(fileHandle && canAutosave), at: Date.now() };
+    try { if (saveStateCb) saveStateCb(saveState); } catch (e) {}
+  }
+  // Where the flags say the work lives, for every transition that is neither in flight nor broken.
+  function settledSaveState() {
+    if (!opened) return "closed";
+    if (journal.size) return "edited";
+    if (fileHandle && canAutosave) return cacheMatchesFile ? "file" : "browser";
+    return "browser";
+  }
+  function syncSaveState(detail) { emitSaveState(settledSaveState(), detail); }
+  // Bursts collapse into one transition: ingesting a database sets hundreds of paths, and the
+  // Schedule stages schedule.json on every typing debounce.
+  function markEdited() {
+    if (!opened || saveState.state === "edited") return;
+    // Typing must never paper over a save that failed or is being refused.
+    if (saveState.state === "failed" || saveState.state === "blocked") return;
+    emitSaveState("edited");
+  }
+  // Opening, reconnecting and adopting another tab's copy all move these flags without going
+  // through a transition above, so the reported state derives from them unless the machine is
+  // holding something a flag cannot express.
+  function currentSaveState() {
+    if (saveState.state === "saving" || saveState.state === "failed" || saveState.state === "blocked") return saveState;
+    return { state: settledSaveState(), detail: "", bound: !!(fileHandle && canAutosave), at: saveState.at };
+  }
 
   function abortError(message) {
     var e = new Error(message || "Password entry cancelled"); e.name = "AbortError"; return e;
@@ -686,6 +734,7 @@
     // what's on disk. This is the guard that stops a stale station cache clobbering newer OneDrive
     // data before the reconnect freshness check has had a chance to run.
     if (!freshnessVerified) {
+      emitSaveState("blocked", "Reconnect the database to confirm which copy is newer.");
       status("Save blocked — these edits are only in this browser. Reconnect the database and choose which copy to keep.", "warn");
       if (opts.rethrow) return Promise.reject(new Error("Reconnect the database before saving"));
       return Promise.resolve(false);
@@ -709,10 +758,17 @@
         cacheMatchesFile = (seq == null || seq === mutSeq);
         return persistMeta();
       })
-      .then(function () { if (opts.loud && cacheMatchesFile) status("Saved to " + suggestedName + " ✓", "ok"); return true; })
+      .then(function () {
+        // cacheMatchesFile false here means the bundle moved on mid-write: the bytes landed, but
+        // newer edits are still browser-only, so the file is behind rather than current.
+        emitSaveState(cacheMatchesFile ? "file" : "browser");
+        if (opts.loud && cacheMatchesFile) status("Saved to " + suggestedName + " ✓", "ok");
+        return true;
+      })
       .catch(function (e) {
         // pendingSig deliberately survives a failure: the write may still have landed, and it only
         // ever serves to recognize our own bytes.
+        emitSaveState("failed", e.message);
         if (opts.rethrow) throw e;
         status("File save failed — changes remain in this browser. Reconnect the database or try Save now. " + e.message, "warn");
         return false;
@@ -726,12 +782,18 @@
     clearTimeout(persistTimer);
     persistTimer = setTimeout(function () {
       enqueueCommit(function () {
+        emitSaveState("saving");
         return commit().then(function (c) {
-          if (!c) return;
+          if (!c) { syncSaveState(); return; }
+          // The file write announces its own outcome; leave the state in flight until it does.
           if (fileHandle && canAutosave) { writeToFileInBackground(c); return; }
+          emitSaveState("browser");
           status("Unsaved — tap Save database updates", "warn");
         });
-      }).catch(function (e) { status("Browser save failed — keep this page open and try Save now. " + e.message, "warn"); });
+      }).catch(function (e) {
+        emitSaveState("failed", e.message);
+        status("Browser save failed — keep this page open and try Save now. " + e.message, "warn");
+      });
     }, 1200);
   }
 
@@ -764,11 +826,15 @@
     clearTimeout(persistTimer);
     if (!opened) return Promise.resolve();
     return enqueueCommit(function () {
+      emitSaveState("saving");
       return commit().then(function (c) {
-        if (!c) return false;
-        writeToFileInBackground(c);
+        if (!c) { syncSaveState(); return false; }
+        // With a bound file the write-through reports the outcome; without one, the browser copy
+        // is as far as this work goes until an explicit export.
+        if (fileHandle && canAutosave) writeToFileInBackground(c);
+        else emitSaveState("browser");
         return true;
-      });
+      }, function (e) { emitSaveState("failed", e.message); throw e; });
     });
   }
 
@@ -1230,6 +1296,7 @@
     journal.clear(); authoritative = false; myRev = 0;
     baseFileMod = null; cacheMatchesFile = false; freshnessVerified = false;
     baseSig = null; pendingSig = null;
+    emitSaveState("closed");
     return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY), idbDel(META_KEY), idbDel(CRC_KEY)]).then(function () {});
   }
 
@@ -1391,6 +1458,15 @@
     fileName: function () { return opened ? suggestedName : null; },
     set onStatus(fn) { statusCb = fn; },
     get onStatus() { return statusCb; },
+    // Where the work actually lives right now — see "the save contract" above. Read it any time;
+    // subscribing also delivers the current value immediately, so a page renders the truth on load
+    // rather than an empty control it has to wait for an event to fill.
+    get saveState() { return currentSaveState(); },
+    set onSaveState(fn) {
+      saveStateCb = fn;
+      if (fn) { try { fn(currentSaveState()); } catch (e) {} }
+    },
+    get onSaveState() { return saveStateCb; },
     set onPasswordRequest(fn) { passwordCb = fn; },
     get onPasswordRequest() { return passwordCb; },
     // Pages set this to resolve a true reconnect conflict (newer file AND unsaved local edits).

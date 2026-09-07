@@ -38,6 +38,19 @@
   /* header dropdown — same pattern as the dashboard's Storage menu */
   .hdr-menu { position:relative; }
   .storage-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--muted); margin-right:6px; vertical-align:middle; }
+  /* Always visible, never overwritten by transient narration: the one control that answers
+     "where does my work actually live right now?" */
+  .save-state { display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:6px; white-space:nowrap;
+                border:1px solid var(--border); background:var(--panel); color:var(--muted); font-size:12px; cursor:default; }
+  .save-state[hidden] { display:none; }
+  .save-state .save-state-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:none; }
+  .save-state[data-state="file"] .save-state-dot { background:var(--green); }
+  .save-state[data-state="browser"] .save-state-dot { background:var(--amber); }
+  .save-state[data-state="edited"] .save-state-dot,
+  .save-state[data-state="saving"] .save-state-dot { background:var(--muted); }
+  .save-state[data-state="failed"] .save-state-dot,
+  .save-state[data-state="blocked"] .save-state-dot { background:var(--red, #e5534b); }
+  .save-state[data-state="failed"], .save-state[data-state="blocked"] { color:var(--text); border-color:var(--red, #e5534b); }
   .hdr-dropdown {
     position:absolute; right:0; top:calc(100% + 6px); z-index:50;
     display:none; flex-direction:column; gap:6px;
@@ -402,6 +415,7 @@
         <button id="wsForget" onclick="forgetWorkspace()" style="display:none;">Close database</button>
       </div>
     </div>
+    <span class="save-state" data-save-state data-state="closed" hidden><span class="save-state-dot"></span><span data-save-state-text></span></span>
     <button id="dbSaveBtn" class="save" onclick="saveDatabase()" disabled title="Save the database (.crmdb) back to your USB">Save database</button>
   </div>
 </header>
@@ -1646,6 +1660,37 @@
   // the store reports autosave / unsaved / errors through here
   if (WS) WS.onStatus = function (msg, cls) { setStatus(msg, cls); updateSaveBtn(); };
 
+  /* The save contract, rendered. setStatus/setWsStatus are transient — the next message
+     overwrites them, so a failed save can scroll away behind "Moved patient files…". This
+     control always shows where the work currently lives, and says plainly what it does not
+     know: that the bytes reached the file is not proof OneDrive finished syncing them. */
+  var SAVE_STATE_TEXT = {
+    closed:  ["No database", "Open or create a .crmdb to start saving."],
+    edited:  ["Unsaved edits", "Typed but not yet written to this browser's copy. It publishes on the save cadence."],
+    saving:  ["Saving…", "Writing to this browser's copy, and then to the database file when one is bound."],
+    browser: ["In this browser only", "Committed to this browser. The .crmdb file does NOT have these changes yet — use Save database, and on iPad pick your USB in the Files sheet."],
+    file:    ["Saved to file", "Written to the database file. That is not proof OneDrive has finished syncing it to other machines."],
+    blocked: ["Save blocked", "Refusing to write to the file until this session confirms which copy is newer. Reconnect the database."],
+    failed:  ["Save failed", "The last save did not land. Your work is still here — fix the problem and save again."]
+  };
+  function renderSaveState(st) {
+    var entry = SAVE_STATE_TEXT[st && st.state] || SAVE_STATE_TEXT.closed;
+    var title = entry[1] + (st && st.detail ? " — " + st.detail : "");
+    // Every mirror at once: the header's, and the split panel's — which is the only one visible
+    // while a report is actually being typed, since split view covers the whole viewport.
+    document.querySelectorAll("[data-save-state]").forEach(function (el) {
+      var text = el.querySelector("[data-save-state-text]");
+      el.hidden = !st || st.state === "closed";
+      el.dataset.state = (st && st.state) || "closed";
+      if (text) text.textContent = entry[0];
+      el.title = title;
+    });
+  }
+  if (WS) WS.onSaveState = renderSaveState;
+  // Opening, reconnecting and closing move the store's flags without a save transition, so
+  // re-read the contract at the moments this page knows something changed.
+  function refreshSaveState() { if (WS) renderSaveState(WS.saveState); }
+
   // Wait for the browser working copy before leaving; a timeout must not open stale patient data.
   function navigateToReportGenerator(url) {
     var navigated = false;
@@ -1679,6 +1724,9 @@
   });
 
   function updateSaveBtn() {
+    // Opening, reconnecting and closing move the store's flags without a save transition of their
+    // own, and every one of them already refreshes this button — so the contract rides along.
+    refreshSaveState();
     var b = $("dbSaveBtn"); if (!b) return;
     b.disabled = !wsRoot;
     b.textContent = (WS && WS.canAutosave) ? "Save now" : "Save database";
@@ -2853,6 +2901,7 @@
             '<span class="crm-panel-slot">' + esc(slot) + '</span>' +
             (r.lastOff ? '<span class="crm-panel-last-office">Last Office: ' + esc(fmtDate(r.lastOff)) + '</span>' : '') +
             '<span class="crm-panel-sync" data-panel-sync></span>' +
+            '<span class="save-state" data-save-state data-state="closed" hidden><span class="save-state-dot"></span><span data-save-state-text></span></span>' +
             '<select data-panel-view title="Show one of this patient\'s files beside the report" aria-label="File to view beside the report">' +
               '<option value="">Viewer off</option>' +
             '</select>' +
@@ -2871,6 +2920,7 @@
     apptTr.parentNode.insertBefore(tr, notesTr ? notesTr.nextSibling : null);
     panel = { date: curDate, slot: slot, tr: tr, frame: tr.querySelector("iframe.crm-frame"), url: url,
       ready: false, viewDocId: null };
+    refreshSaveState();   // the panel's own save indicator was just created empty
     window.addEventListener("resize", sizePanel);
     sizePanel();
     initPanelDivider();
