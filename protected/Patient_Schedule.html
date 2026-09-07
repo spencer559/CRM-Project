@@ -49,8 +49,8 @@
   .save-state[data-state="edited"] .save-state-dot,
   .save-state[data-state="saving"] .save-state-dot { background:var(--muted); }
   .save-state[data-state="failed"] .save-state-dot,
-  .save-state[data-state="blocked"] .save-state-dot { background:var(--red, #e5534b); }
-  .save-state[data-state="failed"], .save-state[data-state="blocked"] { color:var(--text); border-color:var(--red, #e5534b); }
+  .save-state[data-state="blocked"] .save-state-dot { background:var(--red); }
+  .save-state[data-state="failed"], .save-state[data-state="blocked"] { color:var(--text); border-color:var(--red); }
   .hdr-dropdown {
     position:absolute; right:0; top:calc(100% + 6px); z-index:50;
     display:none; flex-direction:column; gap:6px;
@@ -1646,7 +1646,13 @@
   function setStatus(msg, cls) {
     var el = $("fileStatus");
     el.textContent = msg; el.className = "hdr-status" + (cls ? " " + cls : "");
-    $("storageDot").style.background = cls === "ok" ? "var(--green)" : (cls === "warn" ? "var(--amber)" : "var(--muted)");
+    // The storage dot is deliberately NOT set here any more. Echoing this message's severity made
+    // it lie in two ways: it stayed green through every keystroke after a save (nothing narrates
+    // typing), and any unrelated success turned it green — "Password protection enabled · save the
+    // database" and "Exported to Downloads" are both "ok". renderSaveState owns it now, so the dot
+    // and the labelled indicator are one signal and cannot contradict each other. Every path that
+    // changes save state either emits from the store or runs updateSaveBtn (adoptWorkspace on open
+    // and reconnect, the close path), so nothing here needs to repaint it.
     var warning = $("saveWarning");
     if (warning) {
       warning.textContent = cls === "warn" ? msg : "";
@@ -1673,9 +1679,18 @@
     blocked: ["Save blocked", "Refusing to write to the file until this session confirms which copy is newer. Reconnect the database."],
     failed:  ["Save failed", "The last save did not land. Your work is still here — fix the problem and save again."]
   };
+  // The at-a-glance half of the same signal the pill spells out, so they cannot disagree.
+  var SAVE_STATE_DOT = {
+    file: "var(--green)", browser: "var(--amber)", failed: "var(--red)", blocked: "var(--red)"
+  };
   function renderSaveState(st) {
     var entry = SAVE_STATE_TEXT[st && st.state] || SAVE_STATE_TEXT.closed;
     var title = entry[1] + (st && st.detail ? " — " + st.detail : "");
+    var dot = $("storageDot");
+    if (dot) {
+      dot.style.background = SAVE_STATE_DOT[st && st.state] || "var(--muted)";
+      dot.title = entry[0] + " — " + title;
+    }
     // Every mirror at once: the header's, and the split panel's — which is the only one visible
     // while a report is actually being typed, since split view covers the whole viewport.
     document.querySelectorAll("[data-save-state]").forEach(function (el) {
