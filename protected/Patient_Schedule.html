@@ -3062,18 +3062,12 @@
       notifyEgmAvailability();
       return;
     }
-    if (m.type === 'crm:view-egms') {
-      var pdfFrame = panel.tr.querySelector('.crm-viewer iframe');
-      if (pdfFrame && panel.viewDocId && panel.egmReady) {
-        pdfFrame.contentWindow.postMessage({ type: 'pdfviewer:egms', id: panel.viewDocId }, location.origin === 'null' ? '*' : location.origin);
-      }
-      return;
-    }
     if (m.type === 'crm:egm-context-request') { notifyEgmAvailability(); return; }
     if (m.type === 'crm:egm-entries') {
       var activePdf = panel.tr.querySelector('.crm-viewer iframe');
       if (activePdf && panel.egmReady && panel.egmDocumentKey && m.id === panel.viewDocId && m.documentKey === panel.egmDocumentKey) {
-        activePdf.contentWindow.postMessage({ type: 'pdfviewer:egm-entries', id: panel.viewDocId, documentKey: panel.egmDocumentKey, entries: m.entries }, location.origin === 'null' ? '*' : location.origin);
+        activePdf.contentWindow.postMessage({ type: 'pdfviewer:egm-entries', id: panel.viewDocId, documentKey: panel.egmDocumentKey,
+          entries: m.entries, marks: Array.isArray(m.marks) ? m.marks : [] }, location.origin === 'null' ? '*' : location.origin);
       }
       return;
     }

@@ -14,15 +14,49 @@ The essential viewer behaviors are the split pane beside the editable report, on
 
 ## First viewer increment: implemented scope
 
-The viewer indexes recognized recording/episode headings from page text and PDF bookmarks. Its EGM menu distinguishes possible recordings, episode summaries, and manual marks. The report's CRM and loop-recorder episode sections have an EGM pages button, enabled when the adjacent PDF has loaded. Both buttons always open the menu, even with one destination or when already on that page.
+Revised after use. The report's **EGM pages** button and the viewer's heading-detection overlay are
+both gone: the split pane already shows the document, and an auto-detected "possible recording"
+list added clutter rather than navigation. Nothing now infers that a page holds a recording.
 
-Back to p. N appears only after a jump to another page and restores the page, zoom, and pan saved before the first jump. Normal wheel paging and fit-to-page remain in place. The overlay does not change pane widths. Late source loads and navigation messages are checked against the active frame/document.
+The viewer carries one toolbar row, and only once a report has told it which logbook entries exist
+— a PDF opened on its own shows no bar and gives up no reading height. Left to right: a destination
+picker (Unassigned page, or a logbook entry), **Save page N**, a jump list of saved pages,
+**Remove p. N** while the current page is one of them, and **Back to p. N** after a jump.
 
-The current-page picker and each destination's picker can assign a PDF page to Entry 1, 2, 3, etc. A p. N button beside the row number opens that page. Links save as report JSON metadata with the source filename and exact PDF fingerprint; they survive reopening, follow existing retention, and do not appear in PDF/TXT/RTF report content. A missing or replaced source cannot silently reuse a link. The × on each destination removes its shortcut and all entry links to that page, while preserving the rows and PDF. Page-only marks and dismissed automatic suggestions remain session-only. Automatic destinations are heading-based suggestions, not proof of a recording. Search, remembered document positions, recording-group navigation, and real vendor validation remain follow-up work.
+Destinations are named the way the logbook names them — `08/22/2026 09:18PM NS-VT`, built from the
+entry's date/time and checked episode types, falling back to `Entry N` for a still-empty row. The
+date is read straight off the `datetime-local` string, so no time zone is applied. Labels follow
+edits to the row.
 
-Validation uses the automated suite plus a synthetic split-pane browser check. The episode-link update checks assignment from detected/current pages, per-row navigation, report JSON roundtrip, reopening the same PDF, × removal, and separate CRM/loop entry choices. Bridge tests cover stale frames, source identity, missing/replaced files, and queued navigation after changing PDFs. No clinical source files or databases are needed for these checks; real vendor detection accuracy remains unverified.
+In the report, the episode's row number **is** the jump control: it is plain grey until that entry
+has a page, then navy and clickable, with the source filename and page in its tooltip. Print keeps
+it plain. The separate `p. N` button is gone.
+
+A page saved without an entry persists too, in one hidden `egm-marks` field carrying the source
+filename and PDF fingerprint. It rides the report JSON exactly like the per-entry links, survives
+reopening, follows existing retention, and never reaches PDF/TXT/RTF content. Assigning a page to
+an entry drops its anonymous copy; **Remove** clears the page's entry links in both device-mode
+tables and its unassigned copy together.
+
+Ordinary wheel paging, fit-to-page, and the split widths are untouched — a jump does not resize
+either pane. Late source loads and navigation messages are still checked against the active
+frame/document, and a missing or replaced source cannot silently reuse a link. Search, remembered
+document positions, and recording-group navigation remain follow-up work.
+
+Validation is the automated suite plus a synthetic split-pane browser check against a generated
+six-page PDF. The unit tests cover label formatting, assignment from the picker, unassigned saves
+and their de-duplication, source identity, removal, report JSON round-trip, the jump list, Back
+restoring page/zoom/pan, and a background republish not rewriting a dropdown in use. The browser
+check confirmed one wheel notch per page, the entry-named picker and jump list, the row number
+jumping and raising Back to p. N, `egm-marks` surviving `collectFormData`/`applyFormData`, and no
+fingerprint text reaching the summary output. No clinical source files or databases were opened;
+the bar was also checked at a 380px pane.
 
 ## Broader viewer design for reference
+
+Superseded where it conflicts with the implemented scope above: there is no overlay, no EGM pages
+button beside the episode table, and no heading-based detection. The paragraphs below are kept for
+the reasoning they record about indexing, honest fallbacks, and navigation boundaries.
 
 Use an **EGMs** toolbar action and a matching **EGM pages** action beside the report's episode table. Both open the same document-local overlay with page numbers, source headings, and entry assignments. The overlay closes on page selection without narrowing either pane. Distinguish an episode summary/list from pages containing detailed recordings.
 

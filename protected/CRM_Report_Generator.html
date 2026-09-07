@@ -242,9 +242,9 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 /* DYNAMIC ROWS */
 .add-btn { background: none; border: 1px dashed var(--navy-mid); color: var(--navy); font-size: 10px; font-weight: 600; padding: 4px 12px; cursor: pointer; border-radius: 2px; font-family: Arial, Helvetica, sans-serif; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .2px; transition: background .1s; }
 .add-btn:hover { background: var(--navy-lt); }
-.egm-row-link { display: block; margin: 3px auto 0; padding: 2px; border: 0; background: none; color: var(--navy); text-decoration: underline; cursor: pointer; font: 9px Arial, sans-serif; white-space: nowrap; }
-.egm-row-link[hidden] { display: none; }
-@media print { .egm-row-link { display: none; } }
+.ep-num { display: block; width: 100%; padding: 2px 0; border: 0; background: none; color: #999; font: 9px Arial, sans-serif; cursor: default; }
+.ep-num[data-linked] { color: var(--navy); font-weight: bold; text-decoration: underline; cursor: pointer; }
+@media print { .ep-num[data-linked] { color: #999; font-weight: normal; text-decoration: none; } }
 .del-btn { background: none; border: none; color: #b03030; cursor: pointer; font-size: 14px; padding: 0 3px; line-height: 1; }
 
 /* SIG BLOCK */
@@ -552,12 +552,15 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
   </div>
 </div>
 
+<!-- EGM pages saved without an episode. Report metadata only: never rendered into the
+     PDF/TXT/RTF output, and scoped to the exact source document it was saved from. -->
+<input type="hidden" id="egm-marks">
+
 <!-- LOOP §L1 EPISODES — the ILR/loop-recorder counterpart of the Episode Log. No therapy
      column (ILRs deliver no therapy); counters cover the standard ICM auto-detections. -->
 <div class="section" id="s-loop-episodes" data-mode="loop">
   <div class="sec-hdr">Episodes / Arrhythmia Log<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Loop Episodes section">Clear section</button></div>
   <div class="sec-body">
-    <button type="button" class="add-btn" data-view-egms hidden disabled title="Open a PDF beside this report to view EGM pages">View EGMs</button>
     <div class="fg" style="grid-template-columns: 100px repeat(5, 95px); margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="lp-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
       <div class="field"><span class="lbl">AF</span><input type="number" id="lp-af" min="0"></div>
@@ -622,7 +625,6 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     <button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Stored Episodes and Arrhythmia Log section">Clear section</button>
   </div>
   <div class="sec-body">
-    <button type="button" class="add-btn" data-view-egms hidden disabled title="Open a PDF beside this report to view EGM pages">View EGMs</button>
     <div class="fg" style="grid-template-columns: 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="ep-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
       <div class="field"><span class="lbl">AHR <span class="sub-note">(AT / AF / AFl)</span></span><input type="number" id="ep-ahr" min="0"></div>
@@ -875,7 +877,7 @@ function addEpRow(focusNew) {
     return '<label class="cbl"><input type="checkbox" name="ep'+n+'-flag" value="'+t+'"> '+t+'</label>';
   }).join('');
   tr.innerHTML =
-    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '<input type="hidden" data-egm-link-value name="ep'+n+'-egm-link"><button type="button" class="egm-row-link" data-episode-link hidden></button></td>' +
+    '<td style="text-align:center;padding:0;"><input type="hidden" data-egm-link-value name="ep'+n+'-egm-link"><button type="button" class="ep-num" data-episode-link>' + n + '</button></td>' +
     '<td><input type="datetime-local" name="ep'+n+'-dt" style="width:138px"></td>' +
     '<td>' + typeCell + '</td>' +
     '<td><input type="text" name="ep'+n+'-dur" placeholder="hh:mm:ss" style="width:72px"></td>' +
@@ -911,7 +913,7 @@ function addLoopEpRow(focusNew) {
     return '<label class="cbl"><input type="checkbox" name="lep'+n+'-flag" value="'+t+'"> '+t+'</label>';
   }).join('');
   tr.innerHTML =
-    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '<input type="hidden" data-egm-link-value name="lep'+n+'-egm-link"><button type="button" class="egm-row-link" data-episode-link hidden></button></td>' +
+    '<td style="text-align:center;padding:0;"><input type="hidden" data-egm-link-value name="lep'+n+'-egm-link"><button type="button" class="ep-num" data-episode-link>' + n + '</button></td>' +
     '<td><input type="datetime-local" name="lep'+n+'-dt" style="width:138px"></td>' +
     '<td>' + typeCell + '</td>' +
     '<td><input type="text" name="lep'+n+'-dur" placeholder="hh:mm:ss" style="width:72px"></td>' +

@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
-const { readLink } = require('../src/crm-episode-links');
+const { readLink, formatWhen } = require('../src/crm-episode-links');
 const key = 'sha256:' + 'a'.repeat(64);
 const good = { documentKey: key, file: 'source.pdf', page: 3 };
 assert.deepStrictEqual(readLink(JSON.stringify(good)), good);
@@ -11,29 +11,37 @@ for (const patch of [{ documentKey: 'old-id' }, { file: '../source.pdf' }, { fil
 }
 assert.equal(readLink('not JSON'), null);
 
+// The label the viewer shows is the entry as the technician wrote it — no time zone applied.
+assert.equal(formatWhen('2026-08-22T21:18'), '08/22/2026 09:18PM');
+assert.equal(formatWhen('2026-01-05T00:07'), '01/05/2026 12:07AM');
+assert.equal(formatWhen('2026-01-05T12:00'), '01/05/2026 12:00PM');
+for (const bad of ['', null, 'yesterday', '2026-08-22']) assert.equal(formatWhen(bad), '');
+
 // Exercise the report-side bridge: active table, stale messages, dirty events, and unlinking.
 let onMessage, onClick, loop = false, dirty = 0;
 const sent = [], parent = { postMessage: message => sent.push(message) };
-const row = id => {
+const row = (id, when, types) => {
   const r = { id };
+  const prefix = id.replace('-', '');
   r.input = { value: '', closest: () => r, dispatchEvent: () => dirty++ };
-  r.button = { closest: () => r, setAttribute() {} };
-  r.querySelector = () => r.input;
+  r.button = { closest: () => r, removeAttribute() { delete r.button.linked; },
+    setAttribute(name) { if (name === 'data-linked') r.button.linked = true; } };
+  r.querySelector = sel => sel === `[name="${prefix}-dt"]` ? { value: when || '' } : r.input;
+  r.querySelectorAll = sel => sel === `[name="${prefix}-type"]` ? (types || []).map(v => ({ value: v, checked: true })) : [];
   return r;
 };
-const ep = row('ep-1'), lep = row('lep-1');
-const menuButton = { addEventListener() {} };
+const ep = row('ep-1', '2026-08-22T21:18', ['NS-VT']), lep = row('lep-1');
+const marks = { value: '', dispatchEvent: () => dirty++ };
 const document = {
   querySelectorAll(selector) {
     if (selector === '#ep-tbody tr') return [ep];
     if (selector === '#lep-tbody tr') return [lep];
     if (selector === '[data-episode-link]') return [ep.button, lep.button];
     if (selector === '[data-egm-link-value]') return [ep.input, lep.input];
-    if (selector === '[data-view-egms]') return [menuButton];
     throw new Error(selector);
   },
   addEventListener(type, handler) { if (type === 'click') onClick = handler; },
-  getElementById: () => ({})
+  getElementById: id => id === 'egm-marks' ? marks : ({})
 };
 const window = { CRM_EMBED: true, parent, isLoopMode: () => loop, addEventListener: (_, handler) => onMessage = handler };
 vm.runInNewContext(fs.readFileSync(require.resolve('../src/crm-episode-links'), 'utf8'), {
@@ -43,22 +51,38 @@ function send(data, source = parent, origin = 'https://local.test') { onMessage(
 const context = { type: 'crm:egm-available', available: true, id: 'viewer-1', documentKey: key, file: 'source.pdf' };
 const assign = { type: 'crm:egm-assign', id: context.id, documentKey: key, entryId: ep.id, page: 3 };
 send(context);
+assert.equal(sent.at(-1).entries[0].label, '08/22/2026 09:18PM NS-VT', 'the viewer names entries the way the logbook does');
+assert.equal(lep.button.textContent, '1', 'the row number is the control, so it shows with or without a link');
 send(assign, {}); send(assign, parent, 'https://other.test'); send({ ...assign, id: 'old' });
 assert.equal(dirty, 0);
 send(assign);
 assert.equal(dirty, 1); assert.deepStrictEqual(readLink(ep.input.value), good);
-assert.equal(ep.button.textContent, 'p. 3'); assert.equal(ep.button.hidden, false);
+assert.equal(ep.button.textContent, '1'); assert.equal(ep.button.linked, true); assert.equal(ep.button.disabled, false);
 assert.equal(sent.at(-1).entries[0].page, 3);
 onClick({ target: { closest: () => ep.button } });
 assert.equal(sent.at(-1).type, 'crm:egm-open-link');
-loop = true; send(context); send(assign);
-assert.equal(dirty, 1, 'a hidden table cannot accept an assignment');
-send({ ...assign, entryId: lep.id });
-assert.equal(dirty, 2); assert.equal(lep.button.textContent, 'p. 3');
+
+// A page saved without an entry persists in the report and is scoped to its source document.
+send({ ...assign, entryId: null, page: 6 });
+assert.equal(dirty, 2); assert.deepEqual(sent.at(-1).marks, [6]);
+send({ ...assign, entryId: null, page: 6 });
+assert.equal(dirty, 2, 'the same page cannot be saved twice');
+send({ ...assign, entryId: null, page: 3 });
+send({ ...assign, page: 6 });
+assert.equal(readLink(ep.input.value).page, 6);
+assert.deepEqual(sent.at(-1).marks, [3], 'assigning a page drops its anonymous copy, not the others');
+
+loop = true; send(context); send({ ...assign, page: 3 });
+assert.equal(readLink(ep.input.value).page, 6, 'a hidden table cannot accept an assignment');
+send({ ...assign, entryId: lep.id, page: 3 });
+assert.equal(readLink(lep.input.value).page, 3); assert.equal(lep.button.linked, true);
 send({ ...context, documentKey: 'sha256:' + 'b'.repeat(64) });
 assert.equal(sent.at(-1).entries[0].page, null, 'a different source cannot inherit page links');
+assert.deepEqual(sent.at(-1).marks, []);
 send(context);
-send({ type: 'crm:egm-remove', id: context.id, documentKey: key, page: 3 });
-assert.equal(ep.input.value, ''); assert.equal(lep.input.value, '');
-assert.equal(dirty, 4); assert.equal(ep.button.hidden, true); assert.equal(lep.button.hidden, true);
-console.log('PASS episode link validation, assignment, source identity and removal');
+send({ type: 'crm:egm-assign', id: context.id, documentKey: key, entryId: null, page: 6 });
+send({ type: 'crm:egm-remove', id: context.id, documentKey: key, page: 6 });
+assert.equal(ep.input.value, ''); assert.equal(marks.value, '');
+assert.equal(ep.button.linked, undefined); assert.equal(ep.button.disabled, true);
+assert.equal(readLink(lep.input.value).page, 3, 'removing one page leaves the others linked');
+console.log('PASS episode labels, links, unassigned pages, source identity and removal');

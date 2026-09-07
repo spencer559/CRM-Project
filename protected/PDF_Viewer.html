@@ -78,20 +78,16 @@ body.panning .page-stage { cursor: grabbing; }
 .egm-ready .bar { height: 38px; }
 .egm-bar { position: fixed; top: 38px; left: 0; right: 0; height: 32px; z-index: 11;
   display: flex; gap: 8px; align-items: center; padding: 3px 10px; background: var(--bar-bg); border-bottom: 1px solid var(--border); }
-.egm-bar button, .egm-menu button { color: var(--text); background: #262b33; border: 1px solid var(--border); border-radius: 5px; padding: 4px 9px; font: inherit; cursor: pointer; }
-.egm-bar button:disabled { opacity: .45; cursor: default; }
-.egm-status { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.egm-menu { position: fixed; top: var(--bar); left: 8px; width: min(380px, calc(100vw - 16px)); max-height: calc(100vh - var(--bar) - 12px);
-  overflow: auto; z-index: 20; padding: 10px; background: #1b1f24; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px #0008; }
-.egm-menu[hidden] { display: none; }
+.egm-bar[hidden] { display: none; }
+.egm-bar button { color: var(--text); background: #262b33; border: 1px solid var(--border); border-radius: 5px; padding: 4px 9px; font: inherit; cursor: pointer; white-space: nowrap; }
 .egm-bar button[hidden] { display: none; }
-.egm-destination { border: 1px solid var(--border); border-radius: 6px; margin: 8px 0; padding: 4px; }
-.egm-destination-header { display: flex; align-items: start; gap: 4px; }
-.egm-menu .egm-remove { width: 28px; flex: 0 0 28px; text-align: center; padding: 4px; font-size: 17px; }
-.egm-menu select { width: 100%; background: #262b33; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px; font: inherit; }
-.egm-menu p { color: var(--muted); margin: 4px 0 10px; }
-.egm-menu button { display: block; width: 100%; text-align: left; margin: 5px 0; overflow-wrap: anywhere; }
-.egm-menu button:focus-visible, .egm-bar button:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
+.egm-bar select { background: #262b33; color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 4px 6px; font: inherit; max-width: 34%; }
+.egm-bar select:disabled { opacity: .45; }
+/* The entry picker names episodes in full ("08/22/2026 09:18PM NS-VT"); the jump list needs the
+   same room. Both shrink before the Save/Back buttons do. */
+.egm-bar .egm-target, .egm-bar .egm-goto { flex: 1 1 0; min-width: 0; }
+.egm-status { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.egm-bar button:focus-visible, .egm-bar select:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
 @media (max-width: 650px) { .embedded .bar { gap: 5px; } .embedded .bar .name, .embedded #chromeBtn { display: none; } }
 </style>
 </head>
@@ -169,13 +165,9 @@ body.panning .page-stage { cursor: grabbing; }
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
-    if (m.type === 'pdfviewer:egms') {
-      if (ev.source === host && m.id === params.id && egmNavigation) egmNavigation.show();
-      return;
-    }
     if (m.type === 'pdfviewer:egm-entries' || m.type === 'pdfviewer:egm-jump') {
       if (ev.source !== host || m.id !== params.id || !egmDocumentKey || m.documentKey !== egmDocumentKey || !egmNavigation) return;
-      if (m.type === 'pdfviewer:egm-entries') egmNavigation.setEpisodes(m.entries);
+      if (m.type === 'pdfviewer:egm-entries') { egmNavigation.setMarks(m.marks); egmNavigation.setEpisodes(m.entries); }
       else egmNavigation.jump(m.page);
       return;
     }
@@ -225,6 +217,7 @@ body.panning .page-stage { cursor: grabbing; }
       egmNavigation = CRMEgmNavigation.mount({ doc: doc, goTo: goTo,
         onAssign: function (entryId, page) { postEgm('pdfviewer:egm-assign', { entryId: entryId, page: page }); },
         onRemove: function (page) { postEgm('pdfviewer:egm-remove', { page: page }); },
+        onReveal: function () { refit(); },
         position: function () { var s = shells[current - 1]; return { page: current, zoom: zoom, x: s ? s.panX : 0, y: s ? s.panY : 0 }; },
         restore: function (pos) {
           setZoom(pos.zoom);
@@ -483,7 +476,6 @@ body.panning .page-stage { cursor: grabbing; }
         tocEntries = [];
         flat.forEach(function (f, n) {
           if (pages[n] == null) return;
-          if (egmNavigation) egmNavigation.add(pages[n], f.title);
           var b = document.createElement("button");
           b.type = "button"; b.className = "toc-item";
           b.style.paddingLeft = (8 + f.depth * 14) + "px";
@@ -495,7 +487,6 @@ body.panning .page-stage { cursor: grabbing; }
           tocEntries.push({ page: pages[n], el: b });
         });
         tocEntries.sort(function (a, b) { return a.page - b.page; });
-        if (egmNavigation) egmNavigation.refresh();
         // A real outline is worth screen space; thumbnails are opt-in via the button.
         if (window.innerWidth > 900) toggleToc(true);
       });
