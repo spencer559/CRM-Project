@@ -242,6 +242,9 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 /* DYNAMIC ROWS */
 .add-btn { background: none; border: 1px dashed var(--navy-mid); color: var(--navy); font-size: 10px; font-weight: 600; padding: 4px 12px; cursor: pointer; border-radius: 2px; font-family: Arial, Helvetica, sans-serif; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .2px; transition: background .1s; }
 .add-btn:hover { background: var(--navy-lt); }
+.egm-row-link { display: block; margin: 3px auto 0; padding: 2px; border: 0; background: none; color: var(--navy); text-decoration: underline; cursor: pointer; font: 9px Arial, sans-serif; white-space: nowrap; }
+.egm-row-link[hidden] { display: none; }
+@media print { .egm-row-link { display: none; } }
 .del-btn { background: none; border: none; color: #b03030; cursor: pointer; font-size: 14px; padding: 0 3px; line-height: 1; }
 
 /* SIG BLOCK */
@@ -872,7 +875,7 @@ function addEpRow(focusNew) {
     return '<label class="cbl"><input type="checkbox" name="ep'+n+'-flag" value="'+t+'"> '+t+'</label>';
   }).join('');
   tr.innerHTML =
-    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '</td>' +
+    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '<input type="hidden" data-egm-link-value name="ep'+n+'-egm-link"><button type="button" class="egm-row-link" data-episode-link hidden></button></td>' +
     '<td><input type="datetime-local" name="ep'+n+'-dt" style="width:138px"></td>' +
     '<td>' + typeCell + '</td>' +
     '<td><input type="text" name="ep'+n+'-dur" placeholder="hh:mm:ss" style="width:72px"></td>' +
@@ -908,7 +911,7 @@ function addLoopEpRow(focusNew) {
     return '<label class="cbl"><input type="checkbox" name="lep'+n+'-flag" value="'+t+'"> '+t+'</label>';
   }).join('');
   tr.innerHTML =
-    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '</td>' +
+    '<td style="text-align:center;color:#999;font-size:9px;">' + n + '<input type="hidden" data-egm-link-value name="lep'+n+'-egm-link"><button type="button" class="egm-row-link" data-episode-link hidden></button></td>' +
     '<td><input type="datetime-local" name="lep'+n+'-dt" style="width:138px"></td>' +
     '<td>' + typeCell + '</td>' +
     '<td><input type="text" name="lep'+n+'-dur" placeholder="hh:mm:ss" style="width:72px"></td>' +
@@ -1237,6 +1240,7 @@ function setEpisodeRows(eps, append){
     var n = (tr.id||'').replace('ep-','');
     return !(tr.querySelector('[name="ep'+n+'-dt"]')||{value:''}).value
         && !(tr.querySelector('[name="ep'+n+'-dur"]')||{value:''}).value
+        && !(tr.querySelector('[data-egm-link-value]')||{value:''}).value
         && !tr.querySelector('input[name="ep'+n+'-type"]:checked');
   }
   eps.forEach(function(e, idx){
@@ -1960,7 +1964,7 @@ function exportPDF() {
   document.querySelectorAll('#ep-tbody tr').forEach(function(tr) {
     var cells = tr.querySelectorAll('td');
     if (!cells.length) return;
-    var num   = cells[0] ? cells[0].innerText.trim() : '';
+    var num   = tr.id.split('-')[1] || '';
     var dt    = cells[1] ? fmtDT((cells[1].querySelector('input')||{value:''}).value) : '';
     var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
     var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
@@ -1977,7 +1981,7 @@ function exportPDF() {
   document.querySelectorAll('#lep-tbody tr').forEach(function(tr) {
     var cells = tr.querySelectorAll('td');
     if (!cells.length) return;
-    var num   = cells[0] ? cells[0].innerText.trim() : '';
+    var num   = tr.id.split('-')[1] || '';
     var dt    = cells[1] ? fmtDT((cells[1].querySelector('input')||{value:''}).value) : '';
     var types = cells[2] ? Array.from(cells[2].querySelectorAll('input:checked')).map(function(i){ return i.value; }).join(', ') : '';
     var dur   = cells[3] ? (cells[3].querySelector('input')||{value:''}).value : '';
@@ -3481,22 +3485,11 @@ window.ensureReportPdfBuilder = function () {
     try { window.parent.postMessage(msg, location.origin === 'null' ? '*' : location.origin); } catch (e) {}
   }
   if (EMBED) {
-    document.querySelectorAll('[data-view-egms]').forEach(function (button) {
-      button.hidden = false;
-      button.addEventListener('click', function () { postHost({ type: 'crm:view-egms' }); });
-    });
     window.addEventListener('message', function (ev) {
       // Both checks matter: the origin proves it's our own deployment, the source proves it's the
       // host frame rather than some other window that happens to share the origin.
       if (ev.origin !== location.origin || ev.source !== window.parent) return;
       var m = ev.data || {};
-      if (m.type === 'crm:egm-available') {
-        document.querySelectorAll('[data-view-egms]').forEach(function (button) {
-          button.disabled = !m.available;
-          button.title = m.available ? 'Find EGM pages in the PDF beside this report' : 'Open a PDF beside this report to view EGM pages';
-        });
-        return;
-      }
       if (m.type !== 'crm:finalize') return;
       // The host is about to close this panel, or to read this patient's files. Same work the
       // standalone page does when it navigates away — rebuild json+txt+pdf and publish — so the
@@ -4232,5 +4225,6 @@ window.ensureReportPdfBuilder = function () {
 })();
 </script>
 <script src="../src/crm-keyboard-focus.js"></script>
+<script src="../src/crm-episode-links.js"></script>
 </body>
 </html>

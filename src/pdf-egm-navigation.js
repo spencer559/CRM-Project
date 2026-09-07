@@ -35,7 +35,7 @@
   }
   function mount(options) {
     var doc = options.doc, disposed = false, scanning = true, failed = 0;
-    var entries = new Map(), marks = new Set(), returnPosition = null;
+    var entries = new Map(), marks = new Set(), suppressed = new Set(), episodes = [], returnPosition = null;
     var bar = document.createElement('div'); bar.className = 'egm-bar';
     var menu = document.createElement('div'); menu.className = 'egm-menu'; menu.hidden = true;
     menu.id = 'egm-navigation'; menu.setAttribute('role', 'region'); menu.setAttribute('aria-label', 'EGM page navigation');
@@ -45,25 +45,33 @@
     }
     var trigger = button(bar, 'EGMs ▾', function () { menu.hidden ? show(false) : close(true); });
     trigger.setAttribute('aria-controls', menu.id); trigger.setAttribute('aria-expanded', 'false');
-    var back = button(bar, 'Return', function () {
+    var back = button(bar, 'Back', function () {
       if (!returnPosition) return;
-      options.restore(returnPosition); returnPosition = null; back.disabled = true;
+      options.restore(returnPosition); returnPosition = null; back.hidden = true;
     });
-    back.disabled = true; back.title = 'Return to the position before your first EGM jump';
+    back.hidden = true; back.title = 'Restore the page and zoom from before your EGM jump';
     var status = document.createElement('span'); status.className = 'egm-status'; bar.appendChild(status);
     var info = document.createElement('p'); menu.appendChild(info);
     var list = document.createElement('div'); menu.appendChild(list);
-    var mark = button(menu, 'Mark current page as EGM', function () {
+    var assignmentLabel = document.createElement('label'); menu.appendChild(assignmentLabel);
+    var picker = document.createElement('select'); assignmentLabel.appendChild(picker);
+    picker.setAttribute('aria-label', 'Assign current PDF page to logbook entry');
+    var mark = button(menu, 'Save current page', function () {
       var p = options.position().page;
-      marks.has(p) ? marks.delete(p) : marks.add(p); refresh();
+      suppressed.delete(p);
+      if (picker.value && options.onAssign) options.onAssign(picker.value, p);
+      else marks.add(p);
+      refresh();
     });
-    var note = document.createElement('p'); note.textContent = 'Manual marks last while this viewer is open.'; menu.appendChild(note);
+    var note = document.createElement('p'); note.textContent = 'Entry links save with the report. Page-only shortcuts last while this viewer is open. × removes the page shortcut and its entry links.'; menu.appendChild(note);
     button(menu, 'Close', function () { close(true); });
     document.body.appendChild(bar); document.body.appendChild(menu);
     document.documentElement.classList.add('egm-ready');
     function destinations() {
       var result = new Map(entries);
       marks.forEach(function (p) { result.set(p, { kind: 'manual', label: 'Marked EGM page' }); });
+      episodes.forEach(function (e) { if (e.page && !result.has(e.page)) result.set(e.page, { kind: 'manual', label: 'Linked EGM page' }); });
+      suppressed.forEach(function (p) { result.delete(p); });
       return Array.from(result, function (pair) { return { page: pair[0], kind: pair[1].kind, label: pair[1].label }; })
         .sort(function (a, b) { return a.page - b.page; });
     }
@@ -72,9 +80,24 @@
       if (focus) trigger.focus();
     }
     function jump(page) {
-      if (!returnPosition) returnPosition = options.position();
-      back.disabled = false; options.goTo(page); close(false);
+      if (!Number.isInteger(page) || page < 1 || page > doc.numPages) return;
+      if (options.position().page !== page) {
+        if (!returnPosition) returnPosition = options.position();
+        back.textContent = 'Back to p. ' + returnPosition.page; back.hidden = false;
+      }
+      options.goTo(page); close(false);
     }
+    function fillPicker(select, first) {
+      var value = select.value; select.replaceChildren();
+      var option = document.createElement('option'); option.value = ''; option.textContent = first; select.appendChild(option);
+      episodes.forEach(function (e) {
+        var o = document.createElement('option'); o.value = e.id; o.textContent = e.label + (e.page ? ' · p. ' + e.page : ''); select.appendChild(o);
+      });
+      if (episodes.some(function (e) { return e.id === value; })) select.value = value;
+    }
+    function updatePosition() { mark.textContent = 'Save page ' + options.position().page + (picker.value ? ' to ' + picker.selectedOptions[0].textContent.split(' · ')[0] : ' shortcut'); }
+    picker.addEventListener('change', updatePosition);
+    picker.addEventListener('blur', function () { setTimeout(function () { if (!disposed) refresh(); }, 0); });
     function refresh() {
       var found = destinations();
       status.textContent = scanning ? 'Finding pages…' : found.length ? found.length + ' page links' : 'No EGM pages detected';
@@ -83,19 +106,36 @@
         (failed ? ' Some pages could not be checked.' : '') +
         (!found.length ? ' You can mark a page manually, including scanned pages.' : '');
       // Background indexing must not remove a keyboard user's focused destination.
+      // Keep a native dropdown stable while someone is choosing an entry during indexing.
+      if (menu.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
       var focused = document.activeElement, focusedPage = focused && focused.dataset && focused.dataset.egmPage;
       list.replaceChildren();
       found.forEach(function (e) {
-        var b = button(list, (e.kind === 'summary' ? 'Episode summary' : e.kind === 'manual' ? 'Marked EGM' : 'Possible recording') + ' · p. ' + e.page + ' — ' + e.label,
+        var card = document.createElement('div'); card.className = 'egm-destination'; list.appendChild(card);
+        var header = document.createElement('div'); header.className = 'egm-destination-header'; card.appendChild(header);
+        var linked = episodes.filter(function (row) { return row.page === e.page; }).map(function (row) { return row.label; });
+        var b = button(header, (linked.length ? linked.join(', ') : e.kind === 'summary' ? 'Episode summary' : e.kind === 'manual' ? 'Marked EGM' : 'Possible recording') + ' · p. ' + e.page + ' — ' + e.label,
           function () { jump(e.page); });
         b.dataset.egmPage = String(e.page);
         if (focusedPage === String(e.page)) b.focus();
+        var remove = button(header, '×', function () {
+          suppressed.add(e.page); marks.delete(e.page);
+          episodes.forEach(function (row) { if (row.page === e.page) row.page = null; });
+          if (options.onRemove) options.onRemove(e.page);
+          refresh(); trigger.focus();
+        });
+        remove.className = 'egm-remove'; remove.setAttribute('aria-label', 'Remove page ' + e.page + ' shortcut and entry links');
+        if (episodes.length) {
+          var assign = document.createElement('select'); card.appendChild(assign);
+          assign.setAttribute('aria-label', 'Assign PDF page ' + e.page + ' to logbook entry');
+          fillPicker(assign, 'Assign page ' + e.page + ' to entry…');
+          assign.addEventListener('change', function () { if (assign.value && options.onAssign) options.onAssign(assign.value, e.page); assign.blur(); refresh(); });
+          assign.addEventListener('blur', function () { setTimeout(function () { if (!disposed) refresh(); }, 0); });
+        }
       });
-      mark.textContent = marks.has(options.position().page) ? 'Unmark current EGM page' : 'Mark current page as EGM';
+      fillPicker(picker, 'Page shortcut only'); updatePosition();
     }
-    function show(jumpSingle) {
-      var recordings = destinations().filter(function (e) { return e.kind !== 'summary'; });
-      if (jumpSingle && !scanning && recordings.length === 1) { jump(recordings[0].page); return; }
+    function show() {
       refresh(); menu.hidden = false; trigger.setAttribute('aria-expanded', 'true');
       (list.querySelector('button') || mark).focus();
     }
@@ -130,7 +170,14 @@
       }
       scanning = false; if (!disposed) refresh();
     })();
-    return { show: show, add: add, refresh: refresh, ready: ready,
+    return { show: show, jump: jump, updatePosition: updatePosition, add: add, refresh: refresh, ready: ready,
+      setEpisodes: function (values) {
+        var next = (Array.isArray(values) ? values : []).filter(function (e) { return e && /^(?:ep|lep)-[1-9]\d*$/.test(e.id); }).map(function (e) {
+          return { id: e.id, label: 'Entry ' + e.id.split('-')[1], page: Number.isInteger(e.page) && e.page > 0 && e.page <= doc.numPages ? e.page : null };
+        });
+        if (JSON.stringify(next) === JSON.stringify(episodes)) return;
+        episodes = next; episodes.forEach(function (e) { if (e.page) suppressed.delete(e.page); }); refresh();
+      },
       dispose: function () { disposed = true; document.removeEventListener('click', outside); document.removeEventListener('keydown', key, true); bar.remove(); menu.remove(); } };
   }
   var api = { classifyHeading: classifyHeading, classifyPage: classifyPage, pageHeadings: pageHeadings, mount: mount };

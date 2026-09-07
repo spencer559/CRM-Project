@@ -2934,6 +2934,7 @@
     if (!panel) return;
     var owner = panel, request = {};
     owner.viewRequest = request; owner.egmReady = false;
+    owner.egmDocumentKey = null; owner.viewFileName = name; owner.pendingEgmLink = null;
     notifyEgmAvailability();
     var viewer = panel.tr.querySelector(".crm-viewer"), divider = panel.tr.querySelector(".crm-divider");
     if (panel.viewDocId) {
@@ -3010,7 +3011,8 @@
   // One panel at a time: opening a different patient finalizes the outgoing one first.
   function notifyEgmAvailability() {
     if (!panel || !panel.frame) return;
-    panel.frame.contentWindow.postMessage({ type: 'crm:egm-available', available: !!panel.egmReady }, location.origin === 'null' ? '*' : location.origin);
+    panel.frame.contentWindow.postMessage({ type: 'crm:egm-available', available: !!panel.egmReady,
+      id: panel.viewDocId, documentKey: panel.egmDocumentKey, file: panel.viewFileName }, location.origin === 'null' ? '*' : location.origin);
   }
   function togglePanel(i) {
     var r = rows()[i];
@@ -3024,10 +3026,22 @@
     // any other window that happens to share the origin.
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
-    if (m.type === 'pdfviewer:egm-ready') {
+    if (m.type === 'pdfviewer:egm-ready' || m.type === 'pdfviewer:egm-assign' || m.type === 'pdfviewer:egm-remove') {
       var viewerFrame = panel && panel.tr.querySelector('.crm-viewer iframe');
       if (viewerFrame && ev.source === viewerFrame.contentWindow && m.id === panel.viewDocId) {
-        panel.egmReady = true; notifyEgmAvailability();
+        if (m.type === 'pdfviewer:egm-ready') {
+          panel.egmDocumentKey = /^sha256:[a-f0-9]{64}$/.test(m.documentKey) ? m.documentKey : null;
+          panel.egmReady = true; notifyEgmAvailability();
+          var pending = panel.pendingEgmLink; panel.pendingEgmLink = null;
+          if (pending) {
+            if (pending.documentKey === panel.egmDocumentKey && pending.file === panel.viewFileName) {
+              viewerFrame.contentWindow.postMessage({ type: 'pdfviewer:egm-jump', id: panel.viewDocId, documentKey: panel.egmDocumentKey, page: pending.page }, location.origin === 'null' ? '*' : location.origin);
+            } else setWsStatus('This PDF has changed. Reassign the episode to its EGM page.', 'warn');
+          }
+        } else if (panel.egmReady && panel.egmDocumentKey && m.documentKey === panel.egmDocumentKey && Number.isInteger(m.page) && m.page > 0) {
+          panel.frame.contentWindow.postMessage({ type: m.type === 'pdfviewer:egm-assign' ? 'crm:egm-assign' : 'crm:egm-remove',
+            id: panel.viewDocId, documentKey: panel.egmDocumentKey, page: m.page, entryId: m.entryId }, location.origin === 'null' ? '*' : location.origin);
+        }
       }
       return;
     }
@@ -3052,6 +3066,33 @@
       var pdfFrame = panel.tr.querySelector('.crm-viewer iframe');
       if (pdfFrame && panel.viewDocId && panel.egmReady) {
         pdfFrame.contentWindow.postMessage({ type: 'pdfviewer:egms', id: panel.viewDocId }, location.origin === 'null' ? '*' : location.origin);
+      }
+      return;
+    }
+    if (m.type === 'crm:egm-context-request') { notifyEgmAvailability(); return; }
+    if (m.type === 'crm:egm-entries') {
+      var activePdf = panel.tr.querySelector('.crm-viewer iframe');
+      if (activePdf && panel.egmReady && panel.egmDocumentKey && m.id === panel.viewDocId && m.documentKey === panel.egmDocumentKey) {
+        activePdf.contentWindow.postMessage({ type: 'pdfviewer:egm-entries', id: panel.viewDocId, documentKey: panel.egmDocumentKey, entries: m.entries }, location.origin === 'null' ? '*' : location.origin);
+      }
+      return;
+    }
+    if (m.type === 'crm:egm-open-link') {
+      var link = m.link, selector = panel.tr.querySelector('[data-panel-view]');
+      if (!link || !/^sha256:[a-f0-9]{64}$/.test(link.documentKey) || !Number.isInteger(link.page) || link.page < 1 ||
+          typeof link.file !== 'string' || /[\\/]/.test(link.file) || !/\.pdf$/i.test(link.file)) return;
+      if (!selector || !Array.from(selector.options).some(function (o) { return o.value === link.file; })) {
+        setWsStatus('The PDF linked to this episode is no longer in this patient’s files.', 'warn'); return;
+      }
+      var linkedPdf = panel.tr.querySelector('.crm-viewer iframe');
+      if (linkedPdf && panel.egmReady && panel.viewFileName === link.file) {
+        if (panel.egmDocumentKey === link.documentKey) linkedPdf.contentWindow.postMessage({ type: 'pdfviewer:egm-jump', id: panel.viewDocId, documentKey: panel.egmDocumentKey, page: link.page }, location.origin === 'null' ? '*' : location.origin);
+        else setWsStatus('This PDF has changed. Reassign the episode to its EGM page.', 'warn');
+      } else {
+        selector.value = link.file;
+        if (panel.tr.querySelector('.crm-panel').classList.contains('split-open')) panelViewFile(link.file);
+        else setPanelSplit(true);
+        panel.pendingEgmLink = link;
       }
       return;
     }
