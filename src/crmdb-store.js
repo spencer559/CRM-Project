@@ -424,8 +424,12 @@
     if (bytes.length <= ENC_HEADER_SIZE || bytes[8] !== ENC_VERSION) return Promise.reject(new Error("Unsupported encrypted database format"));
     var iterations = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(9, false);
     if (iterations < 10000 || iterations > 10000000) return Promise.reject(new Error("Invalid encrypted database header"));
+    // salt/iv/header are copied on purpose — `protection` keeps the salt for the session, and a
+    // subarray there would pin the whole decrypted database behind 16 bytes. The ciphertext is the
+    // opposite case: it is the database, it is read once, and slice() would copy every byte of it a
+    // second time. subarray is a view, and WebCrypto takes a view just as happily.
     var salt = bytes.slice(13, 29), iv = bytes.slice(29, 41), header = bytes.slice(0, ENC_HEADER_SIZE);
-    var ciphertext = bytes.slice(ENC_HEADER_SIZE), retry = false;
+    var ciphertext = bytes.subarray(ENC_HEADER_SIZE), retry = false;
     function decryptWith(key) {
       return cryptoApi().subtle.decrypt({ name: "AES-GCM", iv: iv, additionalData: header, tagLength: 128 }, key, ciphertext)
         .then(function (plain) { protection = { key: key, salt: salt, iterations: iterations }; return plain; });
@@ -475,8 +479,12 @@
       return source.slice(0, ENC_MAGIC.length).arrayBuffer().then(function (head) {
         if (!isEncryptedBytes(new Uint8Array(head))) { protection = null; return ingestZip(source); }
         // Encrypted: AES-GCM has to authenticate the whole envelope at once, so there is nothing to
-        // stream here and nothing the by-reference path could save.
-        return source.arrayBuffer().then(decryptEnvelope).then(ingestZip);
+        // stream here and nothing the by-reference path could save. Drop the Blob the moment its
+        // bytes are on the heap, though — opening is the single biggest memory moment this app has,
+        // and holding the container as well as its plaintext and ciphertext is one copy too many.
+        var reading = source.arrayBuffer();
+        source = null;
+        return reading.then(decryptEnvelope).then(ingestZip);
       });
     }
     var bytes = source instanceof Uint8Array ? source : new Uint8Array(source);
