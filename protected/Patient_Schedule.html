@@ -2017,27 +2017,37 @@
     if (!r || !WS || !oldSlot) return;
     var newSlot = WS.slotName(r.time, r.pt);
     if (oldSlot === newSlot) return;
-    // The open panel is routed to the OLD slot, and the frame would keep writing its report there
-    // — recreating the folder moveSlot is in the middle of emptying. Close it first; reopening
-    // lands on the new slot. (No re-render happens on a time/name edit, so panelAnchor never sees
-    // this case.)
-    if (panel && panel.date === curDate && panel.slot === oldSlot) closePanel();
-    // Keep the baseline current: a time/patient field can fire several change events in one
-    // focus (editing the hour then the minute, using the steppers, etc.). Updating preSlot to
-    // the new slot — instead of deleting it — lets each successive edit relocate the files from
-    // wherever they are now, so the association is never lost between saves.
-    preSlot[i] = newSlot;
-    if (!wsRoot) { scanSlots(); return; }   // no database open — nothing reachable to move
-    WS.moveSlot(wsRoot, curDate, oldSlot, newSlot)
-      .then(function (moved) {
-        if (moved) setWsStatus("Moved patient files " + oldSlot + " → " + newSlot, "ok");
-        scanSlots();
-      })
-      .catch(function (e) {
-        setWsStatus("Could not move files " + oldSlot + " → " + newSlot + ": " + e.message, "warn");
-        scanSlots();
-      });
+    relocateSlotFiles(i, oldSlot, newSlot);
   });
+  // The open panel is routed to the OLD slot, and the frame would keep writing its report there —
+  // recreating the folder moveSlot is in the middle of emptying. So the move waits for the close
+  // to actually finish, and is abandoned if the close is refused: the files stay where the still
+  // open editor expects them, and preSlot keeps pointing at the folder they are really in.
+  function relocateSlotFiles(i, oldSlot, newSlot) {
+    var move = function () {
+      // Keep the baseline current: a time/patient field can fire several change events in one
+      // focus (editing the hour then the minute, using the steppers, etc.). Updating preSlot to
+      // the new slot — instead of deleting it — lets each successive edit relocate the files from
+      // wherever they are now, so the association is never lost between saves.
+      preSlot[i] = newSlot;
+      if (!wsRoot) { scanSlots(); return; }   // no database open — nothing reachable to move
+      WS.moveSlot(wsRoot, curDate, oldSlot, newSlot)
+        .then(function (moved) {
+          if (moved) setWsStatus("Moved patient files " + oldSlot + " → " + newSlot, "ok");
+          scanSlots();
+        })
+        .catch(function (e) {
+          setWsStatus("Could not move files " + oldSlot + " → " + newSlot + ": " + e.message, "warn");
+          scanSlots();
+        });
+    };
+    if (panel && panel.date === curDate && panel.slot === oldSlot) {
+      closePanel(move, function () {
+        setWsStatus('Report still open — patient files stay at ' + oldSlot +
+          '. Re-enter the time or name to move them once it closes.', 'warn');
+      });
+    } else move();
+  }
   function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scanSlots, 600); }
   function updateDownloadPatientsBtn() {
     var b = $("dlPatientsBtn"); if (!b) return;
@@ -2780,12 +2790,25 @@
   }
   // Deliberate close: let the frame finish this patient's report set first — the same ordering the
   // standalone page uses when you switch patients — then drop it and refresh the row's badges.
-  function closePanel(after) {
+  // A failed rebuild used to report the error and then tear the editor down anyway, taking the
+  // frame — and whatever it had not staged yet — with it. The editor now stays put so the close
+  // can be retried, `after` runs only once the panel is really gone, and `onRefused` lets a caller
+  // explain what it therefore did not do.
+  function closePanel(after, onRefused) {
     if (!panel) { if (after) after(); return; }
     // Adopt before scanSlots, or the badge would be drawn from a copy that predates the report
     // the frame just wrote — the row would read "No files" the instant after it was finished.
     finalizePanel(function (changed, error) {
-      if (error) setWsStatus('Could not rebuild this report: ' + error, 'warn');
+      if (error) {
+        if (!confirm('Could not rebuild this report:\n' + error +
+            '\n\nClose the editor anyway? Any work it has not saved yet would be lost, and the older report files stay in place.' +
+            '\n\nCancel keeps the editor open so you can retry.')) {
+          setWsStatus('Could not rebuild this report: ' + error + ' — the editor is still open so you can retry.', 'warn');
+          if (onRefused) onRefused(error);
+          return;
+        }
+        setWsStatus('Closed without rebuilding this report: ' + error, 'warn');
+      }
       var sharedWorkspace = !!(panel && panel.sharedWorkspace);
       destroyPanel();
       if (!changed) { scanSlots(); if (after) after(); return; }
