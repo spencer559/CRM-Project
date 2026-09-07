@@ -1,14 +1,44 @@
 # Schedule, report generator, and PDF workspace review
 
-September 7, 2026. Reviewed at commit `c774107`. This is a proposal; application behavior and database formats have not been changed.
+September 7, 2026. Original review at commit `c774107`. The first viewer increment below is now implemented locally; the remaining architecture sections are proposals. Database formats have not changed.
 
-## Recommendation
+## Current priorities, revised after user feedback
 
-Build around an explicitly identified visit, a shared report model, and a persistent editing workspace. Preserve the compact clinical tables, keyboard behavior, full-width form, and optional source/report split. Introduce the foundations in separate migrations and releases.
+The intended database retention is seven days. Prior-report comparison is out of scope; the user primarily does that in Cerner. Patient identity restructuring and collision prevention are lower priority given the actual workflow. They are not prerequisites for viewer improvements.
 
-The highest-value structural change is stable visit identity. The highest-value report change is generating all outputs from one versioned snapshot. The most immediately useful viewer work is search and remembered reading position, followed by source-page links.
+1. PDF viewer navigation, especially quick access to episode EGM pages during manual report entry.
+2. Schedule workflow improvements (the original recommendation #3).
+3. Shared PDF/TXT/RTF content remains a separate possible improvement, with no dependency on historical comparisons.
 
-Yesterday's task established these preferences: the left report sidebar was removed because it reduced table space on the MacBook/iPad setup; keyboard entry was improved; the redactor should remain separate; manual correction needs to stay fast. Previous-visit comparison and optional follow-up documentation were suggested but not implemented. This proposal carries those preferences forward.
+The essential viewer behaviors are the split pane beside the editable report, one document page per physical mouse-wheel notch, and fit-to-page so the whole page is visible. Preserve these while adding navigation. Keep the report's removed sidebar out of the design and retain keyboard-entry improvements. The redactor stays separate.
+
+## First viewer increment: implemented scope
+
+The viewer now indexes recognized recording/episode headings from page text and PDF bookmarks. Its compact EGM menu distinguishes possible recordings, episode summaries, and manual marks. The report's CRM and loop-recorder episode sections have a View EGMs shortcut, enabled only when the adjacent PDF has loaded. A single recording destination can jump directly from that shortcut; the viewer's own EGMs button always opens the menu so marking remains accessible.
+
+Return restores the page, zoom, and pan saved before the first navigation jump. Normal wheel paging and fit-to-page remain in place. The overlay does not change pane widths. Late source loads and navigation messages are checked against the active frame/document.
+
+This first pass keeps manual marks in the current viewer's memory. They do not survive closing, refreshing, or switching that viewer. Saved marks, remembered document positions, search, recording-group navigation, and validation against real vendor layouts remain follow-up work. Automatic destinations are suggestions based on headings, not proof of an EGM recording.
+
+Validation: 43 test files passed, including synthetic heading classification and active-document message checks. A synthetic split-pane browser check verified the episode shortcut, destination selection, adjacent-page wheel navigation, mark/unmark, Return, preserved zoom, keyboard activation, and Escape dismissal. No clinical source files or databases were used.
+
+## Broader viewer design for reference
+
+Add an **EGMs** quick action to the viewer toolbar and a matching **View EGMs** action beside the report's episode table when an appropriate PDF is open in split view. Both use the same document-local index. One destination jumps directly; multiple destinations open a compact overlay list with page numbers and source headings. The overlay closes on selection without narrowing either pane. Clearly distinguish an episode summary/list from pages containing detailed recordings; both can be useful destinations but should not share an ambiguous label.
+
+Build the navigation index locally from PDF bookmarks and extracted page text. Treat headings and repeated vendor-specific recording labels as evidence; a passing mention of an EGM, the table of contents, or an episode count alone should not classify a page as a recording. Group continuation pages where supported by source evidence. Label uncertain destinations as possible matches. If no match is found, say **No EGM pages detected**, not that the document contains none. A waveform rendered as an image can still have a searchable heading; a fully scanned page may have no useful text.
+
+Offer a manual **Mark as EGM page** fallback, with an unmark action. Marks belong to that exact source document and follow its existing retention. Do not create a permanent history store for them. Do not infer a link between a particular form episode and a recording unless a reliable episode identifier/date match exists; the first increment navigates to the report's recording section independently of episode autofill.
+
+Use explicit Previous/Next EGM controls for jumping between indexed destinations. The ordinary wheel must continue moving through adjacent PDF pages, including recording continuation pages; it must not silently become an EGM-only filter. Preserve the selected fit/zoom mode. Add a Return action to restore the prior reading position after an EGM jump. Navigation happens only on an explicit click, never merely because the technician focuses or edits an episode field.
+
+Use the existing viewer's `goTo` paging path and bounded rendering. Index text incrementally without retaining all canvases or full-document text-layer DOM. Begin displaying the document before indexing is complete. Cancel obsolete indexing/navigation work when the patient or attachment changes, and check source window, document identity, and request identity for report-to-viewer messages.
+
+The next viewer additions would be document-wide search and remembered page/zoom/pan while a source remains available. Fit-width and broader field-to-source highlighting are deferred; they do not address the primary EGM-navigation need.
+
+Acceptance: manual episode entry and viewer navigation work together in split view; EGM jumps do not resize the panes; one wheel notch advances one document page; Fit still shows the complete page; ambiguous or scanned reports have an honest manual fallback; switching documents cannot reuse the previous document's matches or marks. Validate detection against redacted examples of the user's actual programmer exports before describing it as reliable.
+
+The remaining sections retain the original architecture analysis for reference. Their earlier sequence and history-related proposals are deferred and do not override the priorities above.
 
 ## What the current implementation already does well
 
@@ -136,7 +166,7 @@ Do not rely on page exit to finish asynchronous report building or saves. Browse
 
 These bounded fixes can precede the architecture changes. They should not require a full redesign release.
 
-## Suggested implementation order and acceptance criteria
+## Earlier architecture sequence (deferred; not the current work order)
 
 | Phase | Deliverable | Acceptance gate |
 |---|---|---|
@@ -159,4 +189,4 @@ Phases 1 and 2 are foundational. Viewer search can ship independently if it addr
 - Several UI tests inspect source patterns. Their passing status does not establish real browser behavior under tab termination, delayed I/O, or all output layouts. Future migration tests must exercise behavior and round trips.
 - The original `protected/crmdb-container-design.md` is explicitly a historical sketch; its JSZip and save-cadence examples do not describe today's engine. Use current code and tests as the baseline, and update handoff documentation as each phase lands.
 
-Only this review document was added. No application changes, commits, database migrations, or deployments were performed.
+At the original review, only this document was added. The implementation scope above describes subsequent local viewer changes; no database migration or deployment was performed.

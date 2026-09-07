@@ -523,6 +523,17 @@ from the current form so the Schedule's chips are never stale; the cheap 1.5s li
 writes only `report.json` mid-edit. Patient List / Import / Export menus are otherwise unchanged,
 now sourcing the patient list from the bundle's `schedule.json`. A `.crmdb` opened directly on the
 CRM tool works the same as opening it on the Schedule (shared IndexedDB working copy + file handle).
+**EGM page navigation (Sep 2026).** The split-pane PDF viewer has an **EGMs** menu with locally
+detected recording candidates and episode-summary pages, using PDF headings/bookmarks. Both CRM
+and loop-recorder episode sections have a **View EGMs** shortcut to the adjacent loaded PDF.
+Candidates are suggestions, not proof that a page contains a recording; image-only or unfamiliar
+layouts can use **Mark current page as EGM**. Marks last only while that viewer stays open.
+**Return** restores the page/zoom/pan from before the first jump. Normal wheel paging and whole-page
+Fit are unchanged; the menu overlays the document without narrowing the panes. Detection and UI
+live in `src/pdf-egm-navigation.js`; `tests/pdf-egm-navigation.test.js` checks classification and
+the active-frame/document message bridge. Source changes ignore obsolete viewer loads. Search,
+persistent marks, and validation against actual vendor exports remain follow-up work.
+
 When a scheduled patient has a pre-charted **Last Office** date, the Report Generator shows it in
 the fixed app bar between the patient name and save status, including in the full split view.
 When the Schedule opens a patient in a fresh browser session and the encrypted working copy is not

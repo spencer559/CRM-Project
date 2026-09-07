@@ -2932,6 +2932,9 @@
   }
   function panelViewFile(name) {
     if (!panel) return;
+    var owner = panel, request = {};
+    owner.viewRequest = request; owner.egmReady = false;
+    notifyEgmAvailability();
     var viewer = panel.tr.querySelector(".crm-viewer"), divider = panel.tr.querySelector(".crm-divider");
     if (panel.viewDocId) {
       delete pdfViewerDocs[panel.viewDocId]; clearPdfViewerSendState(panel.viewDocId);
@@ -2947,11 +2950,12 @@
     // The generated report.pdf is derived data — rebuild before showing it, exactly like the
     // Files menu does. Programmer files are source and never stale.
     var load = function () {
-      WS.slotDir(wsRoot, panel.date, panel.slot, false)
+      if (panel !== owner || owner.viewRequest !== request) return;
+      WS.slotDir(wsRoot, owner.date, owner.slot, false)
         .then(function (dir) { return dir.getFileHandle(name); })
         .then(function (fh) { return fh.getFile(); })
         .then(function (file) {
-          if (!panel) return;
+          if (panel !== owner || owner.viewRequest !== request) return;
           viewer.hidden = false; divider.hidden = false;
           if (/\.pdf$/i.test(name)) {
             var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -2962,7 +2966,7 @@
               "&name=" + encodeURIComponent(viewerName) + '"></iframe>';
           } else {
             file.text().then(function (t) {
-              if (!panel) return;
+              if (panel !== owner || owner.viewRequest !== request) return;
               viewer.innerHTML = "";
               var pre = document.createElement("pre");
               pre.textContent = t;
@@ -2970,7 +2974,7 @@
             });
           }
         })
-        .catch(function (e) { setWsStatus("Could not open " + name + ": " + e.message, "warn"); });
+        .catch(function (e) { if (panel === owner && owner.viewRequest === request) setWsStatus("Could not open " + name + ": " + e.message, "warn"); });
     };
     if (isProgrammerReport(name)) load();
     else withPanelFilesFresh(panel.slot, load);
@@ -3004,6 +3008,10 @@
   }
 
   // One panel at a time: opening a different patient finalizes the outgoing one first.
+  function notifyEgmAvailability() {
+    if (!panel || !panel.frame) return;
+    panel.frame.contentWindow.postMessage({ type: 'crm:egm-available', available: !!panel.egmReady }, location.origin === 'null' ? '*' : location.origin);
+  }
   function togglePanel(i) {
     var r = rows()[i];
     if (!r) return;
@@ -3016,6 +3024,13 @@
     // any other window that happens to share the origin.
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
+    if (m.type === 'pdfviewer:egm-ready') {
+      var viewerFrame = panel && panel.tr.querySelector('.crm-viewer iframe');
+      if (viewerFrame && ev.source === viewerFrame.contentWindow && m.id === panel.viewDocId) {
+        panel.egmReady = true; notifyEgmAvailability();
+      }
+      return;
+    }
     if (reportBuild && reportBuild.frame && ev.source === reportBuild.frame.contentWindow) {
       if (m.type === 'crm:slot-ready' && m.date === curDate && m.slot === reportBuild.slot && !reportBuild.sent) {
         reportBuild.sent = true;
@@ -3030,6 +3045,14 @@
     if (!panel || !panel.frame || ev.source !== panel.frame.contentWindow) return;
     if (m.type === "crm:ready") {
       panel.ready = true; panel.sharedWorkspace = !!m.sharedWorkspace;
+      notifyEgmAvailability();
+      return;
+    }
+    if (m.type === 'crm:view-egms') {
+      var pdfFrame = panel.tr.querySelector('.crm-viewer iframe');
+      if (pdfFrame && panel.viewDocId && panel.egmReady) {
+        pdfFrame.contentWindow.postMessage({ type: 'pdfviewer:egms', id: panel.viewDocId }, location.origin === 'null' ? '*' : location.origin);
+      }
       return;
     }
     if (m.type === "crm:status") {

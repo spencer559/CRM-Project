@@ -74,6 +74,20 @@ body.panning .page-stage { cursor: grabbing; }
 /* Embedded in the schedule's split panel: the host owns closing (its file switcher / panel
    collapse), and window.close() can't close an iframe anyway. */
 .embedded #closeBtn { display: none; }
+.egm-ready { --bar: 70px; }
+.egm-ready .bar { height: 38px; }
+.egm-bar { position: fixed; top: 38px; left: 0; right: 0; height: 32px; z-index: 11;
+  display: flex; gap: 8px; align-items: center; padding: 3px 10px; background: var(--bar-bg); border-bottom: 1px solid var(--border); }
+.egm-bar button, .egm-menu button { color: var(--text); background: #262b33; border: 1px solid var(--border); border-radius: 5px; padding: 4px 9px; font: inherit; cursor: pointer; }
+.egm-bar button:disabled { opacity: .45; cursor: default; }
+.egm-status { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.egm-menu { position: fixed; top: var(--bar); left: 8px; width: min(380px, calc(100vw - 16px)); max-height: calc(100vh - var(--bar) - 12px);
+  overflow: auto; z-index: 20; padding: 10px; background: #1b1f24; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px #0008; }
+.egm-menu[hidden] { display: none; }
+.egm-menu p { color: var(--muted); margin: 4px 0 10px; }
+.egm-menu button { display: block; width: 100%; text-align: left; margin: 5px 0; overflow-wrap: anywhere; }
+.egm-menu button:focus-visible, .egm-bar button:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
+@media (max-width: 650px) { .embedded .bar { gap: 5px; } .embedded .bar .name, .embedded #chromeBtn { display: none; } }
 </style>
 </head>
 <body>
@@ -97,6 +111,7 @@ body.panning .page-stage { cursor: grabbing; }
 <div id="status">Waiting for the document&hellip;</div>
 
 <script src="../vendor/pdf.min.js"></script>
+<script src="../src/pdf-egm-navigation.js"></script>
 <script>
 (function () {
   "use strict";
@@ -131,6 +146,7 @@ body.panning .page-stage { cursor: grabbing; }
   pdfjsLib.GlobalWorkerOptions.workerSrc = "../vendor/pdf.worker.min.js";
 
   var doc = null, total = 0, current = 1, tearingDown = false;
+  var egmNavigation = null;
   var zoom = 1;
   var ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
   var shells = [];           // one per page: { el, canvas, rendered, task }
@@ -145,6 +161,10 @@ body.panning .page-stage { cursor: grabbing; }
   window.addEventListener("message", function (ev) {
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
+    if (m.type === 'pdfviewer:egms') {
+      if (ev.source === host && m.id === params.id && egmNavigation) egmNavigation.show(true);
+      return;
+    }
     if (m.type === "pdfviewer:error" && m.id === params.id && !receivedDocument) {
       receivedDocument = true;
       clearTimeout(waitTimer); clearInterval(readyTimer);
@@ -181,10 +201,20 @@ body.panning .page-stage { cursor: grabbing; }
       statusEl.hidden = true;
       $("chromeBtn").hidden = $("printBtn").hidden = $("downloadBtn").hidden = $("tocBtn").hidden = false;
       $("zoomControls").hidden = false;
+      egmNavigation = CRMEgmNavigation.mount({ doc: doc, goTo: goTo,
+        position: function () { var s = shells[current - 1]; return { page: current, zoom: zoom, x: s ? s.panX : 0, y: s ? s.panY : 0 }; },
+        restore: function (pos) {
+          setZoom(pos.zoom);
+          var s = shells[pos.page - 1];
+          if (s) { s.panX = pos.x; s.panY = pos.y; if (s.rendered) applyPan(s); }
+          goTo(pos.page);
+        }
+      });
       buildShells();
       layout();
       updatePager();
       buildToc();
+      if (host && params.id) host.postMessage({ type: 'pdfviewer:egm-ready', id: params.id }, targetOrigin);
     }).catch(function (e) {
       showStatus("Could not open " + docName + ": " + e.message);
     });
@@ -430,6 +460,7 @@ body.panning .page-stage { cursor: grabbing; }
         tocEntries = [];
         flat.forEach(function (f, n) {
           if (pages[n] == null) return;
+          if (egmNavigation) egmNavigation.add(pages[n], f.title);
           var b = document.createElement("button");
           b.type = "button"; b.className = "toc-item";
           b.style.paddingLeft = (8 + f.depth * 14) + "px";
@@ -441,6 +472,7 @@ body.panning .page-stage { cursor: grabbing; }
           tocEntries.push({ page: pages[n], el: b });
         });
         tocEntries.sort(function (a, b) { return a.page - b.page; });
+        if (egmNavigation) egmNavigation.refresh();
         // A real outline is worth screen space; thumbnails are opt-in via the button.
         if (window.innerWidth > 900) toggleToc(true);
       });
@@ -707,6 +739,7 @@ body.panning .page-stage { cursor: grabbing; }
   // The lesson from the importer applies here too: a pdf.js document holds every parsed page
   // (and the worker holds a copy) until it is destroyed.
   window.addEventListener("pagehide", function () {
+    if (egmNavigation) { egmNavigation.dispose(); egmNavigation = null; }
     cleanupPrintFrame();
     if (doc) { try { doc.destroy(); } catch (e) {} doc = null; }
   });

@@ -554,6 +554,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
 <div class="section" id="s-loop-episodes" data-mode="loop">
   <div class="sec-hdr">Episodes / Arrhythmia Log<button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Loop Episodes section">Clear section</button></div>
   <div class="sec-body">
+    <button type="button" class="add-btn" data-view-egms hidden disabled title="Open a PDF beside this report to view EGM pages">View EGMs</button>
     <div class="fg" style="grid-template-columns: 100px repeat(5, 95px); margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="lp-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
       <div class="field"><span class="lbl">AF</span><input type="number" id="lp-af" min="0"></div>
@@ -618,6 +619,7 @@ textarea:focus { border-color: var(--navy); background: #fff; outline: none; box
     <button type="button" class="sec-clear" onclick="clearSection(this)" aria-label="Clear Stored Episodes and Arrhythmia Log section">Clear section</button>
   </div>
   <div class="sec-body">
+    <button type="button" class="add-btn" data-view-egms hidden disabled title="Open a PDF beside this report to view EGM pages">View EGMs</button>
     <div class="fg" style="grid-template-columns: 100px 130px 160px 110px 140px; margin-bottom:10px; align-items:end;">
       <div class="field"><span class="lbl">AF Burden (%)</span><input type="text" id="ep-af-burden" inputmode="decimal" placeholder="0.0 or <1"></div>
       <div class="field"><span class="lbl">AHR <span class="sub-note">(AT / AF / AFl)</span></span><input type="number" id="ep-ahr" min="0"></div>
@@ -3476,14 +3478,25 @@ window.ensureReportPdfBuilder = function () {
      "here's my sync line", "collapse me", and "finish writing before you let go of me". */
   function postHost(msg) {
     if (!EMBED) return;
-    try { window.parent.postMessage(msg, location.origin); } catch (e) {}
+    try { window.parent.postMessage(msg, location.origin === 'null' ? '*' : location.origin); } catch (e) {}
   }
   if (EMBED) {
+    document.querySelectorAll('[data-view-egms]').forEach(function (button) {
+      button.hidden = false;
+      button.addEventListener('click', function () { postHost({ type: 'crm:view-egms' }); });
+    });
     window.addEventListener('message', function (ev) {
       // Both checks matter: the origin proves it's our own deployment, the source proves it's the
       // host frame rather than some other window that happens to share the origin.
       if (ev.origin !== location.origin || ev.source !== window.parent) return;
       var m = ev.data || {};
+      if (m.type === 'crm:egm-available') {
+        document.querySelectorAll('[data-view-egms]').forEach(function (button) {
+          button.disabled = !m.available;
+          button.title = m.available ? 'Find EGM pages in the PDF beside this report' : 'Open a PDF beside this report to view EGM pages';
+        });
+        return;
+      }
       if (m.type !== 'crm:finalize') return;
       // The host is about to close this panel, or to read this patient's files. Same work the
       // standalone page does when it navigates away — rebuild json+txt+pdf and publish — so the
