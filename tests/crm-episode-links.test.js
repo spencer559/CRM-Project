@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
-const { readLink, formatWhen } = require('../src/crm-episode-links');
+const { readLink, formatWhen, entryLabel } = require('../src/crm-episode-links');
 const key = 'sha256:' + 'a'.repeat(64);
 const good = { documentKey: key, file: 'source.pdf', page: 3 };
 assert.deepStrictEqual(readLink(JSON.stringify(good)), good);
@@ -16,6 +16,8 @@ assert.equal(formatWhen('2026-08-22T21:18'), '08/22/2026 09:18PM');
 assert.equal(formatWhen('2026-01-05T00:07'), '01/05/2026 12:07AM');
 assert.equal(formatWhen('2026-01-05T12:00'), '01/05/2026 12:00PM');
 for (const bad of ['', null, 'yesterday', '2026-08-22']) assert.equal(formatWhen(bad), '');
+assert.equal(entryLabel({ id: 'lep-4', querySelector: () => null, querySelectorAll: () => [] }), '#4',
+  'an untouched row is still named by its number');
 
 // Exercise the report-side bridge: active table, stale messages, dirty events, and unlinking.
 let onMessage, onClick, loop = false, dirty = 0;
@@ -51,7 +53,7 @@ function send(data, source = parent, origin = 'https://local.test') { onMessage(
 const context = { type: 'crm:egm-available', available: true, id: 'viewer-1', documentKey: key, file: 'source.pdf' };
 const assign = { type: 'crm:egm-assign', id: context.id, documentKey: key, entryId: ep.id, page: 3 };
 send(context);
-assert.equal(sent.at(-1).entries[0].label, '08/22/2026 09:18PM NS-VT', 'the viewer names entries the way the logbook does');
+assert.equal(sent.at(-1).entries[0].label, '#1 08/22/2026 09:18PM NS-VT', 'the viewer names entries the way the logbook does, "#" column first');
 assert.equal(lep.button.textContent, '1', 'the row number is the control, so it shows with or without a link');
 send(assign, {}); send(assign, parent, 'https://other.test'); send({ ...assign, id: 'old' });
 assert.equal(dirty, 0);

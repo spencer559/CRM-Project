@@ -4,13 +4,13 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 
-/* ---- the shortcut bar itself -------------------------------------------------------------
-   A DOM small enough to reason about: elements, listeners, and the one <select> behaviour that
-   matters here — a value only sticks when a matching option exists. */
+/* ---- the toolbar shortcut menu ------------------------------------------------------------
+   A DOM small enough to reason about: elements, listeners, focus, and the one <select> behaviour
+   that matters here — a value only sticks when a matching option exists. */
 class El {
   constructor(tag) {
     this.tagName = String(tag).toUpperCase();
-    this.children = []; this.listeners = {}; this.attrs = {};
+    this.children = []; this.listeners = {}; this.attrs = {}; this.dataset = {};
     this.hidden = false; this.disabled = false; this.className = '';
     this._text = ''; this._value = ''; this.parent = null;
   }
@@ -29,97 +29,122 @@ class El {
   replaceChildren(...kids) { this.children = []; this._value = ''; kids.forEach(k => this.appendChild(k)); return undefined; }
   remove() { if (this.parent) this.parent.children = this.parent.children.filter(c => c !== this); this.parent = null; }
   setAttribute(name, value) { this.attrs[name] = String(value); }
+  getAttribute(name) { return this.attrs[name]; }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
   contains(node) { for (let n = node; n; n = n.parent) if (n === this) return true; return false; }
-  fire(type, ev) { (this.listeners[type] || []).forEach(fn => fn(Object.assign({ target: this }, ev))); }
-  option(label) { return this.children.filter(c => c.textContent === label)[0]; }
+  focus() { document.activeElement = this; }
+  fire(type, ev) {
+    const event = Object.assign({ target: this }, ev);
+    (this.listeners[type] || []).forEach(fn => fn(event));
+    (document.handlers[type] || []).forEach(fn => fn(event));
+  }
   labels() { return this.children.map(c => c.textContent); }
 }
-const documentClasses = [];
 const document = {
   body: new El('body'),
-  documentElement: { classList: { add: c => documentClasses.push(c), remove: c => { const i = documentClasses.indexOf(c); if (i >= 0) documentClasses.splice(i, 1); } } },
   activeElement: null,
+  handlers: {},
   createElement: tag => new El(tag),
-  addEventListener() {}, removeEventListener() {}
+  addEventListener(type, fn) { (this.handlers[type] = this.handlers[type] || []).push(fn); },
+  removeEventListener(type, fn) { this.handlers[type] = (this.handlers[type] || []).filter(h => h !== fn); }
 };
+const toolbar = new El('span');
 const sandbox = { window: {}, document };
 vm.runInNewContext(fs.readFileSync(require.resolve('../src/pdf-egm-navigation.js'), 'utf8'), sandbox);
 
 const assigned = [], removed = [];
-let page = 1, restored = null, revealed = 0, wentTo = [];
+let page = 1, restored = null, wentTo = [];
 const nav = sandbox.window.CRMEgmNavigation.mount({
   doc: { numPages: 12 },
+  toolbar,
   goTo: p => { wentTo.push(p); page = p; },
   position: () => ({ page, zoom: 2, x: 5, y: 6 }),
   restore: pos => { restored = pos; page = pos.page; },
   onAssign: (entryId, p) => assigned.push([entryId, p]),
-  onRemove: p => removed.push(p),
-  onReveal: () => revealed++
+  onRemove: p => removed.push(p)
 });
-const bar = document.body.children[0];
-const [target, save, goto_, remove, back, status] = bar.children;
-assert.equal(bar.hidden, true, 'a PDF opened without a report has nowhere to save pages');
-assert.equal(documentClasses.length, 0, 'a hidden bar must not claim reading height');
+const [trigger, back] = toolbar.children;
+const menu = document.body.children[0];
+const [saveRow, list, empty] = menu.children;
+const [target, save] = saveRow.children;
+const destinations = () => list.children.map(row => row.children[0].textContent);
+assert.equal(trigger.hidden, true, 'a PDF opened without a report has nowhere to save pages');
+assert.equal(menu.hidden, true);
+assert.equal(toolbar.children.length, 2, 'the shortcuts cost one toolbar slot, never a second bar');
 
 nav.setEpisodes([
-  { id: 'ep-1', label: '08/22/2026 09:18PM NS-VT', page: null },
+  { id: 'ep-1', label: '#1 08/22/2026 09:18PM NS-VT', page: null },
   { id: 'ep-2', label: '  ', page: 4 },
   { id: 'ep-3', label: 'past the last page', page: 99 },
   { id: 'nope-1', label: 'not an entry', page: 2 }
 ]);
-assert.equal(bar.hidden, false); assert.equal(revealed, 1); assert.deepEqual(documentClasses, ['egm-ready']);
-assert.deepEqual(target.labels(), ['Unassigned page', '08/22/2026 09:18PM NS-VT', 'Entry 2 · p. 4', 'past the last page'],
+assert.equal(trigger.hidden, false);
+assert.equal(trigger.textContent, 'EGM · 1', 'the saved count is the only always-visible state');
+trigger.fire('click');
+assert.equal(menu.hidden, false); assert.equal(document.activeElement, target);
+assert.deepEqual(target.labels(), ['Unassigned page', '#1 08/22/2026 09:18PM NS-VT', 'Entry 2 · p. 4', 'past the last page'],
   'the logbook entry names the destination; a page past the end of the PDF is not a page link');
-assert.deepEqual(goto_.labels(), ['Go to saved page…', 'Entry 2 · p. 4']);
-assert.equal(status.textContent, '1 saved page');
+assert.deepEqual(destinations(), ['Entry 2 · p. 4']);
+assert.equal(empty.hidden, true);
 
-// Save the current page, unassigned and then to a chosen entry.
+// Save the current page, unassigned and then to a chosen entry. Saving hands the document back.
 assert.equal(save.textContent, 'Save page 1');
 save.fire('click');
 assert.deepEqual(assigned.at(-1), [null, 1], 'no chosen entry means an unassigned page');
+assert.equal(menu.hidden, true);
+trigger.fire('click');
 target.value = 'ep-1'; target.fire('change');
-assert.match(save.title, /Assign PDF page 1 to 08\/22\/2026 09:18PM NS-VT/);
+assert.match(save.title, /Assign PDF page 1 to #1 08\/22\/2026 09:18PM NS-VT/);
 save.fire('click');
 assert.deepEqual(assigned.at(-1), ['ep-1', 1]);
 
 // The report owns the saved pages; the viewer shows what comes back.
 nav.setMarks([7, 4, 0, 40, 'x']);
-assert.deepEqual(goto_.labels(), ['Go to saved page…', 'Entry 2 · p. 4', 'Unassigned · p. 7'],
+assert.equal(trigger.textContent, 'EGM · 2');
+trigger.fire('click');
+assert.deepEqual(destinations(), ['Entry 2 · p. 4', 'Unassigned · p. 7'],
   'an assigned page is named by its episode, not listed twice');
-assert.equal(status.textContent, '2 saved pages');
 
 // Jumping remembers where reading was, and Back restores it exactly.
 assert.equal(back.hidden, true);
-goto_.value = '7'; goto_.fire('change');
-assert.deepEqual(wentTo.at(-1), 7); assert.equal(back.textContent, 'Back to p. 1'); assert.equal(back.hidden, false);
-assert.equal(goto_.value, '', 'the jump list is an action, not a stored choice');
-nav.updatePosition();
-assert.equal(remove.hidden, false, 'the current page is a saved page');
-assert.equal(remove.textContent, 'Remove p. 7');
-remove.fire('click');
+list.children[1].children[0].fire('click');
+assert.deepEqual(wentTo.at(-1), 7);
+assert.equal(menu.hidden, true, 'choosing a destination gets out of the way');
+assert.equal(back.textContent, 'Back to p. 1'); assert.equal(back.hidden, false);
+trigger.fire('click');
+list.children[1].children[1].fire('click');
 assert.deepEqual(removed, [7]);
+assert.equal(menu.hidden, false, 'removing one page leaves the menu open for the next');
 back.fire('click');
 assert.deepEqual(restored, { page: 1, zoom: 2, x: 5, y: 6 }); assert.equal(back.hidden, true);
-nav.updatePosition();
-assert.equal(remove.hidden, true, 'page 1 was never saved');
+assert.equal(menu.hidden, true, 'a toolbar click outside the popover dismisses it');
 
-// Background republishing must not rewrite a dropdown the technician is using.
+// Escape and an outside click both close it.
+trigger.fire('click');
+document.handlers.keydown[0]({ key: 'Escape', target: menu, preventDefault() {}, stopImmediatePropagation() {} });
+assert.equal(menu.hidden, true); assert.equal(document.activeElement, trigger);
+trigger.fire('click');
+document.handlers.click[0]({ target: document.body });
+assert.equal(menu.hidden, true);
+
+// Background republishing must not rewrite the picker while it is open and focused.
+trigger.fire('click');
 document.activeElement = target;
 nav.setEpisodes([{ id: 'ep-9', label: 'later entry', page: 2 }]);
-assert.deepEqual(target.labels(), ['Unassigned page', '08/22/2026 09:18PM NS-VT', 'Entry 2 · p. 4', 'past the last page']);
+assert.deepEqual(target.labels(), ['Unassigned page', '#1 08/22/2026 09:18PM NS-VT', 'Entry 2 · p. 4', 'past the last page']);
+assert.deepEqual(destinations(), ['later entry · p. 2', 'Unassigned · p. 4', 'Unassigned · p. 7'],
+  'the destination list still follows the report, and a page loses its episode name when that entry goes');
 document.activeElement = null;
 nav.refresh();
 assert.deepEqual(target.labels(), ['Unassigned page', 'later entry · p. 2']);
 assert.equal(target.value, '', 'a stale entry choice cannot survive the entry disappearing');
 nav.setEpisodes([]);
-assert.deepEqual(goto_.labels(), ['Go to saved page…', 'Unassigned · p. 4', 'Unassigned · p. 7'],
-  'a page saved without an entry outlives the entries');
+assert.deepEqual(destinations(), ['Unassigned · p. 4', 'Unassigned · p. 7'], 'a page saved without an entry outlives the entries');
 nav.setMarks([]);
-assert.deepEqual(goto_.labels(), ['No saved pages']); assert.equal(goto_.disabled, true);
-assert.equal(status.textContent, 'No saved pages yet');
+assert.equal(list.children.length, 0); assert.equal(empty.hidden, false);
+assert.equal(trigger.textContent, 'EGM');
 nav.dispose();
-assert.equal(document.body.children.length, 0); assert.deepEqual(documentClasses, []);
+assert.equal(document.body.children.length, 0); assert.equal(toolbar.children.length, 0);
 
 /* ---- the Schedule bridge, with live and obsolete frames ---------------------------------- */
 const schedule = fs.readFileSync(path.join(__dirname, '../protected/Patient_Schedule.html'), 'utf8');
@@ -174,4 +199,4 @@ message(reportWindow, { type: 'crm:egm-open-link', link: { documentKey: key, fil
 assert.equal(loaded, 'other.pdf'); assert.equal(panel.pendingEgmLink.page, 5);
 message(pdfWindow, { type: 'pdfviewer:egm-ready', id: 'current', documentKey: key });
 assert.equal(outgoing[3][0].page, 5); assert.equal(panel.pendingEgmLink, null);
-console.log('PASS EGM shortcut bar and active-document bridge');
+console.log('PASS EGM shortcut menu and active-document bridge');

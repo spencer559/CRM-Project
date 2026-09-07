@@ -18,25 +18,29 @@ Revised after use. The report's **EGM pages** button and the viewer's heading-de
 both gone: the split pane already shows the document, and an auto-detected "possible recording"
 list added clutter rather than navigation. Nothing now infers that a page holds a recording.
 
-The viewer carries one toolbar row, and only once a report has told it which logbook entries exist
-— a PDF opened on its own shows no bar and gives up no reading height. Left to right: a destination
-picker (Unassigned page, or a logbook entry), **Save page N**, a jump list of saved pages,
-**Remove p. N** while the current page is one of them, and **Back to p. N** after a jump.
+Vertical space for the document is the point, so the shortcuts cost no toolbar height. The viewer's
+**Chrome viewer** button is removed and its slot holds an **EGM** button whose count is the only
+always-visible state (`EGM`, `EGM · 2`). It opens a popover floating over the document: a
+destination picker (Unassigned page, or a logbook entry), **Save page N**, and the saved pages, each
+a jump button with a × beside it. Saving or choosing a destination closes it; Escape, an outside
+click, or the button itself also close it. The single toolbar row is back to 38px, so the document
+keeps the 32px the old second bar took. A **Back to p. N** button appears in the toolbar only after
+a jump, and restores the page, zoom, and pan saved before it.
 
-Destinations are named the way the logbook names them — `08/22/2026 09:18PM NS-VT`, built from the
-entry's date/time and checked episode types, falling back to `Entry N` for a still-empty row. The
-date is read straight off the `datetime-local` string, so no time zone is applied. Labels follow
-edits to the row.
+Destinations are named the way the logbook names them — `#1 08/22/2026 09:18PM NS-VT`, the "#"
+column first, then the entry's date/time and checked episode types, falling back to `#N` alone for
+a still-empty row. The date is read straight off the `datetime-local` string, so no time zone is
+applied. Labels follow edits to the row.
 
-In the report, the episode's row number **is** the jump control: it is plain grey until that entry
-has a page, then navy and clickable, with the source filename and page in its tooltip. Print keeps
-it plain. The separate `p. N` button is gone.
+In the report, the episode's row number **is** the jump control: plain grey until that entry has a
+page, then navy and clickable, with the source filename and page in its tooltip. Print keeps it
+plain. The separate `p. N` button is gone.
 
 A page saved without an entry persists too, in one hidden `egm-marks` field carrying the source
 filename and PDF fingerprint. It rides the report JSON exactly like the per-entry links, survives
 reopening, follows existing retention, and never reaches PDF/TXT/RTF content. Assigning a page to
-an entry drops its anonymous copy; **Remove** clears the page's entry links in both device-mode
-tables and its unassigned copy together.
+an entry drops its anonymous copy; × clears the page's entry links in both device-mode tables and
+its unassigned copy together.
 
 Ordinary wheel paging, fit-to-page, and the split widths are untouched — a jump does not resize
 either pane. Late source loads and navigation messages are still checked against the active
@@ -45,12 +49,12 @@ document positions, and recording-group navigation remain follow-up work.
 
 Validation is the automated suite plus a synthetic split-pane browser check against a generated
 six-page PDF. The unit tests cover label formatting, assignment from the picker, unassigned saves
-and their de-duplication, source identity, removal, report JSON round-trip, the jump list, Back
-restoring page/zoom/pan, and a background republish not rewriting a dropdown in use. The browser
-check confirmed one wheel notch per page, the entry-named picker and jump list, the row number
-jumping and raising Back to p. N, `egm-marks` surviving `collectFormData`/`applyFormData`, and no
-fingerprint text reaching the summary output. No clinical source files or databases were opened;
-the bar was also checked at a 380px pane.
+and their de-duplication, source identity, removal, report JSON round-trip, the destination list,
+open/close behaviour, Back restoring page/zoom/pan, and a background republish not rewriting the
+picker while it is in use. The browser check confirmed the single-row toolbar, one wheel notch per
+page, the entry-named picker and destination list, the row number jumping and raising Back to p. N,
+`egm-marks` surviving `collectFormData`/`applyFormData`, and no fingerprint text reaching the
+summary output. No clinical source files or databases were opened.
 
 ## Broader viewer design for reference
 

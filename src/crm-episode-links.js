@@ -21,7 +21,8 @@
     var dt = row.querySelector('[name="' + prefix + '-dt"]');
     var types = Array.from(row.querySelectorAll('[name="' + prefix + '-type"]'))
       .filter(function (el) { return el.checked; }).map(function (el) { return el.value; }).join('/');
-    return [formatWhen(dt && dt.value), types].filter(Boolean).join(' ') || 'Entry ' + n;
+    // The "#" column leads, so a destination reads the way the row does: "#1 08/22/2026 09:18PM NS-VT".
+    return ('#' + n + ' ' + [formatWhen(dt && dt.value), types].filter(Boolean).join(' ')).trim();
   }
   function mount() {
     var context = null, embedded = root.CRM_EMBED === true;

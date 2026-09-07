@@ -74,21 +74,25 @@ body.panning .page-stage { cursor: grabbing; }
 /* Embedded in the schedule's split panel: the host owns closing (its file switcher / panel
    collapse), and window.close() can't close an iframe anyway. */
 .embedded #closeBtn { display: none; }
-.egm-ready { --bar: 70px; }
-.egm-ready .bar { height: 38px; }
-.egm-bar { position: fixed; top: 38px; left: 0; right: 0; height: 32px; z-index: 11;
-  display: flex; gap: 8px; align-items: center; padding: 3px 10px; background: var(--bar-bg); border-bottom: 1px solid var(--border); }
-.egm-bar[hidden] { display: none; }
-.egm-bar button { color: var(--text); background: #262b33; border: 1px solid var(--border); border-radius: 5px; padding: 4px 9px; font: inherit; cursor: pointer; white-space: nowrap; }
-.egm-bar button[hidden] { display: none; }
-.egm-bar select { background: #262b33; color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 4px 6px; font: inherit; max-width: 34%; }
-.egm-bar select:disabled { opacity: .45; }
-/* The entry picker names episodes in full ("08/22/2026 09:18PM NS-VT"); the jump list needs the
-   same room. Both shrink before the Save/Back buttons do. */
-.egm-bar .egm-target, .egm-bar .egm-goto { flex: 1 1 0; min-width: 0; }
-.egm-status { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.egm-bar button:focus-visible, .egm-bar select:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
-@media (max-width: 650px) { .embedded .bar { gap: 5px; } .embedded .bar .name, .embedded #chromeBtn { display: none; } }
+/* The shortcuts float over the document, so the toolbar stays one row tall and every pixel
+   below it belongs to the PDF. */
+#egmSlot { display: contents; }
+#egmSlot button[hidden] { display: none; }
+.egm-menu { position: fixed; top: var(--bar); right: 8px; width: min(330px, calc(100vw - 16px)); max-height: calc(100vh - var(--bar) - 12px);
+  overflow: auto; z-index: 20; padding: 9px; background: #1b1f24; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px #0008; }
+.egm-menu[hidden] { display: none; }
+.egm-menu button { color: var(--text); background: #262b33; border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; font: inherit; cursor: pointer; }
+.egm-menu select { flex: 1 1 0; min-width: 0; background: #262b33; color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 5px 6px; font: inherit; }
+.egm-save-row { display: flex; gap: 6px; align-items: center; }
+.egm-save-row .egm-save { white-space: nowrap; }
+.egm-dest { display: flex; gap: 6px; margin-top: 6px; }
+.egm-dest .egm-go { flex: 1 1 auto; text-align: left; overflow-wrap: anywhere; }
+.egm-dest .egm-remove { flex: 0 0 30px; font-size: 16px; line-height: 1; }
+.egm-list:not(:empty) { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--border); }
+.egm-empty { color: var(--muted); margin: 10px 0 2px; }
+.egm-empty[hidden] { display: none; }
+.egm-menu button:focus-visible, .egm-menu select:focus-visible, .bar button:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
+@media (max-width: 650px) { .embedded .bar { gap: 5px; } .embedded .bar .name { display: none; } }
 </style>
 </head>
 <body>
@@ -102,7 +106,7 @@ body.panning .page-stage { cursor: grabbing; }
     <button type="button" id="zoomIn" title="Zoom in (Ctrl/Cmd +)" aria-label="Zoom in">+</button>
   </span>
   <span class="spacer"></span>
-  <button type="button" id="chromeBtn" title="Open this PDF in Chrome's own viewer (continuous scrolling)" hidden>Chrome viewer</button>
+  <span id="egmSlot"></span>
   <button type="button" id="printBtn" title="Print the complete PDF" hidden>Print</button>
   <button type="button" id="downloadBtn" title="Choose where to save this PDF" hidden>Download</button>
   <button type="button" id="closeBtn" onclick="window.close()" title="Close (Esc)">&#10005;</button>
@@ -212,12 +216,11 @@ body.panning .page-stage { cursor: grabbing; }
     }).then(function (d) {
       doc = d; total = d.numPages;
       statusEl.hidden = true;
-      $("chromeBtn").hidden = $("printBtn").hidden = $("downloadBtn").hidden = $("tocBtn").hidden = false;
+      $("printBtn").hidden = $("downloadBtn").hidden = $("tocBtn").hidden = false;
       $("zoomControls").hidden = false;
-      egmNavigation = CRMEgmNavigation.mount({ doc: doc, goTo: goTo,
+      egmNavigation = CRMEgmNavigation.mount({ doc: doc, goTo: goTo, toolbar: $("egmSlot"),
         onAssign: function (entryId, page) { postEgm('pdfviewer:egm-assign', { entryId: entryId, page: page }); },
         onRemove: function (page) { postEgm('pdfviewer:egm-remove', { page: page }); },
-        onReveal: function () { refit(); },
         position: function () { var s = shells[current - 1]; return { page: current, zoom: zoom, x: s ? s.panX : 0, y: s ? s.panY : 0 }; },
         restore: function (pos) {
           setZoom(pos.zoom);
@@ -648,16 +651,8 @@ body.panning .page-stage { cursor: grabbing; }
   window.addEventListener("pagehide", function (ev) { if (!ev.persisted) teardownViewer(); });
 
   /* ---- escape hatches ---- */
-  // pdf.js keeps the original bytes; getData() hands them back so neither button needs a second
-  // copy of the document held around just in case.
-  $("chromeBtn").addEventListener("click", function () {
-    if (!doc) return;
-    doc.getData().then(function (bytes) {
-      var url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-      window.open(url + "#view=Fit", "_blank");
-      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-    });
-  });
+  // pdf.js keeps the original bytes; getData() hands them back so Print and Download never need
+  // a second copy of the document held around just in case.
   var printFrame = null, printUrl = null, printCleanupTimer = null;
   function cleanupPrintFrame() {
     clearTimeout(printCleanupTimer);
@@ -686,7 +681,7 @@ body.panning .page-stage { cursor: grabbing; }
             pw.print();
           } catch (e) {
             cleanupPrintFrame();
-            window.alert("Chrome could not open the print dialog. Use Chrome viewer, then print from there.");
+            window.alert("Chrome could not open the print dialog. Use Download, then print the saved file.");
           }
         }, 250);
       };
