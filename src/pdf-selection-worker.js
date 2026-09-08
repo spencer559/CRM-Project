@@ -9,7 +9,8 @@
     if (!Array.isArray(pages) || !pages.length || pages.some(function (p) {
       return !Number.isInteger(p) || p < 1 || p > source.getPageCount();
     })) throw new Error('Select valid PDF pages.');
-    var selected = Array.from(new Set(pages)).sort(function (a, b) { return a - b; });
+    // Keep the caller's order; a Set drops repeats while holding each page's first position.
+    var selected = Array.from(new Set(pages));
     var output = await lib.PDFDocument.create();
     // Copy original page objects, including their vector content, dimensions and rotation.
     var copies = await output.copyPages(source, selected.map(function (p) { return p - 1; }));

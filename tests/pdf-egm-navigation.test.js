@@ -83,10 +83,13 @@ trigger.fire('click');list.children[2].children[0].fire('dragstart',{dataTransfe
 list.children[0].fire('drop',{preventDefault(){}});
 assert.deepEqual(reordered.at(-1),['mark-b','mark-a','ep-2']);
 assert.equal(dest()[0],'Settings · p. 8');
-// Print selection deduplicates overlapping pages and keeps document order.
-list.children[0].children[1].checked=false;list.children[0].children[1].fire('change');
+// Print selection deduplicates overlapping pages and follows the list, not the page numbers.
+assert.equal(printRow.children[0].textContent,'5 / 12 pages');
+assert.equal(printRow.children[0].title,'8, 1–4','the summary reads in print order');
 printRow.children[1].fire('click');
-Promise.resolve().then(()=>{assert.deepEqual(printed[0],[1,2,3,4]);});
+Promise.resolve().then(()=>{assert.deepEqual(printed[0],[8,1,2,3,4],'the dragged order is the printed order');});
+list.children[0].children[1].checked=false;list.children[0].children[1].fire('change');
+assert.equal(printRow.children[0].textContent,'4 / 12 pages','unchecking drops that shortcut from the selection');
 list.children[0].children[2].fire('click');assert.equal(wentTo.at(-1),8);assert.equal(menu.hidden,true);
 back.fire('click');assert.deepEqual(restored,{page:1,zoom:2,x:5,y:6});
 trigger.fire('click');list.children[0].children[4].fire('click');assert.deepEqual(removed.at(-1),{p:8,id:'mark-b'});

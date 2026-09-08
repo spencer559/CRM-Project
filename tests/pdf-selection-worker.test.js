@@ -17,10 +17,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('../vendor/pdf.worker.min'
   assert.deepEqual(Buffer.from(bytes), before, 'selection does not alter the source');
   const selected = await PDFDocument.load(result);
   assert.equal(selected.getPageCount(), 3, 'overlap prints once');
-  assert.deepEqual(selected.getPages().map(p => p.getWidth()), [402, 403, 408]);
-  assert.equal(selected.getPage(2).getRotation().angle, 90);
+  // The caller's order is the printed order; a repeat keeps its first position, not a sorted one.
+  assert.deepEqual(selected.getPages().map(p => p.getWidth()), [408, 402, 403]);
+  assert.equal(selected.getPage(0).getRotation().angle, 90);
   const view = await pdfjs.getDocument({ data: result, disableFontFace: true }).promise;
-  for (const [index, n] of [2, 3, 8].entries()) {
+  for (const [index, n] of [8, 2, 3].entries()) {
     const page = await view.getPage(index + 1);
     const text = (await page.getTextContent()).items.map(i => i.str).join('');
     assert.equal(text, 'SYNTHETIC PAGE ' + n, 'original text survives; these are not screenshots');

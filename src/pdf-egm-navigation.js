@@ -66,10 +66,12 @@
       var found = episodes.filter(function (e) { return e.pages; }).concat(marks);
       return found.slice().sort(P.compare);
     }
+    // Print in the order the list shows, not in page order: the technician's arrangement is the
+    // point of the drag handles.
     function selectedPages() {
       var pages = [];
       destinations().forEach(function (d) { if (!excluded.has(d.id)) pages = pages.concat(d.pages); });
-      return pages.length ? P.normalize(Array.from(new Set(pages)), doc.numPages) : [];
+      return pages.length ? P.sequence(pages, doc.numPages) || [] : [];
     }
     function updatePrint() {
       var pages = selectedPages();
