@@ -525,8 +525,10 @@ now sourcing the patient list from the bundle's `schedule.json`. A `.crmdb` open
 CRM tool works the same as opening it on the Schedule (shared IndexedDB working copy + file handle).
 **EGM page shortcuts and selected-page printing (Sep 2026).** The split-pane viewer keeps its
 single **EGM** dropdown. Save the current page or enter physical PDF page ranges (such as
-`12–15, 18`), optionally assigned to a logbook entry. **Named pages** accepts a free-text label
-for summary/settings pages. **+ Current** extends a selection while browsing; the pencil edits
+`12–15, 18`), optionally assigned to a logbook entry. **Save to** defaults to **New shortcut…**
+and also lists saved named shortcuts and logbook episodes. Selecting an existing item loads its
+name/pages and changes **Save** to **Update**; the pencil selects that same item for editing.
+New shortcuts accept a free-text label for summary/settings pages. **+ Current** extends a selection while browsing; the pencil edits
 its name/range, **×** removes only that shortcut, and the grip reorders shortcuts by dragging
 (mouse or touch) or Alt+Up/Down. Clicking an episode's row number still jumps to its first page.
 **Back to p. N** restores the previous page/zoom/pan. No pages are automatically classified.

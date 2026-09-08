@@ -35,7 +35,7 @@
     var saveRow = make('div', 'egm-save-row', menu);
     var target = make('select', 'egm-target', saveRow);
     target.setAttribute('aria-label', 'Save to');
-    var save = button('Save page', 'egm-save', saveRow, saveSelection);
+    var save = button('Save', 'egm-save', saveRow, saveSelection);
     var name = field('Name', 'egm-name', menu); name.maxLength = 80; name.placeholder = 'Name this shortcut';
     var rangeRow = make('div', 'egm-range-row', menu);
     var range = field('Pages', 'egm-range', rangeRow); range.placeholder = 'e.g. 3–5, 8'; range.maxLength = 1000;
@@ -87,29 +87,47 @@
       options.goTo(page); close(false);
     }
     function resetEditor() {
-      editing = null; target.disabled = false; target.value = ''; name.value = ''; range.value = '';
+      editing = null; target.value = ''; name.value = ''; range.value = '';
       name.placeholder = 'Name this shortcut';
       cancel.hidden = true; clearError(); updatePosition();
     }
-    function edit(d) {
-      editing = d.id; target.value = ENTRY.test(d.id) ? d.id : ''; target.disabled = true;
-      name.value = ENTRY.test(d.id) ? d.customLabel || '' : d.label;
+    function editorChoices() { return marks.slice().sort(P.compare).concat(episodes); }
+    function refreshPicker(force) {
+      // Leave an open native picker alone when the report republishes in the background.
+      if (!force && document.activeElement === target && !menu.hidden) return;
+      var keep = target.value, choices = editorChoices();
+      target.replaceChildren(option('', 'New shortcut…'));
+      choices.forEach(function (d) { target.appendChild(option(d.id, d.label + (d.pages ? ' · p. ' + P.format(d.pages) : ''))); });
+      target.value = choices.some(function (d) { return d.id === keep; }) ? keep : '';
+    }
+    function selectEditor(id, focusName) {
+      var d = editorChoices().find(function (item) { return item.id === id; });
+      if (!d) { resetEditor(); return; }
+      refreshPicker(true);
+      editing = d.id; target.value = d.id;
+      name.value = d.label;
       name.placeholder = d.defaultLabel || 'Name this shortcut';
-      range.value = P.format(d.pages); cancel.hidden = false;
-      clearError(); updatePosition(); name.focus();
+      range.value = d.pages ? P.format(d.pages) : ''; cancel.hidden = false;
+      clearError(); updatePosition(); if (focusName) name.focus();
     }
     function saveSelection() {
       var pages = P.parse(range.value.trim() || String(options.position().page), doc.numPages);
       if (!pages) { showError('Enter pages from 1 to ' + doc.numPages + ', e.g. 3–5, 8.'); range.setAttribute('aria-invalid', 'true'); range.focus(); return; }
       if (!options.onAssign) return;
+      var chosen = editorChoices().find(function (d) { return d.id === target.value; });
+      if (target.value && !chosen) { resetEditor(); refreshPicker(true); return; }
+      var label = name.value.trim();
+      // Display an episode's name in the editor without freezing its date/type label when the
+      // user only changes pages. An explicitly different name remains a custom label.
+      if (chosen && ENTRY.test(chosen.id) && label === chosen.defaultLabel) label = '';
       options.onAssign(ENTRY.test(target.value) ? target.value : null, pages[0], {
-        pages: pages, label: name.value.trim(), savedId: editing
+        pages: pages, label: label, savedId: editing
       });
       resetEditor(); close(true);
     }
     function updatePosition() {
       var page = options.position().page, count = destinations().length;
-      save.textContent = editing ? 'Update' : range.value.trim() ? 'Save pages' : 'Save page ' + page;
+      save.textContent = editing ? 'Update' : 'Save';
       range.placeholder = 'Current: ' + page + ' · e.g. 3–5, 8';
       trigger.textContent = count ? 'EGM · ' + count : 'EGM';
       trigger.title = 'Saved pages and episodes';
@@ -125,14 +143,9 @@
     }
     function refresh() {
       if (dragging) return;
-      if (!(document.activeElement === target && !menu.hidden)) {
-        var keep = target.value;
-        target.replaceChildren(option('', 'Named pages'));
-        episodes.forEach(function (e) { target.appendChild(option(e.id, e.label + (e.pages ? ' · p. ' + P.format(e.pages) : ''))); });
-        target.value = episodes.some(function (e) { return e.id === keep; }) ? keep : '';
-      }
+      refreshPicker(false);
       var found = destinations();
-      if (editing && !found.some(function (d) { return d.id === editing; })) resetEditor();
+      if (editing && !editorChoices().some(function (d) { return d.id === editing; })) resetEditor();
       var focused = document.activeElement, focusedId = focused && focused.dataset && focused.dataset.egmId;
       list.replaceChildren();
       found.forEach(function (d) {
@@ -189,7 +202,7 @@
         var go = button(d.label + ' · p. ' + P.format(d.pages), 'egm-go', row, function () { jump(d.page); });
         go.dataset.egmId = d.id; go.title = 'Go to PDF page ' + d.page;
         if (focusedId === d.id) go.focus();
-        var editBtn = button('✎', 'egm-edit', row, function () { edit(d); });
+        var editBtn = button('✎', 'egm-edit', row, function () { selectEditor(d.id, true); });
         editBtn.setAttribute('aria-label', 'Edit ' + d.label); editBtn.title = 'Edit name and pages';
         var drop = button('×', 'egm-remove', row, function () {
           excluded.delete(d.id);
@@ -200,15 +213,10 @@
       });
       empty.hidden = !!found.length; updatePosition(); updatePrint();
     }
-    target.addEventListener('change', function () {
-      clearError(); var chosen = episodes.find(function (e) { return e.id === target.value; });
-      name.value = chosen ? chosen.customLabel || '' : '';
-      name.placeholder = chosen ? chosen.defaultLabel || chosen.label : 'Name this shortcut';
-      range.value = chosen && chosen.pages ? P.format(chosen.pages) : '';
-      updatePosition();
-    });
+    target.addEventListener('change', function () { selectEditor(target.value, false); });
+    target.addEventListener('blur', function () { refreshPicker(true); });
     range.addEventListener('input', function () { clearError(); updatePosition(); });
-    function open() { refresh(); menu.hidden = false; trigger.setAttribute('aria-expanded', 'true'); target.focus(); }
+    function open() { refreshPicker(true); refresh(); menu.hidden = false; trigger.setAttribute('aria-expanded', 'true'); target.focus(); }
     function close(focus) { menu.hidden = true; trigger.setAttribute('aria-expanded', 'false'); if (focus) trigger.focus(); }
     function outside(ev) { if (!menu.hidden && !menu.contains(ev.target) && ev.target !== trigger) close(false); }
     function key(ev) {
