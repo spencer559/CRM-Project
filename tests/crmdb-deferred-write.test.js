@@ -72,7 +72,13 @@ function newTab() { delete require.cache[STORE]; delete global.CRMWorkspace; ret
 // CRMDB.write is the synchronous heart of it, so counting calls counts main-thread blocks.
 const realWrite = global.CRMDB.write;
 let serializations = 0;
-global.CRMDB.write = function () { serializations++; return realWrite.apply(this, arguments); };
+// Only a WHOLE-CONTAINER serialization counts. The durable journal uses the same zip writer for
+// the handful of pending changes (kilobytes), and conflating the two would read as "typing commits"
+// when nothing of the sort happened. Only the container carries manifest.json.
+global.CRMDB.write = function (entries) {
+  if (Array.isArray(entries) && entries.some(function (e) { return e && e.name === "manifest.json"; })) serializations++;
+  return realWrite.apply(this, arguments);
+};
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 

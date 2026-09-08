@@ -103,8 +103,8 @@
   var REV_KEY = "rev", BUNDLE_KEY = "bundle", CRC_KEY = "crcs";
   // Record a mutation as well as applying it, so a later rebase can replay it. Any edit means the
   // cache no longer matches the bound file until the next successful write-through.
-  function bset(path, blob) { bundle.set(path, blob); journal.set(path, blob); cacheMatchesFile = false; mutSeq++; markEdited(); }
-  function bdel(path) { var had = bundle.delete(path); journal.set(path, null); cacheMatchesFile = false; mutSeq++; markEdited(); return had; }
+  function bset(path, blob) { bundle.set(path, blob); journal.set(path, blob); cacheMatchesFile = false; mutSeq++; markEdited(); scheduleJournalWrite(); }
+  function bdel(path) { var had = bundle.delete(path); journal.set(path, null); cacheMatchesFile = false; mutSeq++; markEdited(); scheduleJournalWrite(); return had; }
   function applyJournal() {
     journal.forEach(function (blob, path) {
       if (blob === null) bundle.delete(path); else bundle.set(path, blob);
@@ -655,6 +655,131 @@
     });
   }
 
+  /* --------------------------------------------------------- the durable journal
+   * A commit rewrites the WHOLE container — zip, encrypt, publish — so it runs on a cadence
+   * rather than per keystroke. That leaves a window in which an edit exists only in `journal`,
+   * in memory, and a crash or a refresh takes it. This closes that window without touching the
+   * cadence: the same pending changes are also written to IndexedDB as they happen, and replayed
+   * on top of the committed bundle when the page comes back.
+   *
+   * It is deliberately ONE sealed blob rather than a row per path. A row per path would key
+   * IndexedDB by paths like "patients/2026-09-07/0800_DEMOAB/report.json" — the date, the
+   * appointment time and the patient's name, in clear, outside the envelope that exists to
+   * protect exactly that. One blob keeps every filename inside the ciphertext where the container
+   * already keeps them, needs one IV per write instead of thousands (AES-GCM forgives no IV
+   * reuse), and gives `forget()` a single thing to erase.
+   *
+   * The cost is O(pending changes), not O(database): kilobytes for typing. Attachments are the
+   * exception, and the cap below lets a container commit carry those instead.
+   *
+   * This is purely additive. If a row is missing, stale or malformed it is dropped and the page
+   * loads exactly as it did before any of this existed.
+   */
+  var JOURNAL_KEY = "journal";
+  var JOURNAL_DEBOUNCE = 250;          // one write per typing pause, not one per keystroke
+  var JOURNAL_CAP = 4 * 1024 * 1024;   // past this, the container commit is the cheaper carrier
+  var journalTimer = null, journalChain = Promise.resolve();
+
+  function sameBytes(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+  // The journal rides in the container's own envelope, so there is one sealed format to reason
+  // about. Unlike opening a database this never prompts: the key is already unlocked in memory.
+  function unsealJournal(blob) {
+    return blob.arrayBuffer().then(function (ab) {
+      var bytes = new Uint8Array(ab);
+      if (!isEncryptedBytes(bytes)) {
+        if (protection) throw new Error("journal is not sealed but this database is protected");
+        return blob;
+      }
+      if (!protection) throw new Error("sealed journal but no key");
+      if (bytes.length <= ENC_HEADER_SIZE || bytes[8] !== ENC_VERSION) throw new Error("unsupported journal");
+      var salt = bytes.slice(13, 29), iv = bytes.slice(29, 41), header = bytes.slice(0, ENC_HEADER_SIZE);
+      // A journal sealed under a different password belongs to a different database. Refuse it
+      // rather than let AES-GCM's authentication failure read as a corrupt row.
+      if (!sameBytes(salt, protection.salt)) throw new Error("journal belongs to another database");
+      return cryptoApi().subtle.decrypt({ name: "AES-GCM", iv: iv, additionalData: header, tagLength: 128 },
+        protection.key, bytes.subarray(ENC_HEADER_SIZE)).then(function (plain) { return new Blob([plain]); });
+    });
+  }
+  // Deletions cannot be expressed as zip entries, so they ride as one list beside them.
+  function serializeJournal() {
+    var entries = [], deleted = [], misses = [];
+    journal.forEach(function (blob, path) {
+      if (blob === null) { deleted.push(path); return; }
+      var entry = { name: path, data: blob, crc: crcHit(blob) };
+      entries.push(entry);
+      if (entry.crc === null) misses.push(entry);
+    });
+    entries.push({ name: "__deleted.json", data: JSON.stringify(deleted) });
+    function finish() { return window.CRMDB.write(entries); }
+    if (!misses.length) return Promise.resolve(finish());
+    return misses.reduce(function (p, entry) {
+      return p.then(function () { return crcOf(entry.data).then(function (c) { entry.crc = c; }); });
+    }, Promise.resolve()).then(finish);
+  }
+  function writeJournal() {
+    if (!opened) return Promise.resolve();
+    if (!journal.size) return idbDel(JOURNAL_KEY);
+    var bytes = 0;
+    journal.forEach(function (b) { if (b) bytes += b.size; });
+    // An attachment belongs in the container, not in a blob we rewrite on every pause. writeFile
+    // without { defer } already schedules a commit for it, so nothing is at risk by skipping here.
+    if (bytes > JOURNAL_CAP) return Promise.resolve();
+    var rev = myRev;
+    return serializeJournal().then(function (zip) { return encryptZip(zip); }).then(function (sealed) {
+      // A commit landed while we were sealing: it cleared the journal and advanced the revision,
+      // so this row now describes work already in the container. Publishing it would resurrect it.
+      if (rev !== myRev || !opened) return;
+      return idbSet(JOURNAL_KEY, { rev: rev, blob: sealed });
+    }).catch(function () {});
+  }
+  function scheduleJournalWrite() {
+    if (!opened || journalTimer) return;
+    journalTimer = setTimeout(function () {
+      journalTimer = null;
+      journalChain = journalChain.then(writeJournal, writeJournal);
+    }, JOURNAL_DEBOUNCE);
+  }
+  function dropJournal() {
+    clearTimeout(journalTimer); journalTimer = null;
+    return idbDel(JOURNAL_KEY);
+  }
+  // Replay whatever the last session had staged but never published. Conservative by design: the
+  // row must name the revision we just loaded, or it describes a bundle that is no longer the one
+  // in front of us and is discarded rather than guessed at.
+  function restoreJournal(rev) {
+    return idbGet(JOURNAL_KEY).then(function (row) {
+      if (!row || !row.blob) return false;
+      if (Number(row.rev) !== Number(rev)) return idbDel(JOURNAL_KEY).then(function () { return false; });
+      return unsealJournal(row.blob).then(function (zip) {
+        return window.CRMDB.readBlob(zip).then(function (entries) {
+          var deletedEntry = entries.filter(function (e) { return e.name === "__deleted.json"; })[0];
+          var raw = deletedEntry ? (deletedEntry.blob || new Blob([deletedEntry.data])).text() : Promise.resolve("[]");
+          return raw.then(function (text) {
+            var deleted = [];
+            try { var v = JSON.parse(text); if (Array.isArray(v)) deleted = v; } catch (e) {}
+            entries.forEach(function (e) {
+              if (e.name === "__deleted.json") return;
+              var blob = e.blob || new Blob([e.data]);
+              // bundle/journal directly: this is replay, not a new edit, and must not re-trigger
+              // the write that produced this row in the first place.
+              bundle.set(e.name, blob); journal.set(e.name, blob);
+            });
+            deleted.forEach(function (path) {
+              if (typeof path !== "string" || !path) return;
+              bundle.delete(path); journal.set(path, null);
+            });
+            cacheMatchesFile = false;
+            return journal.size > 0;
+          });
+        });
+      }).catch(function () { return idbDel(JOURNAL_KEY).then(function () { return false; }); });
+    }).catch(function () { return false; });
+  }
+
   /* ------------------------------------------------------------- persistence */
   // Replace our bundle with the shared working copy, then replay this tab's un-committed edits
   // on top so adopting another tab's work never drops our own.
@@ -733,9 +858,13 @@
               if (!res.noIdb) myRev = res.rev;
               journal.clear();
               authoritative = false;
+              // These bytes are now IN the container, so the staged copy of them must not survive
+              // to be replayed on top of it. Dropped before persistMeta so a crash between the two
+              // leaves no row rather than a stale one.
+              var cleared = dropJournal();
               // Persist the freshness flags alongside the committed bundle so a later reopen knows
               // whether this cache carries edits the bound file doesn't have yet.
-              return persistMeta().then(function () { return { blob: blob, seq: seq }; });
+              return cleared.then(function () { return persistMeta(); }).then(function () { return { blob: blob, seq: seq }; });
             });
           });
         });
@@ -1251,7 +1380,12 @@
                 return ingest(blob).then(function () {
                   seedCrcs(crcs);
                   opened = true; myRev = Number(r) || 0; journal.clear(); authoritative = false;
-                  return ROOT;
+                  // Anything the last session staged but never committed lives on beside the
+                  // container. Replay it before handing the caller a root they will read from.
+                  return restoreJournal(myRev).then(function (replayed) {
+                    if (replayed) syncSaveState();
+                    return ROOT;
+                  });
                 });
               });
             });
@@ -1317,7 +1451,11 @@
     baseFileMod = null; cacheMatchesFile = false; freshnessVerified = false;
     baseSig = null; pendingSig = null;
     emitSaveState("closed");
-    return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY), idbDel(META_KEY), idbDel(CRC_KEY)]).then(function () {});
+    // JOURNAL_KEY belongs in here with the rest: "wipes this browser's copy" has to be true, and a
+    // surviving journal row is clinical data left on a shared station.
+    clearTimeout(journalTimer); journalTimer = null;
+    return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY), idbDel(META_KEY),
+      idbDel(CRC_KEY), idbDel(JOURNAL_KEY)]).then(function () {});
   }
 
   /* slot / file operations over the bundle */
