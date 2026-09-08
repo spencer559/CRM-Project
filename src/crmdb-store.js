@@ -152,6 +152,7 @@
   // Where the flags say the work lives, for every transition that is neither in flight nor broken.
   function settledSaveState() {
     if (!opened) return "closed";
+    if (!isWriter) return "readonly";
     if (journal.size) return "edited";
     if (fileHandle && canAutosave) return cacheMatchesFile ? "file" : "browser";
     return "browser";
@@ -160,7 +161,7 @@
   // Bursts collapse into one transition: ingesting a database sets hundreds of paths, and the
   // Schedule stages schedule.json on every typing debounce.
   function markEdited() {
-    if (!opened || saveState.state === "edited") return;
+    if (!opened || !isWriter || saveState.state === "edited") return;
     // Typing must never paper over a save that failed or is being refused.
     if (saveState.state === "failed" || saveState.state === "blocked") return;
     emitSaveState("edited");
@@ -170,6 +171,7 @@
   // holding something a flag cannot express.
   function currentSaveState() {
     if (saveState.state === "saving" || saveState.state === "failed" || saveState.state === "blocked") return saveState;
+    if (!isWriter && opened) return { state: "readonly", detail: saveState.detail, bound: false, at: saveState.at };
     return { state: settledSaveState(), detail: "", bound: !!(fileHandle && canAutosave), at: saveState.at };
   }
 
@@ -655,6 +657,67 @@
     });
   }
 
+  /* ------------------------------------------------------------- the writer lease
+   * Two tabs on one database is the case every guard here is weakest against, and the journal
+   * made it sharper: a second tab's commit advances the revision, which makes the first tab's
+   * staged row unreplayable, so a crash silently drops that work. Rather than merge two writers
+   * correctly — which the review is right to call the hard problem — allow only one.
+   *
+   * Web Locks is the primitive precisely because the browser releases a held lock when the tab
+   * dies. That removes the part of a lease that is easiest to get wrong: there is no heartbeat to
+   * tune and no judgement call about whether silence means a crash or a slow machine. A reader
+   * also queues a normal request, so it is promoted the moment the writer closes.
+   *
+   * Without Web Locks (older Safari) this reports itself as unprotected rather than pretending.
+   */
+  var LOCK_NAME = "crmdb-writer";
+  var isWriter = true;             // until proven otherwise: no lock support means today's behaviour
+  var leaseSupported = false, leaseReady = null, writerCb = null, releaseLease = null;
+  // A held lock is only released by resolving its callback's promise, so keep the resolver: closing
+  // the database should hand the lease straight to a waiting tab rather than making it wait for
+  // this page to close.
+  function held() { return new Promise(function (resolve) { releaseLease = resolve; }); }
+  function dropWriterLease() {
+    var release = releaseLease;
+    releaseLease = null; leaseReady = null; isWriter = true;
+    if (release) { try { release(); } catch (e) {} }
+  }
+  function locksApi() {
+    try { return (typeof navigator !== "undefined" && navigator.locks && navigator.locks.request) ? navigator.locks : null; }
+    catch (e) { return null; }
+  }
+  function setWriter(next) {
+    if (isWriter === next) return;
+    // isWriter starts true, so the only false -> true transition is a promotion: this tab was a
+    // reader and the writing tab has gone. Whatever accumulated in the journal while read-only was
+    // never publishable and was never reported as saved — publishing it now would replay ghost
+    // edits onto a bundle the other tab has since moved on. Drop it and take their copy.
+    var promoted = next && opened;
+    isWriter = next;
+    if (!next) emitSaveState("readonly");        // must not keep claiming work is going somewhere
+    else if (promoted) { journal.clear(); adoptShared().then(syncSaveState, syncSaveState); }
+    else syncSaveState();
+    try { if (writerCb) writerCb(isWriter); } catch (e) {}
+  }
+  // Claims the lease if it is free; otherwise waits for it in the background. Returns a promise
+  // that settles once writer status is KNOWN — every write awaits it, because a second tab that
+  // committed while still assuming it was the writer would be the exact race this prevents.
+  function claimWriterLease() {
+    if (leaseReady) return leaseReady;
+    var locks = locksApi();
+    if (!locks) { leaseReady = Promise.resolve(); return leaseReady; }
+    leaseSupported = true;
+    leaseReady = new Promise(function (resolve) {
+      locks.request(LOCK_NAME, { mode: "exclusive", ifAvailable: true }, function (lock) {
+        if (lock) { setWriter(true); resolve(); return held(); }
+        setWriter(false); resolve();
+        // Queue for it properly. When the other tab closes, this resolves and we take over.
+        return locks.request(LOCK_NAME, { mode: "exclusive" }, function () { setWriter(true); return held(); });
+      }).catch(function () { setWriter(true); resolve(); });   // fail open, as before the lease existed
+    });
+    return leaseReady;
+  }
+
   /* --------------------------------------------------------- the durable journal
    * A commit rewrites the WHOLE container — zip, encrypt, publish — so it runs on a cadence
    * rather than per keystroke. That leaves a window in which an edit exists only in `journal`,
@@ -721,7 +784,11 @@
     }, Promise.resolve()).then(finish);
   }
   function writeJournal() {
-    if (!opened) return Promise.resolve();
+    var ready = claimWriterLease();
+    return leaseSupported ? ready.then(journalAsWriter) : journalAsWriter();
+  }
+  function journalAsWriter() {
+    if (!opened || !isWriter) return Promise.resolve();
     if (!journal.size) return idbDel(JOURNAL_KEY);
     var bytes = 0;
     journal.forEach(function (b) { if (b) bytes += b.size; });
@@ -733,7 +800,11 @@
       // A commit landed while we were sealing: it cleared the journal and advanced the revision,
       // so this row now describes work already in the container. Publishing it would resurrect it.
       if (rev !== myRev || !opened) return;
-      return idbSet(JOURNAL_KEY, { rev: rev, blob: sealed });
+      return idbSet(JOURNAL_KEY, { rev: rev, blob: sealed }).then(function () {
+        // The row has landed, so these edits now survive a crash. "edited" meant at-risk before
+        // the journal existed; it must not keep saying so once the work is actually durable.
+        if (saveState.state === "edited") emitSaveState("browser");
+      });
     }).catch(function () {});
   }
   function scheduleJournalWrite() {
@@ -836,9 +907,15 @@
   // bundle moved on while it was busy.
   var COMMIT_RETRIES = 3;
   function commit() {
+    var ready = claimWriterLease();
+    // With no lock manager there is nothing to wait for, and deferring by a microtask would change
+    // the interleaving that the cross-tab rebase depends on. Only pay the await where a lease exists.
+    return leaseSupported ? ready.then(commitAsWriter) : commitAsWriter();
+  }
+  function commitAsWriter() {
     // Nothing of ours to publish: don't touch the shared copy at all. This is what stops an
     // idle tab's flush (e.g. on navigation) from re-publishing its stale bundle over newer work.
-    if (!opened) return Promise.resolve(null);
+    if (!opened || !isWriter) return Promise.resolve(null);
     if (!journal.size && !authoritative) return Promise.resolve(null);
     var tries = 0;
     function attempt() {
@@ -878,7 +955,7 @@
   // Resolves true when the bytes actually reached the file.
   function writeThroughToFile(blob, seq, opts) {
     opts = opts || {};
-    if (!blob || !fileHandle || !canAutosave) return Promise.resolve(false);
+    if (!blob || !fileHandle || !canAutosave || !isWriter) return Promise.resolve(false);
     // Never write to the file until this session has confirmed our cache isn't an older copy than
     // what's on disk. This is the guard that stops a stale station cache clobbering newer OneDrive
     // data before the reconnect freshness check has had a chance to run.
@@ -927,7 +1004,7 @@
   // Every write goes here: commit to the shared IndexedDB copy and, on desktop, autosave to the
   // bound .crmdb file — both debounced so bursts of edits coalesce.
   function persist() {
-    if (!opened) return;
+    if (!opened || !isWriter) return;
     clearTimeout(persistTimer);
     persistTimer = setTimeout(function () {
       enqueueCommit(function () {
@@ -973,7 +1050,7 @@
   // handoff, so that is all the navigation has to wait for.
   function flush() {
     clearTimeout(persistTimer);
-    if (!opened) return Promise.resolve();
+    if (!opened || !isWriter) return Promise.resolve();
     return enqueueCommit(function () {
       emitSaveState("saving");
       return commit().then(function (c) {
@@ -1248,6 +1325,7 @@
 
   /* --------------------------------------------------------- CRMWorkspace API */
   function initScaffold(root) {
+    claimWriterLease();
     if (!bundle.has("schedule.json")) bset("schedule.json", new Blob([JSON.stringify({ type: "patient-schedule", version: 1, dates: {} }, null, 2)]));
     return Promise.resolve(root || ROOT);
   }
@@ -1380,6 +1458,7 @@
                 return ingest(blob).then(function () {
                   seedCrcs(crcs);
                   opened = true; myRev = Number(r) || 0; journal.clear(); authoritative = false;
+                  claimWriterLease();
                   // Anything the last session staged but never committed lives on beside the
                   // container. Replay it before handing the caller a root they will read from.
                   return restoreJournal(myRev).then(function (replayed) {
@@ -1454,6 +1533,7 @@
     // JOURNAL_KEY belongs in here with the rest: "wipes this browser's copy" has to be true, and a
     // surviving journal row is clinical data left on a shared station.
     clearTimeout(journalTimer); journalTimer = null;
+    dropWriterLease();   // a waiting tab should get it now, not when this page closes
     return Promise.all([idbDel("fileHandle"), idbDel(BUNDLE_KEY), idbDel(REV_KEY), idbDel(META_KEY),
       idbDel(CRC_KEY), idbDel(JOURNAL_KEY)]).then(function () {});
   }
@@ -1630,6 +1710,11 @@
     // subscribing also delivers the current value immediately, so a page renders the truth on load
     // rather than an empty control it has to wait for an event to fill.
     get saveState() { return currentSaveState(); },
+    // Whether this tab may write. False means another tab holds the lease and this one is a
+    // reader; `supported` false means the browser has no Web Locks, so nothing is enforcing it.
+    leaseStatus: function () { return { writer: isWriter, supported: leaseSupported }; },
+    set onWriterChange(fn) { writerCb = fn; if (fn) { try { fn(isWriter); } catch (e) {} } },
+    get onWriterChange() { return writerCb; },
     set onSaveState(fn) {
       saveStateCb = fn;
       if (fn) { try { fn(currentSaveState()); } catch (e) {} }

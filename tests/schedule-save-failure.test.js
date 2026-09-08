@@ -49,6 +49,42 @@ async function run() {
   assert.match(dotMap, /blocked: "var\(--red\)"/);
   assert.ok(!/closed:/.test(dotMap), 'no database open falls through to the muted default');
 
+  /* Closing the window while the .crmdb is behind. The journal keeps work safe in THIS browser,
+     and the browser stays on the machine you walked away from — so the file being behind is how a
+     finished report gets left at a clinic. Asking must be targeted, or it trains you to click
+     through it: only a bound file, only when it is actually behind, and never in a reader tab. */
+  const warn = new Function('WS', 'wsRoot', extract('warnBeforeLeaving') + '; return warnBeforeLeaving;');
+  const evOf = () => { const e = { prevented: false, returnValue: undefined }; e.preventDefault = () => { e.prevented = true; }; return e; };
+  const wsOf = (over) => Object.assign({
+    canAutosave: true, hasPendingFileChanges: () => true,
+    leaseStatus: () => ({ writer: true, supported: true }),
+    saveNow: () => { saved++; return Promise.resolve(); }
+  }, over || {});
+  let saved = 0;
+
+  let ev = evOf();
+  warn(wsOf(), 'root')(ev);
+  assert.strictEqual(ev.prevented, true, 'a bound file that is behind must ask before the window closes');
+  assert.strictEqual(saved, 1, 'and must start the save while the dialog is up, so leaving is usually safe');
+
+  ev = evOf(); saved = 0;
+  warn(wsOf({ hasPendingFileChanges: () => false }), 'root')(ev);
+  assert.strictEqual(ev.prevented, false, 'a file already up to date must not ask');
+  assert.strictEqual(saved, 0);
+
+  ev = evOf();
+  warn(wsOf({ canAutosave: false }), 'root')(ev);
+  assert.strictEqual(ev.prevented, false,
+    'with no bound file the work is on the device travelling with you — the indicator covers that');
+
+  ev = evOf();
+  warn(wsOf({ leaseStatus: () => ({ writer: false, supported: true }) }), 'root')(ev);
+  assert.strictEqual(ev.prevented, false, 'a read-only tab has nothing to save');
+
+  ev = evOf();
+  warn(wsOf(), null)(ev);
+  assert.strictEqual(ev.prevented, false, 'no database open, nothing to warn about');
+
   console.log('PASS schedule-save-failure');
 }
 run().catch(e => { console.error(e); process.exit(1); });

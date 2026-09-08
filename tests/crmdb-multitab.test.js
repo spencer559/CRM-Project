@@ -54,6 +54,13 @@ function installIndexedDB() {
     wipe: () => { if (data.has("kv")) data.get("kv").clear(); }
   };
 }
+// Two module instances model two tabs — but Node 24 ships a REAL navigator.locks, process-wide, so
+// the store's writer lease would (correctly) make the second instance a read-only reader and there
+// would be nothing to rebase. The lease is covered by crmdb-writer-lease.test.js. What is covered
+// here is the compare-and-swap and journal rebase underneath it: the path that still runs on a
+// browser without Web Locks, and the reason the lease can fail open instead of blocking work.
+Object.defineProperty(global, "navigator", { value: {}, configurable: true, writable: true });
+
 const shared = installIndexedDB();
 
 require("../vendor/crmdb-zip.js");

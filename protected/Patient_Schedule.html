@@ -37,6 +37,12 @@
               display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
   /* header dropdown — same pattern as the dashboard's Storage menu */
   .hdr-menu { position:relative; }
+  /* Read-only tab: the schedule stays legible but cannot be typed into, because nothing typed
+     here would ever be saved. */
+  .ws-readonly .twrap, .ws-readonly #remList, .ws-readonly .datebar { opacity:.55; pointer-events:none; }
+  #readonlyBanner { flex:0 0 auto; margin:0 16px 12px; padding:10px 14px; border-radius:8px;
+      border:1px solid var(--red); background:rgba(248,81,73,.12); color:var(--text); font-size:.86rem; }
+  #readonlyBanner[hidden] { display:none; }
   .storage-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--muted); margin-right:6px; vertical-align:middle; }
   /* Always visible, never overwritten by transient narration: the one control that answers
      "where does my work actually live right now?" */
@@ -420,6 +426,7 @@
   </div>
 </header>
 
+<div id="readonlyBanner" hidden>This database is open in another tab, which owns the edits. Editing is disabled here so nothing is lost. Close the other tab and this one takes over automatically.</div>
 <div class="main-scroll">
 <div id="saveWarning" role="alert" hidden style="padding:10px 14px;margin-bottom:12px;border:1px solid var(--amber);border-radius:8px;color:var(--text);background:var(--panel);"></div>
 <div class="panel">
@@ -1683,12 +1690,16 @@
      know: that the bytes reached the file is not proof OneDrive finished syncing them. */
   var SAVE_STATE_TEXT = {
     closed:  ["No database", "Open or create a .crmdb to start saving."],
-    edited:  ["Edits pending", "Staged here and not yet written to this browser's copy. The database is connected; edits publish on the save cadence, within 30 seconds."],
+    edited:  ["Edits pending", "Just typed — being written to this browser now. Durable within a moment."],
+    // "browser" splits on whether a file is bound. With one, the auto-save carries it and there is
+    // nothing to do; without one (iPad), this is the resting state and only an export moves it.
+    browserBound: ["Saved in browser", "Safe in this browser and survives a crash or a refresh. The database file catches up on the next auto-save."],
     saving:  ["Saving…", "Writing to this browser's copy, and then to the database file when one is bound."],
-    browser: ["In this browser only", "Committed to this browser. The .crmdb file does NOT have these changes yet — use Save database, and on iPad pick your USB in the Files sheet."],
+    browser: ["In this browser only", "Safe in this browser, but the .crmdb file does NOT have these changes — use Save database, and on iPad pick your USB in the Files sheet."],
     file:    ["Saved to file", "Written to the database file. That is not proof OneDrive has finished syncing it to other machines."],
     blocked: ["Save blocked", "Refusing to write to the file until this session confirms which copy is newer. Reconnect the database."],
-    failed:  ["Save failed", "The last save did not land. Your work is still here — fix the problem and save again."]
+    failed:  ["Save failed", "The last save did not land. Your work is still here — fix the problem and save again."],
+    readonly: ["Read-only", "This database is open in another tab, which owns the edits. Close that tab and this one takes over automatically."]
   };
   // The dot answers a DIFFERENT question from the pill: "is the database connected and healthy?"
   // Ordinary editing is healthy — the Schedule stages edits and publishes them on a 30s cadence, so
@@ -1697,15 +1708,22 @@
   // every change, which looks exactly like a database that has dropped its connection.) Amber is
   // reserved for work the portable file genuinely does not have, red for something actually broken.
   var SAVE_STATE_DOT = {
-    edited: "var(--green)", saving: "var(--green)", file: "var(--green)",
-    browser: "var(--amber)", failed: "var(--red)", blocked: "var(--red)"
+    edited: "var(--green)", saving: "var(--green)", file: "var(--green)", browserBound: "var(--green)",
+    browser: "var(--amber)", failed: "var(--red)", blocked: "var(--red)", readonly: "var(--red)"
   };
+  // Work that is only in this browser means two different things depending on whether a file is
+  // bound: on desktop the auto-save carries it and nothing is owed; on iPad nothing moves it until
+  // the technician exports. Same state, different obligation, so they get different words.
+  function saveStateKey(st) {
+    if (!st) return "closed";
+    return (st.state === "browser" && st.bound) ? "browserBound" : st.state;
+  }
   function renderSaveState(st) {
-    var entry = SAVE_STATE_TEXT[st && st.state] || SAVE_STATE_TEXT.closed;
+    var entry = SAVE_STATE_TEXT[saveStateKey(st)] || SAVE_STATE_TEXT.closed;
     var title = entry[1] + (st && st.detail ? " — " + st.detail : "");
     var dot = $("storageDot");
     if (dot) {
-      dot.style.background = SAVE_STATE_DOT[st && st.state] || "var(--muted)";
+      dot.style.background = SAVE_STATE_DOT[saveStateKey(st)] || "var(--muted)";
       dot.title = entry[0] + " — " + title;
     }
     // Every mirror at once: the header's, and the split panel's — which is the only one visible
@@ -1719,9 +1737,40 @@
     });
   }
   if (WS) WS.onSaveState = renderSaveState;
+  // Only one tab may write (the writer lease in crmdb-store). A reader has to say so where it
+  // cannot be missed — an indicator alone would let someone fill in a whole report that goes nowhere.
+  function renderWriterLease(writer) {
+    document.body.classList.toggle("ws-readonly", !writer);
+    var el = $("readonlyBanner");
+    if (el) el.hidden = !!writer;
+    if (!writer && panel) closePanel();      // a report editor here could never save
+    updateSaveBtn();
+  }
+  if (WS && "onWriterChange" in WS) WS.onWriterChange = renderWriterLease;
   // Opening, reconnecting and closing move the store's flags without a save transition, so
   // re-read the contract at the moments this page knows something changed.
   function refreshSaveState() { if (WS) renderSaveState(WS.saveState); }
+
+  /* Leaving the station is the one case the durable journal cannot help with: the journal keeps
+     work safe in THIS browser, and the browser stays behind on this machine. What travels is the
+     .crmdb, so closing while the file is behind is how a finished report gets left at a clinic.
+     The commit cadence already publishes to the browser on tab-hide, and that starts a background
+     file write — this is the backstop for closing before it lands.
+     Only where a file is bound: without one (iPad) the work is on the device going with you, and
+     the save indicator carries that case instead. A reader has nothing to save either. */
+  function warnBeforeLeaving(ev) {
+    if (!WS || !wsRoot || !WS.canAutosave) return;
+    if (WS.leaseStatus && !WS.leaseStatus().writer) return;
+    if (!WS.hasPendingFileChanges || !WS.hasPendingFileChanges()) return;
+    // Start the save while the browser draws its dialog. Reading the prompt takes long enough that
+    // this often finishes, so choosing "Leave" is usually already safe — and if they stay, the
+    // indicator goes green on its own.
+    if (WS.saveNow) { try { WS.saveNow(); } catch (e) {} }
+    ev.preventDefault();
+    ev.returnValue = "";   // the wording is the browser's; ours only decides whether to ask
+    return "";
+  }
+  window.addEventListener("beforeunload", warnBeforeLeaving);
 
   // Wait for the browser working copy before leaving; a timeout must not open stale patient data.
   function navigateToReportGenerator(url) {
@@ -1759,8 +1808,9 @@
     // Opening, reconnecting and closing move the store's flags without a save transition of their
     // own, and every one of them already refreshes this button — so the contract rides along.
     refreshSaveState();
+    var readOnly = !!(WS && WS.leaseStatus && !WS.leaseStatus().writer);
     var b = $("dbSaveBtn"); if (!b) return;
-    b.disabled = !wsRoot;
+    b.disabled = !wsRoot || readOnly;
     b.textContent = (WS && WS.canAutosave) ? "Save now" : "Save database";
     b.title = (WS && WS.canAutosave)
       ? "Auto-saves as you edit — click to force a save right now"
@@ -1907,10 +1957,16 @@
       updateReconnectBtn();
       $("wsForget").style.display = "";
       var pendingFileChanges = WS.hasPendingFileChanges && WS.hasPendingFileChanges();
+      // Recovered work is safe, so this must not read as a problem — and with auto-save bound there
+      // is nothing for the technician to click. Only a database with no file to write to owes them
+      // an action, which is the same distinction the save indicator draws.
+      var owesManualSave = pendingFileChanges && !WS.canAutosave;
       setStatus(pendingFileChanges
-        ? "Database reconnected — browser changes are not in the file yet. Click “Save now” to write them."
+        ? (WS.canAutosave
+            ? "Database reconnected — recovered changes not yet in the file; auto-save will write them."
+            : "Database reconnected — browser changes are not in the file yet. Press “Save database” to write them.")
         : (WS.canAutosave ? "Database open — auto-saving as you edit" : "Database open — press “Save database” to write back to USB"),
-        pendingFileChanges ? "warn" : "ok");
+        owesManualSave ? "warn" : "ok");
       updateDbLocation();
       updateSaveBtn();
       updateProtectionUI();
