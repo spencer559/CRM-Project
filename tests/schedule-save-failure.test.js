@@ -35,6 +35,20 @@ async function run() {
   assert.strictEqual(elements.saveWarning.textContent, 'File save failed');
   status('Saved to schedule.crmdb', 'ok');
   assert.strictEqual(elements.saveWarning.hidden, true);
+  /* The Database dot answers "is this connected and healthy?", not "where does the work live?".
+     The Schedule stages edits and publishes on a 30s cadence, so `edited`/`saving` are the normal
+     state for most of any minute — colouring them like a problem made a perfectly connected
+     database look dropped for half a minute after every keystroke. */
+  const dotMap = source.slice(source.indexOf('var SAVE_STATE_DOT'), source.indexOf('function renderSaveState'));
+  for (const healthy of ['edited', 'saving', 'file']) {
+    assert.ok(new RegExp(healthy + ': "var\\(--green\\)"').test(dotMap),
+      healthy + ' is ordinary healthy operation and must not read as a warning');
+  }
+  assert.match(dotMap, /browser: "var\(--amber\)"/, 'work the portable file lacks is worth amber');
+  assert.match(dotMap, /failed: "var\(--red\)"/);
+  assert.match(dotMap, /blocked: "var\(--red\)"/);
+  assert.ok(!/closed:/.test(dotMap), 'no database open falls through to the muted default');
+
   console.log('PASS schedule-save-failure');
 }
 run().catch(e => { console.error(e); process.exit(1); });

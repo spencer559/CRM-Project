@@ -1683,16 +1683,22 @@
      know: that the bytes reached the file is not proof OneDrive finished syncing them. */
   var SAVE_STATE_TEXT = {
     closed:  ["No database", "Open or create a .crmdb to start saving."],
-    edited:  ["Unsaved edits", "Typed but not yet written to this browser's copy. It publishes on the save cadence."],
+    edited:  ["Edits pending", "Staged here and not yet written to this browser's copy. The database is connected; edits publish on the save cadence, within 30 seconds."],
     saving:  ["Saving…", "Writing to this browser's copy, and then to the database file when one is bound."],
     browser: ["In this browser only", "Committed to this browser. The .crmdb file does NOT have these changes yet — use Save database, and on iPad pick your USB in the Files sheet."],
     file:    ["Saved to file", "Written to the database file. That is not proof OneDrive has finished syncing it to other machines."],
     blocked: ["Save blocked", "Refusing to write to the file until this session confirms which copy is newer. Reconnect the database."],
     failed:  ["Save failed", "The last save did not land. Your work is still here — fix the problem and save again."]
   };
-  // The at-a-glance half of the same signal the pill spells out, so they cannot disagree.
+  // The dot answers a DIFFERENT question from the pill: "is the database connected and healthy?"
+  // Ordinary editing is healthy — the Schedule stages edits and publishes them on a 30s cadence, so
+  // `edited` and `saving` are the normal state for most of any minute and must not read as a
+  // problem. (Driving the dot from the pill's exact state made it sit grey for half a minute after
+  // every change, which looks exactly like a database that has dropped its connection.) Amber is
+  // reserved for work the portable file genuinely does not have, red for something actually broken.
   var SAVE_STATE_DOT = {
-    file: "var(--green)", browser: "var(--amber)", failed: "var(--red)", blocked: "var(--red)"
+    edited: "var(--green)", saving: "var(--green)", file: "var(--green)",
+    browser: "var(--amber)", failed: "var(--red)", blocked: "var(--red)"
   };
   function renderSaveState(st) {
     var entry = SAVE_STATE_TEXT[st && st.state] || SAVE_STATE_TEXT.closed;
