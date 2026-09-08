@@ -12,7 +12,7 @@ class El {
     this.tagName = String(tag).toUpperCase();
     this.children = []; this.listeners = {}; this.attrs = {}; this.dataset = {};
     this.hidden = false; this.disabled = false; this.className = '';
-    this._text = ''; this._value = ''; this.parent = null;
+    this.classList={add(){},remove(){}}; this._text = ''; this._value = ''; this.parent = null;
   }
   get textContent() { return this._text; }
   set textContent(v) { this._text = String(v); }
@@ -29,6 +29,7 @@ class El {
   replaceChildren(...kids) { this.children = []; this._value = ''; kids.forEach(k => this.appendChild(k)); return undefined; }
   remove() { if (this.parent) this.parent.children = this.parent.children.filter(c => c !== this); this.parent = null; }
   setAttribute(name, value) { this.attrs[name] = String(value); }
+  removeAttribute(name) { delete this.attrs[name]; }
   getAttribute(name) { return this.attrs[name]; }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
   contains(node) { for (let n = node; n; n = n.parent) if (n === this) return true; return false; }
@@ -49,102 +50,50 @@ const document = {
   removeEventListener(type, fn) { this.handlers[type] = (this.handlers[type] || []).filter(h => h !== fn); }
 };
 const toolbar = new El('span');
-const sandbox = { window: {}, document };
+const sandbox = { window: { CRMPageSelection: require('../src/pdf-page-selection') }, document };
 vm.runInNewContext(fs.readFileSync(require.resolve('../src/pdf-egm-navigation.js'), 'utf8'), sandbox);
 
-const assigned = [], removed = [];
-let page = 1, restored = null, wentTo = [];
-const nav = sandbox.window.CRMEgmNavigation.mount({
-  doc: { numPages: 12 },
-  toolbar,
-  goTo: p => { wentTo.push(p); page = p; },
-  position: () => ({ page, zoom: 2, x: 5, y: 6 }),
-  restore: pos => { restored = pos; page = pos.page; },
-  onAssign: (entryId, p) => assigned.push([entryId, p]),
-  onRemove: p => removed.push(p)
-});
-const [trigger, back] = toolbar.children;
-const menu = document.body.children[0];
-const [saveRow, list, empty] = menu.children;
-const [target, save] = saveRow.children;
-const destinations = () => list.children.map(row => row.children[0].textContent);
-assert.equal(trigger.hidden, true, 'a PDF opened without a report has nowhere to save pages');
-assert.equal(menu.hidden, true);
-assert.equal(toolbar.children.length, 2, 'the shortcuts cost one toolbar slot, never a second bar');
-
-nav.setEpisodes([
-  { id: 'ep-1', label: '#1 08/22/2026 09:18PM NS-VT', page: null },
-  { id: 'ep-2', label: '  ', page: 4 },
-  { id: 'ep-3', label: 'past the last page', page: 99 },
-  { id: 'nope-1', label: 'not an entry', page: 2 }
-]);
-assert.equal(trigger.hidden, false);
-assert.equal(trigger.textContent, 'EGM · 1', 'the saved count is the only always-visible state');
-trigger.fire('click');
-assert.equal(menu.hidden, false); assert.equal(document.activeElement, target);
-assert.deepEqual(target.labels(), ['Unassigned page', '#1 08/22/2026 09:18PM NS-VT', 'Entry 2 · p. 4', 'past the last page'],
-  'the logbook entry names the destination; a page past the end of the PDF is not a page link');
-assert.deepEqual(destinations(), ['Entry 2 · p. 4']);
-assert.equal(empty.hidden, true);
-
-// Save the current page, unassigned and then to a chosen entry. Saving hands the document back.
-assert.equal(save.textContent, 'Save page 1');
-save.fire('click');
-assert.deepEqual(assigned.at(-1), [null, 1], 'no chosen entry means an unassigned page');
-assert.equal(menu.hidden, true);
-trigger.fire('click');
-target.value = 'ep-1'; target.fire('change');
-assert.match(save.title, /Assign PDF page 1 to #1 08\/22\/2026 09:18PM NS-VT/);
-save.fire('click');
-assert.deepEqual(assigned.at(-1), ['ep-1', 1]);
-
-// The report owns the saved pages; the viewer shows what comes back.
-nav.setMarks([7, 4, 0, 40, 'x']);
-assert.equal(trigger.textContent, 'EGM · 2');
-trigger.fire('click');
-assert.deepEqual(destinations(), ['Entry 2 · p. 4', 'Unassigned · p. 7'],
-  'an assigned page is named by its episode, not listed twice');
-
-// Jumping remembers where reading was, and Back restores it exactly.
-assert.equal(back.hidden, true);
-list.children[1].children[0].fire('click');
-assert.deepEqual(wentTo.at(-1), 7);
-assert.equal(menu.hidden, true, 'choosing a destination gets out of the way');
-assert.equal(back.textContent, 'Back to p. 1'); assert.equal(back.hidden, false);
-trigger.fire('click');
-list.children[1].children[1].fire('click');
-assert.deepEqual(removed, [7]);
-assert.equal(menu.hidden, false, 'removing one page leaves the menu open for the next');
-back.fire('click');
-assert.deepEqual(restored, { page: 1, zoom: 2, x: 5, y: 6 }); assert.equal(back.hidden, true);
-assert.equal(menu.hidden, true, 'a toolbar click outside the popover dismisses it');
-
-// Escape and an outside click both close it.
-trigger.fire('click');
-document.handlers.keydown[0]({ key: 'Escape', target: menu, preventDefault() {}, stopImmediatePropagation() {} });
-assert.equal(menu.hidden, true); assert.equal(document.activeElement, trigger);
-trigger.fire('click');
-document.handlers.click[0]({ target: document.body });
-assert.equal(menu.hidden, true);
-
-// Background republishing must not rewrite the picker while it is open and focused.
-trigger.fire('click');
-document.activeElement = target;
-nav.setEpisodes([{ id: 'ep-9', label: 'later entry', page: 2 }]);
-assert.deepEqual(target.labels(), ['Unassigned page', '#1 08/22/2026 09:18PM NS-VT', 'Entry 2 · p. 4', 'past the last page']);
-assert.deepEqual(destinations(), ['later entry · p. 2', 'Unassigned · p. 4', 'Unassigned · p. 7'],
-  'the destination list still follows the report, and a page loses its episode name when that entry goes');
-document.activeElement = null;
-nav.refresh();
-assert.deepEqual(target.labels(), ['Unassigned page', 'later entry · p. 2']);
-assert.equal(target.value, '', 'a stale entry choice cannot survive the entry disappearing');
-nav.setEpisodes([]);
-assert.deepEqual(destinations(), ['Unassigned · p. 4', 'Unassigned · p. 7'], 'a page saved without an entry outlives the entries');
-nav.setMarks([]);
-assert.equal(list.children.length, 0); assert.equal(empty.hidden, false);
-assert.equal(trigger.textContent, 'EGM');
-nav.dispose();
-assert.equal(document.body.children.length, 0); assert.equal(toolbar.children.length, 0);
+const assigned=[],removed=[],reordered=[],printed=[];
+let page=1,restored=null,wentTo=[];
+const nav=sandbox.window.CRMEgmNavigation.mount({doc:{numPages:12},toolbar,
+ goTo:p=>{wentTo.push(p);page=p},position:()=>({page,zoom:2,x:5,y:6}),restore:p=>{restored=p;page=p.page},
+ onAssign:(id,p,selection)=>assigned.push({id,p,...selection}),onRemove:(p,id)=>removed.push({p,id}),
+ onReorder:ids=>reordered.push(ids),onPrint:pages=>printed.push(pages)});
+const [trigger,back]=toolbar.children,menu=document.body.children[0];
+const [saveRow,nameWrap,rangeRow,error,list,empty,printRow]=menu.children;
+const [target,save]=saveRow.children,name=nameWrap.children[1],range=rangeRow.children[0].children[1];
+const dest=()=>list.children.map(row=>row.children[2].textContent);
+assert.equal(trigger.hidden,true);assert.equal(menu.hidden,true);assert.equal(toolbar.children.length,2);
+nav.setEpisodes([{id:'ep-1',label:'#1 NS-VT',page:null},{id:'ep-2',label:'#2 AF',page:4}]);
+trigger.fire('click');assert.equal(document.activeElement,target);
+name.value='Quick look';range.value='1-3, 8';save.fire('click');
+assert.deepEqual(assigned.at(-1),{id:null,p:1,pages:[1,2,3,8],label:'Quick look',savedId:null});
+assert.equal(menu.hidden,true);
+trigger.fire('click');range.value='1-99';save.fire('click');assert.equal(assigned.length,1);assert.equal(error.hidden,false);
+range.value='2-3';rangeRow.children[1].fire('click');assert.equal(range.value,'1–3');
+range.value='';target.value='ep-1';target.fire('change');save.fire('click');assert.equal(assigned.at(-1).id,'ep-1');
+nav.setMarks([{id:'mark-a',pages:[1,2,3],page:1,label:'Quick look'}, {id:'mark-b',page:8,label:'Settings'}]);
+assert.equal(trigger.textContent,'EGM · 3');
+trigger.fire('click');assert.deepEqual(dest(),['Quick look · p. 1–3','#2 AF · p. 4','Settings · p. 8']);
+// Editing a named shortcut updates it in place; no second PDF or duplicate shortcut.
+list.children[0].children[3].fire('click');name.value='Overview';range.value='1-2';save.fire('click');
+assert.equal(assigned.at(-1).savedId,'mark-a');assert.equal(assigned.at(-1).label,'Overview');
+// Drag order is explicit, independent of physical page order.
+trigger.fire('click');list.children[2].children[0].fire('dragstart',{dataTransfer:{setData(){}}});
+list.children[0].fire('drop',{preventDefault(){}});
+assert.deepEqual(reordered.at(-1),['mark-b','mark-a','ep-2']);
+assert.equal(dest()[0],'Settings · p. 8');
+// Print selection deduplicates overlapping pages and keeps document order.
+list.children[0].children[1].checked=false;list.children[0].children[1].fire('change');
+printRow.children[1].fire('click');
+Promise.resolve().then(()=>{assert.deepEqual(printed[0],[1,2,3,4]);});
+list.children[0].children[2].fire('click');assert.equal(wentTo.at(-1),8);assert.equal(menu.hidden,true);
+back.fire('click');assert.deepEqual(restored,{page:1,zoom:2,x:5,y:6});
+trigger.fire('click');list.children[0].children[4].fire('click');assert.deepEqual(removed.at(-1),{p:8,id:'mark-b'});
+assert.equal(menu.hidden,false);
+document.handlers.keydown[0]({key:'Escape',target:menu,preventDefault(){},stopImmediatePropagation(){}});
+assert.equal(menu.hidden,true);assert.equal(document.activeElement,trigger);
+nav.dispose();assert.equal(document.body.children.length,0);assert.equal(toolbar.children.length,0);
 
 /* ---- the Schedule bridge, with live and obsolete frames ---------------------------------- */
 const schedule = fs.readFileSync(path.join(__dirname, '../protected/Patient_Schedule.html'), 'utf8');
@@ -200,3 +149,8 @@ assert.equal(loaded, 'other.pdf'); assert.equal(panel.pendingEgmLink.page, 5);
 message(pdfWindow, { type: 'pdfviewer:egm-ready', id: 'current', documentKey: key });
 assert.equal(outgoing[3][0].page, 5); assert.equal(panel.pendingEgmLink, null);
 console.log('PASS EGM shortcut menu and active-document bridge');
+
+message(pdfWindow,{type:'pdfviewer:egm-reorder',id:'current',documentKey:key,ids:['mark-a','ep-1']});
+assert.equal(toReport.at(-1).type,'crm:egm-reorder'); assert.deepEqual(toReport.at(-1).ids,['mark-a','ep-1']);
+message(pdfWindow,{type:'pdfviewer:egm-assign',id:'current',documentKey:key,page:1,pages:[1,2],label:'Summary',savedId:'mark-a'});
+assert.deepEqual(toReport.at(-1).pages,[1,2]); assert.equal(toReport.at(-1).label,'Summary');

@@ -45,7 +45,7 @@ const document = {
   addEventListener(type, handler) { if (type === 'click') onClick = handler; },
   getElementById: id => id === 'egm-marks' ? marks : ({})
 };
-const window = { CRM_EMBED: true, parent, isLoopMode: () => loop, addEventListener: (_, handler) => onMessage = handler };
+const window = { CRMPageSelection: require('../src/pdf-page-selection'), CRM_EMBED: true, parent, isLoopMode: () => loop, addEventListener: (_, handler) => onMessage = handler };
 vm.runInNewContext(fs.readFileSync(require.resolve('../src/crm-episode-links'), 'utf8'), {
   window, document, location: { origin: 'https://local.test' }, Event: class {}, MutationObserver: class { observe() {} }
 });
@@ -66,13 +66,13 @@ assert.equal(sent.at(-1).type, 'crm:egm-open-link');
 
 // A page saved without an entry persists in the report and is scoped to its source document.
 send({ ...assign, entryId: null, page: 6 });
-assert.equal(dirty, 2); assert.deepEqual(sent.at(-1).marks, [6]);
+assert.equal(dirty, 2); assert.deepEqual(sent.at(-1).marks.map(m => m.page), [6]);
 send({ ...assign, entryId: null, page: 6 });
 assert.equal(dirty, 2, 'the same page cannot be saved twice');
 send({ ...assign, entryId: null, page: 3 });
 send({ ...assign, page: 6 });
 assert.equal(readLink(ep.input.value).page, 6);
-assert.deepEqual(sent.at(-1).marks, [3], 'assigning a page drops its anonymous copy, not the others');
+assert.deepEqual(sent.at(-1).marks.map(m => m.page), [3], 'assigning a page drops its anonymous copy, not the others');
 
 loop = true; send(context); send({ ...assign, page: 3 });
 assert.equal(readLink(ep.input.value).page, 6, 'a hidden table cannot accept an assignment');
@@ -87,4 +87,33 @@ send({ type: 'crm:egm-remove', id: context.id, documentKey: key, page: 6 });
 assert.equal(ep.input.value, ''); assert.equal(marks.value, '');
 assert.equal(ep.button.linked, undefined); assert.equal(ep.button.disabled, true);
 assert.equal(readLink(lep.input.value).page, 3, 'removing one page leaves the others linked');
-console.log('PASS episode labels, links, unassigned pages, source identity and removal');
+
+// Ranges, labels and per-source order survive report JSON, without touching clinical output.
+loop=false; send(context);
+send({...assign,pages:[3,4,5,8],label:'Episode strip'});
+assert.deepEqual(readLink(ep.input.value).pages,[3,4,5,8]);
+send({...assign,entryId:null,pages:[1,2],page:1,label:'Quick look'});
+const named=sent.at(-1).marks.find(m=>m.label==='Quick look');
+assert.ok(named.id.startsWith('mark-'));
+send({type:'crm:egm-reorder',id:context.id,documentKey:key,ids:[named.id,'ep-1']});
+assert.equal(readLink(ep.input.value).order,1);
+assert.equal(JSON.parse(marks.value).find(m=>m.id===named.id).order,0);
+send({...assign,entryId:null,savedId:named.id,pages:[1,2,3],page:1,label:'Summary'});
+assert.deepEqual(sent.at(-1).marks.find(m=>m.id===named.id).pages,[1,2,3]);
+assert.equal(sent.at(-1).marks.find(m=>m.id===named.id).order,0);
+const storedMarks=marks.value;
+marks.value=JSON.stringify(JSON.parse(storedMarks)); send(context);
+assert.equal(sent.at(-1).marks.find(m=>m.id===named.id).label,'Summary');
+// A named range overlapping an episode remains independent.
+send({...assign,pages:[1,2,3],page:1});
+assert.ok(sent.at(-1).marks.some(m=>m.id===named.id));
+send({type:'crm:egm-remove',id:context.id,documentKey:key,savedId:named.id,page:1});
+assert.equal(readLink(ep.input.value).page,1);
+assert.ok(!sent.at(-1).marks.some(m=>m.id===named.id));
+// The source page count guards the message bridge too.
+send({...context,numPages:12}); const before=ep.input.value;
+send({...assign,pages:[12,13]}); assert.equal(ep.input.value,before);
+send({...assign,pages:[0,2]}); assert.equal(ep.input.value,before);
+send({...assign,entryId:null,savedId:named.id,pages:[1],page:1,label:'stale'});
+assert.ok(!sent.at(-1).marks.some(m=>m.label==='stale'));
+console.log('PASS episode labels, multi-page links, named shortcuts, order, identity and removal');

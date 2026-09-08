@@ -523,24 +523,28 @@ from the current form so the Schedule's chips are never stale; the cheap 1.5s li
 writes only `report.json` mid-edit. Patient List / Import / Export menus are otherwise unchanged,
 now sourcing the patient list from the bundle's `schedule.json`. A `.crmdb` opened directly on the
 CRM tool works the same as opening it on the Schedule (shared IndexedDB working copy + file handle).
-**EGM page navigation (Sep 2026).** The split-pane PDF viewer has an **EGMs** menu with locally
-detected recording candidates and episode-summary pages, using PDF headings/bookmarks. Both CRM
-and loop-recorder episode sections have an **EGM pages** button that always opens the menu.
-Candidates are suggestions, not proof that a page contains a recording; image-only or unfamiliar
-layouts can use the current-page picker. Choose **Entry 1**, **Entry 2**, etc. to save the page to a
-logbook row, or **Page shortcut only** for a temporary mark. Detected pages also have assignment
-pickers. A linked row shows a clickable **p. N** beside its number. Entry links save in `report.json`
-with the source filename and SHA-256 fingerprint; they follow the report's existing retention and
-stay out of PDF/TXT/RTF content. Clicking a row link can reopen its source from that patient's files.
-Missing or replaced PDFs ask for reassignment instead of jumping to an unrelated page.
-Each page's **×** removes that shortcut and its entry links without deleting episode data; removal
-of automatic suggestions lasts for the current viewer session. **Back to p. N** appears after a
-jump to a different page and restores the previous page/zoom/pan. Normal wheel paging and whole-page
-Fit are unchanged; the menu overlays the document without narrowing the panes. Detection and UI
-live in `src/pdf-egm-navigation.js`; report metadata and row controls live in `src/crm-episode-links.js`.
-Tests cover classification, active-frame/document messages, link assignment/removal, and source
-switches. Source changes ignore obsolete viewer loads. Search, persistent page-only marks, and
-validation against actual vendor exports remain follow-up work.
+**EGM page shortcuts and selected-page printing (Sep 2026).** The split-pane viewer keeps its
+single **EGM** dropdown. Save the current page or enter physical PDF page ranges (such as
+`12–15, 18`), optionally assigned to a logbook entry. **Named pages** accepts a free-text label
+for summary/settings pages. **+ Current** extends a selection while browsing; the pencil edits
+its name/range, **×** removes only that shortcut, and the grip reorders shortcuts by dragging
+(mouse or touch) or Alt+Up/Down. Clicking an episode's row number still jumps to its first page.
+**Back to p. N** restores the previous page/zoom/pan. No pages are automatically classified.
+
+Links and named shortcuts save in the existing report JSON, scoped to source filename and SHA-256
+fingerprint; old single-page links still work. They remain outside clinical PDF/TXT/RTF content.
+The metadata is small (page numbers, label, order). Checkboxes select shortcuts for **Print selected**;
+overlapping pages print once in original PDF order, independently of shortcut order. The toolbar's
+**Print** still prints the complete source. Selected-page printing copies original PDF pages in a
+temporary worker using vendored pdf-lib 1.17.1, preserving text and page geometry. The worker is
+loaded only on request and terminated afterward. No derived PDF is stored in the database or added
+to patient-folder downloads, and the 30-second container-save cadence is unchanged.
+
+Implementation: `src/pdf-page-selection.js` (ranges), `src/pdf-egm-navigation.js` (menu),
+`src/crm-episode-links.js` (report metadata), and `src/pdf-selection-worker.js` (printing).
+Tests cover ranges, backward compatibility, source isolation, labels, removal, ordering, the
+active-frame bridge, and the selected PDF's text, page count, dimensions and rotation.
+
 
 When a scheduled patient has a pre-charted **Last Office** date, the Report Generator shows it in
 the fixed app bar between the patient name and save status, including in the full split view.

@@ -1,9 +1,18 @@
 /* Episode navigation metadata rides in the existing report JSON, never in clinical exports. */
 (function (root) {
   'use strict';
+  var P = root ? root.CRMPageSelection : require('./pdf-page-selection');
   function checkLink(v) {
-    return v && /^sha256:[a-f0-9]{64}$/.test(v.documentKey) && typeof v.file === 'string' && v.file.length > 0 && v.file.length <= 255 &&
-      !/[\\/]/.test(v.file) && Number.isInteger(v.page) && v.page > 0 ? { documentKey: v.documentKey, file: v.file, page: v.page } : null;
+    if (!v || !/^sha256:[a-f0-9]{64}$/.test(v.documentKey) || typeof v.file !== 'string' || !v.file.length ||
+        v.file.length > 255 || /[\\/]/.test(v.file)) return null;
+    var pages = P.pagesOf(v);
+    if (!pages) return null;
+    var link = { documentKey: v.documentKey, file: v.file, page: pages[0] };
+    if (v.pages) link.pages = pages;
+    if (typeof v.label === 'string' && v.label.trim()) link.label = v.label.trim().slice(0, 80);
+    if (Number.isInteger(v.order) && v.order >= 0 && v.order < 10000) link.order = v.order;
+    if (typeof v.id === 'string' && /^mark-[a-z0-9-]{1,80}$/i.test(v.id)) link.id = v.id;
+    return link;
   }
   function readLink(value) {
     try { return checkLink(JSON.parse(value || 'null')); } catch (e) { return null; }
@@ -40,7 +49,8 @@
     }
     function saveMarks(list) {
       var el = marksInput();
-      if (el) { el.value = list.length ? JSON.stringify(list) : ''; dirty(el); }
+      var value = list.length ? JSON.stringify(list) : '';
+      if (el && el.value !== value) { el.value = value; dirty(el); }
     }
     function dirty(el) {
       // The same input event as manual editing marks the slot dirty and schedules its draft save.
@@ -51,6 +61,7 @@
       if (kept.length !== all.length) saveMarks(kept);
     }
     function ofSource(item) { return context && item.documentKey === context.documentKey && item.file === context.file; }
+    function markId(item) { return item.id || 'mark-' + item.page; }
     function publish() {
       var active = rows();
       // The row number is the jump control, so it stays visible whether or not a page is linked.
@@ -63,10 +74,15 @@
         b.setAttribute('aria-label', link ? 'Episode ' + n + ', open EGM page ' + link.page : 'Episode ' + n);
       });
       if (context && context.available && context.documentKey) post({ type: 'crm:egm-entries', id: context.id, documentKey: context.documentKey,
-        marks: readMarks().filter(ofSource).map(function (m) { return m.page; }),
+        marks: readMarks().filter(ofSource).map(function (m) {
+          return { id: markId(m), page: m.page, pages: P.pagesOf(m), label: m.label || '', order: m.order };
+        }),
         entries: active.map(function (row) {
           var link = readLink(input(row).value);
-          return { id: row.id, label: entryLabel(row), page: link && ofSource(link) ? link.page : null };
+          var current = link && ofSource(link);
+          return { id: row.id, label: current && link.label || entryLabel(row), page: current ? link.page : null,
+            defaultLabel: entryLabel(row), customLabel: current && link.label || '',
+            pages: current ? P.pagesOf(link) : null, order: current ? link.order : undefined };
         }) });
     }
     function save(row, value) {
@@ -85,25 +101,58 @@
       if (m.type === 'crm:egm-available') { context = m; publish(); return; }
       if (!context || !context.available || m.id !== context.id || m.documentKey !== context.documentKey) return;
       if (m.type === 'crm:egm-assign') {
-        var link = checkLink({ documentKey: context.documentKey, file: context.file, page: m.page });
+        var pages = P.pagesOf(m, context.numPages);
+        if (!pages) return;
+        var link = checkLink({ documentKey: context.documentKey, file: context.file, page: pages[0],
+          pages: m.pages ? pages : undefined, label: m.label });
         if (!link) return;
         if (m.entryId) {
           var row = rows().filter(function (r) { return r.id === m.entryId; })[0];
           if (!row) return;
+          var previous = readLink(input(row).value);
+          if (previous && ofSource(previous) && previous.order !== undefined) link.order = previous.order;
           save(row, link);
-          // An assigned page is now named by its episode; drop the anonymous copy of it.
-          dropMark(link.page);
-        } else if (!readMarks().some(function (k) { return ofSource(k) && k.page === link.page; })) {
-          saveMarks(readMarks().concat([link]));
-        } else return;
+          // Preserve named shortcuts, even if they overlap an episode. Legacy anonymous single
+          // pages retain their old assignment behavior.
+          saveMarks(readMarks().filter(function (k) { return !(ofSource(k) && !k.label && !k.id && k.page === link.page); }));
+        } else {
+          var all = readMarks(), index = all.findIndex(function (k) {
+            return ofSource(k) && (m.savedId ? markId(k) === m.savedId : !k.id && !k.label && k.page === link.page);
+          });
+          if (m.savedId && index < 0) return; // an obsolete editor cannot resurrect a removed shortcut
+          if (index >= 0) {
+            link.id = all[index].id || (m.savedId ? markId(all[index]) : undefined);
+            link.order = all[index].order;
+            if (JSON.stringify(all[index]) === JSON.stringify(link)) return;
+            all[index] = link;
+          } else {
+            if (m.pages || m.label) link.id = 'mark-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9);
+            all.push(link);
+          }
+          saveMarks(all);
+        }
         publish();
       } else if (m.type === 'crm:egm-remove') {
         // Include the other device-mode table too; links never silently reappear after a mode switch.
         document.querySelectorAll('[data-egm-link-value]').forEach(function (el) {
           var link = readLink(el.value);
-          if (link && ofSource(link) && link.page === m.page) save(el.closest('tr'), null);
+          if (link && ofSource(link) && (m.savedId ? el.closest('tr').id === m.savedId : link.page === m.page)) save(el.closest('tr'), null);
         });
-        dropMark(m.page);
+        if (m.savedId) saveMarks(readMarks().filter(function (k) { return !(ofSource(k) && markId(k) === m.savedId); }));
+        else dropMark(m.page);
+        publish();
+      } else if (m.type === 'crm:egm-reorder' && Array.isArray(m.ids) && m.ids.length <= 10000) {
+        var ids = Array.from(new Set(m.ids.filter(function (id) { return typeof id === 'string'; })));
+        rows().forEach(function (row) {
+          var link = readLink(input(row).value), order = ids.indexOf(row.id);
+          if (link && ofSource(link) && order >= 0 && link.order !== order) { link.order = order; save(row, link); }
+        });
+        var all = readMarks(), changed = false;
+        all.forEach(function (link) {
+          var order = ids.indexOf(markId(link));
+          if (ofSource(link) && order >= 0 && link.order !== order) { link.order = order; changed = true; }
+        });
+        if (changed) saveMarks(all);
         publish();
       }
     });

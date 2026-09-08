@@ -3176,7 +3176,7 @@
   function notifyEgmAvailability() {
     if (!panel || !panel.frame) return;
     panel.frame.contentWindow.postMessage({ type: 'crm:egm-available', available: !!panel.egmReady,
-      id: panel.viewDocId, documentKey: panel.egmDocumentKey, file: panel.viewFileName }, location.origin === 'null' ? '*' : location.origin);
+      id: panel.viewDocId, documentKey: panel.egmDocumentKey, file: panel.viewFileName, numPages: panel.egmNumPages }, location.origin === 'null' ? '*' : location.origin);
   }
   function togglePanel(i) {
     var r = rows()[i];
@@ -3190,11 +3190,12 @@
     // any other window that happens to share the origin.
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
-    if (m.type === 'pdfviewer:egm-ready' || m.type === 'pdfviewer:egm-assign' || m.type === 'pdfviewer:egm-remove') {
+    if (m.type === 'pdfviewer:egm-ready' || m.type === 'pdfviewer:egm-assign' || m.type === 'pdfviewer:egm-remove' || m.type === 'pdfviewer:egm-reorder') {
       var viewerFrame = panel && panel.tr.querySelector('.crm-viewer iframe');
       if (viewerFrame && ev.source === viewerFrame.contentWindow && m.id === panel.viewDocId) {
         if (m.type === 'pdfviewer:egm-ready') {
           panel.egmDocumentKey = /^sha256:[a-f0-9]{64}$/.test(m.documentKey) ? m.documentKey : null;
+          panel.egmNumPages = Number.isInteger(m.numPages) && m.numPages > 0 ? m.numPages : undefined;
           panel.egmReady = true; notifyEgmAvailability();
           var pending = panel.pendingEgmLink; panel.pendingEgmLink = null;
           if (pending) {
@@ -3202,9 +3203,11 @@
               viewerFrame.contentWindow.postMessage({ type: 'pdfviewer:egm-jump', id: panel.viewDocId, documentKey: panel.egmDocumentKey, page: pending.page }, location.origin === 'null' ? '*' : location.origin);
             } else setWsStatus('This PDF has changed. Reassign the episode to its EGM page.', 'warn');
           }
-        } else if (panel.egmReady && panel.egmDocumentKey && m.documentKey === panel.egmDocumentKey && Number.isInteger(m.page) && m.page > 0) {
-          panel.frame.contentWindow.postMessage({ type: m.type === 'pdfviewer:egm-assign' ? 'crm:egm-assign' : 'crm:egm-remove',
-            id: panel.viewDocId, documentKey: panel.egmDocumentKey, page: m.page, entryId: m.entryId }, location.origin === 'null' ? '*' : location.origin);
+        } else if (panel.egmReady && panel.egmDocumentKey && m.documentKey === panel.egmDocumentKey &&
+            (m.type === 'pdfviewer:egm-reorder' || (Number.isInteger(m.page) && m.page > 0))) {
+          panel.frame.contentWindow.postMessage({ type: m.type.replace('pdfviewer:', 'crm:'),
+            id: panel.viewDocId, documentKey: panel.egmDocumentKey, page: m.page, entryId: m.entryId,
+            pages: m.pages, label: m.label, savedId: m.savedId, ids: m.ids }, location.origin === 'null' ? '*' : location.origin);
         }
       }
       return;

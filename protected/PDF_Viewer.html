@@ -82,7 +82,22 @@ body.panning .page-stage { cursor: grabbing; }
   overflow: auto; z-index: 20; padding: 9px; background: #1b1f24; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px #0008; }
 .egm-menu[hidden] { display: none; }
 .egm-menu button { color: var(--text); background: #262b33; border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; font: inherit; cursor: pointer; }
-.egm-menu select { flex: 1 1 0; min-width: 0; background: #262b33; color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 5px 6px; font: inherit; }
+.egm-menu select, .egm-menu input:not([type="checkbox"]) { flex: 1 1 0; min-width: 0; background: #262b33; color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 5px 6px; font: inherit; }
+.egm-menu button:disabled { opacity: .5; cursor: default; }
+.egm-field { display: flex; align-items: center; gap: 6px; margin-top: 6px; min-width: 0; }
+.egm-field span { color: var(--muted); flex: 0 0 36px; }
+.egm-range-row { display: flex; align-items: end; gap: 6px; flex-wrap: wrap; }
+.egm-range-row .egm-field { flex: 1 1 150px; }
+.egm-menu [hidden] { display: none !important; }
+.egm-dest { align-items: center; }
+.egm-dest .egm-drag { padding: 4px 2px; cursor: grab; touch-action: none; border-color: transparent; background: transparent; }
+.egm-dragging { opacity: .45; }
+.egm-drop-target { outline: 1px solid #58a6ff; border-radius: 5px; }
+.egm-check { flex: none; accent-color: #58a6ff; }
+.egm-dest .egm-edit, .egm-dest .egm-remove { padding: 4px; flex: 0 0 24px; }
+.egm-print-row { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.egm-print-summary { color: var(--muted); }
+.egm-error { color: #ffb4a9; margin-top: 6px; }
 .egm-save-row { display: flex; gap: 6px; align-items: center; }
 .egm-save-row .egm-save { white-space: nowrap; }
 .egm-dest { display: flex; gap: 6px; margin-top: 6px; }
@@ -116,6 +131,7 @@ body.panning .page-stage { cursor: grabbing; }
 <div id="status">Waiting for the document&hellip;</div>
 
 <script src="../vendor/pdf.min.js"></script>
+<script src="../src/pdf-page-selection.js"></script>
 <script src="../src/pdf-egm-navigation.js"></script>
 <script>
 (function () {
@@ -219,8 +235,10 @@ body.panning .page-stage { cursor: grabbing; }
       $("printBtn").hidden = $("downloadBtn").hidden = $("tocBtn").hidden = false;
       $("zoomControls").hidden = false;
       egmNavigation = CRMEgmNavigation.mount({ doc: doc, goTo: goTo, toolbar: $("egmSlot"),
-        onAssign: function (entryId, page) { postEgm('pdfviewer:egm-assign', { entryId: entryId, page: page }); },
-        onRemove: function (page) { postEgm('pdfviewer:egm-remove', { page: page }); },
+        onAssign: function (entryId, page, selection) { postEgm('pdfviewer:egm-assign', Object.assign({ entryId: entryId, page: page }, selection)); },
+        onRemove: function (page, savedId) { postEgm('pdfviewer:egm-remove', { page: page, savedId: savedId }); },
+        onReorder: function (ids) { postEgm('pdfviewer:egm-reorder', { ids: ids }); },
+        onPrint: function (pages) { return printSelectedPages(pages); },
         position: function () { var s = shells[current - 1]; return { page: current, zoom: zoom, x: s ? s.panX : 0, y: s ? s.panY : 0 }; },
         restore: function (pos) {
           setZoom(pos.zoom);
@@ -233,7 +251,7 @@ body.panning .page-stage { cursor: grabbing; }
       layout();
       updatePager();
       buildToc();
-      postEgm('pdfviewer:egm-ready');
+      postEgm('pdfviewer:egm-ready', { numPages: total });
     }).catch(function (e) {
       showStatus("Could not open " + docName + ": " + e.message);
     });
@@ -654,44 +672,69 @@ body.panning .page-stage { cursor: grabbing; }
   // pdf.js keeps the original bytes; getData() hands them back so Print and Download never need
   // a second copy of the document held around just in case.
   var printFrame = null, printUrl = null, printCleanupTimer = null;
+  var selectionJob = null, printGeneration = 0;
   function cleanupPrintFrame() {
+    printGeneration++;
+    if (selectionJob) selectionJob.cancel();
     clearTimeout(printCleanupTimer);
     if (printFrame && printFrame.parentNode) printFrame.parentNode.removeChild(printFrame);
     if (printUrl) URL.revokeObjectURL(printUrl);
     printFrame = null; printUrl = null;
   }
-  $("printBtn").addEventListener("click", function () {
+  function showPrintBytes(bytes, generation) {
+    if (generation !== printGeneration) return;
+    printUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    printFrame = document.createElement('iframe');
+    printFrame.title = 'Print ' + docName;
+    printFrame.style.cssText = 'position:fixed;width:1px;height:1px;right:0;bottom:0;border:0;opacity:0;pointer-events:none';
+    printFrame.onload = function () {
+      setTimeout(function () {
+        if (generation !== printGeneration) return;
+        try {
+          var pw = printFrame && printFrame.contentWindow;
+          if (!pw) throw new Error('Print frame unavailable');
+          pw.focus(); pw.onafterprint = cleanupPrintFrame; pw.print();
+        } catch (e) {
+          cleanupPrintFrame();
+          window.alert('Could not open the print dialog. Try Print again.');
+        }
+      }, 250);
+    };
+    printFrame.src = printUrl;
+    document.body.appendChild(printFrame);
+    printCleanupTimer = setTimeout(cleanupPrintFrame, 120000);
+  }
+  function printSelectedPages(pages) {
+    if (!doc) return Promise.resolve();
+    cleanupPrintFrame();
+    var generation = printGeneration;
+    return doc.getData().then(function (bytes) {
+      if (generation !== printGeneration) return;
+      return new Promise(function (resolve, reject) {
+        var worker = new Worker('../src/pdf-selection-worker.js');
+        var job = { cancel: function () { finish(new Error('Print cancelled.')); } };
+        var timer = setTimeout(function () { finish(new Error('Print preparation timed out. Try fewer pages.')); }, 120000);
+        selectionJob = job;
+        function finish(error, selected) {
+          clearTimeout(timer); worker.terminate();
+          if (selectionJob === job) selectionJob = null;
+          if (error) reject(error);
+          else { showPrintBytes(selected, generation); resolve(); }
+        }
+        worker.onmessage = function (ev) { finish(ev.data.error ? new Error(ev.data.error) : null, ev.data.bytes); };
+        worker.onerror = function () { finish(new Error('Could not prepare selected pages.')); };
+        // getData returns a fresh copy; transferring it avoids another main-thread copy.
+        try { worker.postMessage({ bytes: bytes, pages: pages }, [bytes.buffer]); }
+        catch (e) { finish(e); }
+      });
+    });
+  }
+  $('printBtn').addEventListener('click', function () {
     if (!doc) return;
     cleanupPrintFrame();
-    doc.getData().then(function (bytes) {
-      printUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-      printFrame = document.createElement("iframe");
-      printFrame.title = "Print " + docName;
-      printFrame.style.cssText = "position:fixed;width:1px;height:1px;right:0;bottom:0;border:0;opacity:0;pointer-events:none";
-      printFrame.onload = function () {
-        // Let Chrome's native PDF plugin finish attaching before invoking its print command. This
-        // prints every vector page from the original bytes, not just the canvases currently near
-        // the one-page scroller.
-        setTimeout(function () {
-          try {
-            var pw = printFrame && printFrame.contentWindow;
-            if (!pw) throw new Error("Print frame unavailable");
-            pw.focus();
-            pw.onafterprint = cleanupPrintFrame;
-            pw.print();
-          } catch (e) {
-            cleanupPrintFrame();
-            window.alert("Chrome could not open the print dialog. Use Download, then print the saved file.");
-          }
-        }, 250);
-      };
-      printFrame.src = printUrl;
-      document.body.appendChild(printFrame);
-      // Some PDF plugin versions do not emit afterprint. Keep the Blob long enough for the dialog,
-      // then deterministically release it instead of retaining another full document indefinitely.
-      printCleanupTimer = setTimeout(cleanupPrintFrame, 120000);
-    }).catch(function (e) {
-      window.alert("Could not prepare this PDF for printing: " + e.message);
+    var generation = printGeneration;
+    doc.getData().then(function (bytes) { showPrintBytes(bytes, generation); }).catch(function (e) {
+      window.alert('Could not prepare this PDF for printing: ' + e.message);
     });
   });
   function classicDownload(blob, name) {
