@@ -8,3 +8,12 @@
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Strict-Transport-Security: max-age=31536000
+
+# The viewer pulls src/*.js straight off the origin, and pdf-selection-worker.js is fetched by
+# new Worker() — which Chrome keeps in the HTTP cache well past a normal reload. With no
+# Cache-Control at all these files got heuristic freshness, so a deployed fix could sit unused
+# behind a stale copy. no-cache still allows a 304, so revalidation costs a header round trip.
+/src/*
+  Cache-Control: no-cache
+/protected/*
+  Cache-Control: no-cache
