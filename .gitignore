@@ -3,3 +3,8 @@
 mileage-backend/.wrangler/
 node_modules/
 /.claude    
+
+# Xcode per-user state for the iPad app (iPad_APP/)
+xcuserdata/
+*.xcuserstate
+iPad_APP/dist/

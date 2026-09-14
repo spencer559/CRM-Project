@@ -151,6 +151,25 @@
   td.lo { vertical-align:middle; }
   td.lo input { width:108px; color-scheme:dark; }
   td.pt input { width:160px; }
+  /* Landscape iPad (11-inch: 1194pt wide) leaves 1132px for the table, 60px short of the columns
+     above, which clipped Files and the delete control. Wherever the full layout would not fit,
+     trim the wordier columns just enough that the whole row stays on screen. The header widths
+     are inline, hence !important; nth-child follows the header order. */
+  @media (max-width: 1260px) {
+    .twrap table { min-width:1122px; }
+    .twrap thead th:nth-child(1)  { width:104px !important; }  /* Time */
+    .twrap thead th:nth-child(2)  { width:156px !important; }  /* Patient */
+    .twrap thead th:nth-child(3)  { width:90px !important; }   /* MFR */
+    .twrap thead th:nth-child(4)  { width:80px !important; }   /* Device */
+    .twrap thead th:nth-child(5)  { width:110px !important; }  /* Provider */
+    .twrap thead th:nth-child(6)  { width:84px !important; }   /* Check type */
+    .twrap thead th:nth-child(7)  { width:108px !important; }  /* Last office */
+    .twrap thead th:nth-child(8)  { width:104px !important; }  /* Remote */
+    .twrap thead th:nth-child(12) { width:88px !important; }   /* Files */
+    td.time input { width:96px; }
+    td.lo input { width:98px; }
+    td.pt input { width:146px; }
+  }
   /* The appointment row and its full-width notes row read as one block: drop the divider
      between them, and let the notes row carry the bottom border. */
   tr.appt-row > td { border-bottom:none; }

@@ -1,0 +1,24 @@
+# Everything the iPad app ships: the three offline pages and exactly what they load.
+# copy-web.sh copies these (repo-relative) into the app bundle's www/ folder at build time,
+# keeping the protected/ src/ vendor/ layout because every page loads its scripts via ../ paths.
+protected/Patient_Schedule.html
+protected/CRM_Report_Generator.html
+protected/PDF_Viewer.html
+src/crmdb-store.js
+src/crmdb-commit-cadence.js
+src/engine.js
+src/crm-episode-links.js
+src/crm-keyboard-focus.js
+src/pdf-page-selection.js
+src/pdf-egm-navigation.js
+src/pdf-selection-worker.js
+src/parsers/abbott.js
+src/parsers/biotronik.js
+src/parsers/boston.js
+src/parsers/medtronic.js
+vendor/crmdb-zip.js
+vendor/pdf.min.js
+vendor/pdf.worker.min.js
+vendor/jspdf.umd.min.js
+vendor/jspdf.plugin.autotable.min.js
+vendor/pdf-lib.min.js

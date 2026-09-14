@@ -1444,6 +1444,8 @@
   function stored() {
     lastOpenError = null;
     return idbGet("fileHandle").then(function (h) {
+      // The iPad app's native handles come back from IndexedDB as plain data; re-attach methods.
+      if (h && h.crmNativeToken && window.CRMNative) h = window.CRMNative.rehydrate(h);
       if (h && canAutosave) fileHandle = h;
       return loadMeta().then(function () {
         // Desktop with a bound file must prove its cache isn't stale (verifyFreshness) before any

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Gives the app its own folder under Files > On My iPad, a natural home for the .crmdb.
+	     Xcode has no generated-Info.plist build setting for this key; everything else is generated
+	     from the INFOPLIST_KEY_* build settings and merged with this file. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+</dict>
+</plist>

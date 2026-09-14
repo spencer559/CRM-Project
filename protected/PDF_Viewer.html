@@ -683,6 +683,14 @@ body.panning .page-stage { cursor: grabbing; }
   }
   function showPrintBytes(bytes, generation) {
     if (generation !== printGeneration) return;
+    if (window.CRMNative && window.CRMNative.printPdf) {
+      // iPad app: WKWebView can't print a PDF frame, so the bytes go straight to the print sheet.
+      window.CRMNative.printPdf(bytes).then(cleanupPrintFrame, function () {
+        cleanupPrintFrame();
+        window.alert('Could not open the print dialog. Try Print again.');
+      });
+      return;
+    }
     printUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     printFrame = document.createElement('iframe');
     printFrame.title = 'Print ' + docName;
