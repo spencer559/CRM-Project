@@ -2,11 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<!-- Same PHI stance as the rest of the app: connect-src 'none' means nothing on this page can
-     reach a network. The document arrives by postMessage from the page that opened this tab
+<!-- Same PHI stance as the rest of the app: nothing on this page can reach a network.
+     connect-src crmapp: allows exactly one thing: the iPad app's own
+     custom scheme, which is served by the app itself and names no network destination.
+     No http/https origin is reachable, and in a browser nothing resolves crmapp: at all,
+     so the no-egress guarantee is unchanged. It is how the app hands this page the bytes
+     of a .crmdb the user picked, without base64-ing 55MB through a message handler. The document arrives by postMessage from the page that opened this tab
      (window-to-window messaging is not a CSP fetch), and pdf.js runs entirely on the vendored
      files beside this page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src crmapp:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PDF</title>
 <style>

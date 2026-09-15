@@ -1,7 +1,7 @@
 /* The iPad app's native file bridge (iPad_APP/CRMiPad/crm-native-shim.js) driving crmdb-store.js.
  *
  * WKWebView has no File System Access API; the app injects showOpenFilePicker/showSaveFilePicker
- * and handles whose bytes cross to Swift as base64. With the shim present crmdb-store must take its
+ * and handles whose bytes are fetched from Swift as binary (writes still cross as base64). With the shim present crmdb-store must take its
  * DESKTOP path — a bound .crmdb autosaved in place — and survive a reload. That last part is the
  * subtle one: a real FileSystemFileHandle structured-clones into IndexedDB, but the shim's handle
  * comes back as plain data and has to be rehydrated, or autosave silently stops after a reload.
@@ -43,6 +43,17 @@ const sessions = new Map();
 let nextPick = null;
 let clock = 1_780_000_000_000;
 const gone = { error: "Can't reach the database file.", name: "NotFoundError" };
+// The read route (BundleSchemeHandler). Reads no longer come back through the message bridge as
+// base64: the shim fetches them as binary from the app's own origin, in one streamed response.
+let fetchBlocked = false;   // a page CSP without connect-src, or a WebKit that declines the scheme
+global.fetch = function (url) {
+  ops.push("fetch");
+  if (fetchBlocked) return Promise.reject(new TypeError("Load failed"));
+  const q = new URL(url).searchParams;
+  const f = target(q.get("token"), q.get("path") || "");
+  if (!f || !f.reachable) return Promise.resolve({ ok: false, status: 404 });
+  return Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(new Blob([f.bytes])) });
+};
 global.webkit = { messageHandlers: { crmNative: { postMessage(msg) {
   ops.push(msg.op);
   const f = target(msg.token, msg.path);
@@ -161,7 +172,8 @@ async function run() {
   nextPick = "tok-usb";
   await tab.connect();
   assert.strictEqual((await schedOf(tab)).dates["2026-09-10"][0].pt, "SEED");
-  assert.ok(count("read") > 1, "a multi-MB database is read in several bridge calls");
+  assert.strictEqual(count("fetch"), 1, "the database is read as binary in one streamed response");
+  assert.strictEqual(count("read"), 0, "no part of a read crosses the message bridge as base64");
 
   /* 2. Edit + save: written back to the SAME file in place, across several chunks. */
   ops.length = 0;
@@ -171,7 +183,7 @@ async function run() {
   await tab.saveNow();
   assert.ok(count("writeChunk") >= 2, "a > 3 MB save is sent in several chunks");
   assert.strictEqual(count("writeCommit"), 1);
-  assert.strictEqual(count("read"), 0, "re-reading the file we just wrote is served from the shim's cache");
+  assert.strictEqual(count("read") + count("fetch"), 0, "re-reading the file we just wrote is served from the shim's cache");
   assert.deepStrictEqual((await scheduleOnDisk("tok-usb")).dates["2026-09-10"].map((e) => e.pt), ["SEED", "EDIT-1"]);
 
   /* 3. Reload: IndexedDB hands back plain data; the store must rehydrate it and keep autosaving. */
@@ -246,6 +258,23 @@ async function run() {
   await assert.rejects(picked.getDirectoryHandle("..", { create: true }), (e) => e.name === "TypeError");
   await assert.rejects(picked.getFileHandle("a/b.pdf", { create: true }), (e) => e.name === "TypeError");
   await assert.rejects(picked.getFileHandle("2026-09-11"), (e) => e.name === "TypeMismatchError");
+
+  /* The binary read route is not always available — a page whose Content-Security-Policy has no
+     connect-src blocks it outright, which is exactly how it failed on device. The open must still
+     succeed over the base64 bridge rather than failing. */
+  {
+    ops.length = 0;
+    fetchBlocked = true;
+    disk.get("tok-usb").mtime = ++clock;   // past the shim's cache, so the bytes really are re-read
+    const blocked = newTab();
+    nextPick = "tok-usb";
+    await blocked.connect();
+    assert.ok((await schedOf(blocked)).dates["2026-09-10"].length >= 1,
+      "with the fast path blocked the database must still open");
+    assert.strictEqual(count("fetch"), 1, "the fast path is tried first");
+    assert.ok(count("read") > 1, "and the bytes then come over the base64 bridge instead");
+    fetchBlocked = false;
+  }
 
   console.log("ipad-native-shim: all assertions passed");
 }

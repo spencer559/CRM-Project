@@ -6,6 +6,26 @@ import UniformTypeIdentifiers
 /// least as often as it is an unplugged stick.
 private let unreachableMessage = "Can't reach the database file. If it's in OneDrive or iCloud, open the Files app and make sure it has finished downloading (long-press it, Download Now). If it's on a USB stick, plug it in and try again."
 
+/// Token → the URLs that back it, readable from any thread. `NativeBridge` is the only writer;
+/// `BundleSchemeHandler` reads it off the main thread while streaming a file to the page. It exists
+/// because the bridge's own state is main-actor isolated and a 55MB read must not run there.
+final class NativeFileIndex: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [String: [URL]] = [:]
+
+    func set(_ token: String, _ urls: [URL]) {
+        lock.lock(); defer { lock.unlock() }
+        entries[token] = urls
+    }
+
+    /// (scope root, target) pairs for a handle, best first. The root is what carries the security
+    /// scope; the target is the file itself, which for a picked folder is `path` inside it.
+    func targets(_ token: String, _ path: String) -> [(root: URL, target: URL)] {
+        lock.lock(); let roots = entries[token] ?? []; lock.unlock()
+        return roots.compactMap { root in (try? NativeBridge.descend(root, path)).map { (root, $0) } }
+    }
+}
+
 /// Native half of crm-native-shim.js. Backs the File System Access subset the pages use with iOS
 /// document pickers, security-scoped bookmarks and coordinated reads/writes, so a .crmdb picked
 /// from On My iPad, iCloud Drive or a USB stick is autosaved in place, and a picked folder can be
@@ -13,6 +33,12 @@ private let unreachableMessage = "Can't reach the database file. If it's in OneD
 @MainActor
 final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentPickerDelegate {
     static let name = "crmNative"
+    /// The page fetches file bytes from this reserved path on the app's own origin, so `fetch` is
+    /// same-origin and the bytes arrive as binary rather than as base64 in message chunks.
+    static let filePath = "/__native/file"
+
+    /// Shared with the scheme handler, which serves those bytes. Written by `candidates`.
+    let files = NativeFileIndex()
 
     /// Pickers and alerts are presented over this controller's top-most presented child.
     weak var host: UIViewController?
@@ -235,6 +261,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
             throw Failure(name: "NotFoundError", message: "This file is no longer linked. Open it again.")
         }
         guard !urls.isEmpty else { throw Failure(name: "NotFoundError", message: unreachableMessage) }
+        // The scheme handler serves bytes for this token without going through the bridge, so it
+        // needs the same answer we just worked out. Every read does a stat first, which lands here.
+        files.set(token, urls)
         return urls
     }
 
@@ -322,9 +351,25 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
         FileManager.default.isReadableFile(atPath: url.path)
     }
 
+    /// Streams a file to `sink` under one security scope and one coordinated read. Slicing here is
+    /// about peak memory, not round trips: WebKit takes the bytes as binary, so there is no base64
+    /// and no per-slice message. `begin` gets the total size first, for Content-Length.
+    nonisolated static func stream(root: URL, target: URL, slice: Int = 1 << 20,
+                                   begin: (UInt64) -> Void, _ sink: (Data) -> Void) throws {
+        try withAccess(root) {
+            try coordinateRead(target) { url in
+                let handle = try FileHandle(forReadingFrom: url)
+                defer { try? handle.close() }
+                begin(try handle.seekToEnd())
+                try handle.seek(toOffset: 0)
+                while let part = try handle.read(upToCount: slice), !part.isEmpty { sink(part) }
+            }
+        }
+    }
+
     /// A path inside a picked folder, built one checked component at a time, so nothing a page sends
     /// can reach outside the folder the user chose.
-    nonisolated private static func descend(_ root: URL, _ path: String) throws -> URL {
+    nonisolated static func descend(_ root: URL, _ path: String) throws -> URL {
         guard !path.isEmpty else { return root }
         var url = root
         for part in path.split(separator: "/", omittingEmptySubsequences: false) {

@@ -2,11 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<!-- CSP: schedule rows contain patient names — treat as PHI. connect-src 'none'
-     means this page cannot make ANY network request: nothing typed here can leave the browser.
+<!-- CSP: schedule rows contain patient names — treat as PHI. This page cannot make any
+     NETWORK request: nothing typed here can leave the browser. connect-src crmapp: allows exactly one thing: the iPad app's own
+     custom scheme, which is served by the app itself and names no network destination.
+     No http/https origin is reachable, and in a browser nothing resolves crmapp: at all,
+     so the no-egress guarantee is unchanged. It is how the app hands this page the bytes
+     of a .crmdb the user picked, without base64-ing 55MB through a message handler.
      Storage is localStorage plus an optional local file (e.g. in OneDrive) the user connects
      explicitly via the File System Access API. Gated behind Cloudflare Access with the rest of /protected/. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src crmapp:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Patient Schedule</title>
 <style>

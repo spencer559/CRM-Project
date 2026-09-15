@@ -2,12 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<!-- Content-Security-Policy: PHI cannot leave the browser. connect-src 'none' blocks every
-     network request (fetch/XHR/beacon/WebSocket), so no script — ours or a dependency — can
-     exfiltrate patient data. All scripts/styles are same-origin (pdf.js is vendored locally);
+<!-- Content-Security-Policy: PHI cannot leave the browser. connect-src blocks every network
+     request (fetch/XHR/beacon/WebSocket), so no script — ours or a dependency — can exfiltrate
+     patient data. connect-src crmapp: allows exactly one thing: the iPad app's own
+     custom scheme, which is served by the app itself and names no network destination.
+     No http/https origin is reachable, and in a browser nothing resolves crmapp: at all,
+     so the no-egress guarantee is unchanged. It is how the app hands this page the bytes
+     of a .crmdb the user picked, without base64-ing 55MB through a message handler. All scripts/styles are same-origin (pdf.js is vendored locally);
      'unsafe-inline' is required only because the form uses inline event handlers + <script>
      blocks, and it does not permit any network egress. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src crmapp:; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CRM Interrogation — Digital Form</title>
 

@@ -11,14 +11,18 @@
  * autosaved in place.
  *
  * It also routes printing to the native print sheet, since WKWebView ignores window.print().
- * Bytes cross the bridge as base64 in chunks (message bodies can't carry binary).
+ * Writes cross the bridge as base64 in chunks (message bodies can't carry binary); reads come
+ * back as binary from crmapp://app/__native/file, which is far cheaper for a database-sized file.
  */
 (function (root) {
   "use strict";
   var handlers = root.webkit && root.webkit.messageHandlers;
   if (!handlers || !handlers.crmNative || root.CRMNative) return;
   var bridge = handlers.crmNative;
-  var CHUNK = 3 * 1024 * 1024;   // bytes per bridge message (each one is base64-encoded on its own)
+  var CHUNK = 3 * 1024 * 1024;   // bytes per bridge message, on the write side (base64-encoded)
+  // Reads come back over the app's own origin as binary instead. Same origin as the pages, so no
+  // CORS; served by BundleSchemeHandler.
+  var FILE_URL = "crmapp://app/__native/file";
 
   function domError(name, message) {
     try { return new DOMException(message || name, name); }
@@ -79,6 +83,41 @@
     this.crmNativeToken = token;
     this.crmNativePath = path || "";
   }
+  // The file's metadata on its own, without materialising a byte of it. crmdb-store's freshness
+  // check only ever compares lastModified, and on desktop getFile() is lazy so that costs nothing;
+  // here it would have pulled the whole database across for a number it then throws away.
+  NativeFileHandle.prototype.crmNativeStat = function () {
+    return call("stat", { token: this.crmNativeToken, path: this.crmNativePath });
+  };
+  // The fast path: one streamed binary response from the app's own origin.
+  function fetchBytes(token, path, st) {
+    var url = FILE_URL + "?token=" + encodeURIComponent(token) +
+              "&path=" + encodeURIComponent(path) +
+              "&v=" + encodeURIComponent(st.lastModified + "-" + st.size);
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error("native file route: HTTP " + r.status);
+      return r.blob();
+    });
+  }
+  // The fallback: base64 through the message bridge, a CHUNK at a time. This is what the app
+  // shipped on for months, and it is kept because the fast path can be unavailable for reasons
+  // that have nothing to do with the file — a page whose Content-Security-Policy forbids
+  // connect-src, or a WebKit that declines the custom scheme. Slower, but it always works, and a
+  // database that will not open is far worse than one that opens slowly. A file that is genuinely
+  // unreachable fails here too, with the native side's own wording.
+  function readBytes(token, path, st) {
+    var parts = [], offset = 0;
+    function next() {
+      if (offset >= st.size) return new Blob(parts);
+      return call("read", { token: token, path: path, offset: offset, length: CHUNK }).then(function (r) {
+        var bytes = base64ToBytes(r.data);
+        if (!bytes.length) { st.size = offset; return next(); }   // file shrank underneath us
+        parts.push(bytes); offset += bytes.length;
+        return next();
+      });
+    }
+    return Promise.resolve().then(next);
+  }
   NativeFileHandle.prototype.getFile = function () {
     var token = this.crmNativeToken, path = this.crmNativePath, key = token + "\n" + path;
     return call("stat", { token: token, path: path }).then(function (st) {
@@ -86,21 +125,15 @@
       if (hit && hit.size === st.size && hit.lastModified === st.lastModified) {
         return new File([hit.blob], st.name, { lastModified: st.lastModified });
       }
-      var parts = [], offset = 0;
-      function next() {
-        if (offset >= st.size) {
-          var file = new File(parts, st.name, { lastModified: st.lastModified });
-          cache[key] = { blob: file, size: file.size, lastModified: st.lastModified };
-          return file;
-        }
-        return call("read", { token: token, path: path, offset: offset, length: CHUNK }).then(function (r) {
-          var bytes = base64ToBytes(r.data);
-          if (!bytes.length) { st.size = offset; return next(); }   // file shrank underneath us
-          parts.push(bytes); offset += bytes.length;
-          return next();
-        });
-      }
-      return next();
+      // The stat above is what tells the native side which file this token means, so it always
+      // runs before either transport.
+      return fetchBytes(token, path, st).catch(function () {
+        return readBytes(token, path, st);
+      }).then(function (blob) {
+        var file = new File([blob], st.name, { lastModified: st.lastModified });
+        cache[key] = { blob: file, size: file.size, lastModified: st.lastModified };
+        return file;
+      });
     });
   };
   // Every writer in the pages replaces the whole file, so the stream just collects what it is given

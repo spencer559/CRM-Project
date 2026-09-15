@@ -1183,37 +1183,45 @@
     if (!fileHandle || !canAutosave) { freshnessVerified = true; return Promise.resolve({ decision: "cache" }); }
     // Queued behind any file write still in flight, so we never compare against a file mid-write.
     return enqueueFile(function () {
-      return fileHandle.getFile().then(function (f) {
+      // Only the mtime is needed to settle the common case. A real getFile() is lazy, so asking a
+      // desktop handle for it costs nothing — but the iPad shim has to materialise the whole file
+      // to hand one back, and below we would throw those bytes straight away. Take the cheap stat
+      // when the shim offers one; everything else keeps the handle it always had.
+      var meta = fileHandle.crmNativeStat ? fileHandle.crmNativeStat() : fileHandle.getFile();
+      return Promise.resolve(meta).then(function (m) {
         // File unchanged since our cache was based on it → the cache is at least as new. Trust it.
-        if (baseFileMod != null && f.lastModified <= baseFileMod) {
+        if (baseFileMod != null && m.lastModified <= baseFileMod) {
           freshnessVerified = true;
           if (!pendingSig) return { decision: "cache" };
           pendingSig = null;                                  // that save never reached the file
           return persistMeta().then(function () { return { decision: "cache" }; });
         }
-        // The mtime moved. Before calling that another station's work, check whose bytes are there.
-        return readFile(f).then(function (info) {
-          if (info.own) {
-            // Bytes this machine put there: an autosave whose bookkeeping was cut short by
-            // navigation, the other tab's save, or OneDrive re-stamping the file after syncing it
-            // up. Never a conflict — but if they came from the other tab (a signature we know that
-            // isn't the one our cache is pinned to) and we hold nothing unsaved, load them, the way
-            // any newer copy would be loaded.
-            if (info.sig !== baseSig && cacheMatchesFile) {
-              return adoptFile(f, info).then(function () { return { decision: "file" }; });
+        // The mtime moved. Before calling that another station's work, check whose bytes are there
+        // — which does need the file itself.
+        return Promise.resolve(fileHandle.getFile()).then(function (f) {
+          return readFile(f).then(function (info) {
+            if (info.own) {
+              // Bytes this machine put there: an autosave whose bookkeeping was cut short by
+              // navigation, the other tab's save, or OneDrive re-stamping the file after syncing it
+              // up. Never a conflict — but if they came from the other tab (a signature we know that
+              // isn't the one our cache is pinned to) and we hold nothing unsaved, load them, the way
+              // any newer copy would be loaded.
+              if (info.sig !== baseSig && cacheMatchesFile) {
+                return adoptFile(f, info).then(function () { return { decision: "file" }; });
+              }
+              // Otherwise just re-pin. Local edits stay pending (cacheMatchesFile untouched) so the
+              // next save still carries them out to the file.
+              baseFileMod = f.lastModified;
+              baseSig = info.sig; pendingSig = null;
+              freshnessVerified = true;
+              return persistMeta().then(function () { return { decision: "cache" }; });
             }
-            // Otherwise just re-pin. Local edits stay pending (cacheMatchesFile untouched) so the
-            // next save still carries them out to the file.
-            baseFileMod = f.lastModified;
-            baseSig = info.sig; pendingSig = null;
-            freshnessVerified = true;
-            return persistMeta().then(function () { return { decision: "cache" }; });
-          }
-          // File is newer than the state our cache was based on (edited from another station, or a
-          // OneDrive sync brought a newer copy down). No unsaved edits here → the file simply wins.
-          if (cacheMatchesFile) return adoptFile(f, info).then(function () { return { decision: "file" }; });
-          // Newer file AND unsaved local edits → real conflict.
-          return resolveConflict(f, info);
+            // File is newer than the state our cache was based on (edited from another station, or a
+            // OneDrive sync brought a newer copy down). No unsaved edits here → the file simply wins.
+            if (cacheMatchesFile) return adoptFile(f, info).then(function () { return { decision: "file" }; });
+            // Newer file AND unsaved local edits → real conflict.
+            return resolveConflict(f, info);
+          });
         });
       });
     }).then(function (res) {

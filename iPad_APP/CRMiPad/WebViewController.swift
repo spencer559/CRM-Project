@@ -17,7 +17,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     override func loadView() {
         let config = WKWebViewConfiguration()
         let www = Bundle.main.resourceURL!.appendingPathComponent("www", isDirectory: true)
-        config.setURLSchemeHandler(BundleSchemeHandler(root: www), forURLScheme: BundleSchemeHandler.scheme)
+        config.setURLSchemeHandler(BundleSchemeHandler(root: www, files: bridge.files), forURLScheme: BundleSchemeHandler.scheme)
         config.websiteDataStore = .default()
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
         if let shim = Bundle.main.url(forResource: "crm-native-shim", withExtension: "js"),
