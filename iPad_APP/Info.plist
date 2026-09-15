@@ -7,5 +7,11 @@
 	     from the INFOPLIST_KEY_* build settings and merged with this file. -->
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<!-- Required for the app to be handed a file where it lives instead of a throwaway copy. The
+	     open picker asks for open-in-place (asCopy: false) and some File Providers — OneDrive is
+	     the one that bit us — won't hand over a usable in-place URL to an app that doesn't declare
+	     this. Without it a picked OneDrive .crmdb fails to read at all. -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>

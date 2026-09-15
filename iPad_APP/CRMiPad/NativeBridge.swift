@@ -2,6 +2,10 @@ import UIKit
 import UniformTypeIdentifiers
 @preconcurrency import WebKit
 
+/// One wording for "the bytes aren't here". On iPad that is a cloud file that never came down at
+/// least as often as it is an unplugged stick.
+private let unreachableMessage = "Can't reach the database file. If it's in OneDrive or iCloud, open the Files app and make sure it has finished downloading (long-press it, Download Now). If it's on a USB stick, plug it in and try again."
+
 /// Native half of crm-native-shim.js. Backs the File System Access subset the pages use with iOS
 /// document pickers, security-scoped bookmarks and coordinated reads/writes, so a .crmdb picked
 /// from On My iPad, iCloud Drive or a USB stick is autosaved in place, and a picked folder can be
@@ -33,6 +37,10 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
         (UserDefaults.standard.dictionary(forKey: bookmarksKey) as? [String: Data]) ?? [:]
     private var writes: [String: WriteSession] = [:]
     private var pendingPick: (([URL]) -> Void)?
+    /// URLs exactly as the picker handed them over, for this launch. The bookmark round trip is the
+    /// part third-party File Providers get wrong — OneDrive above all — so the picked URL stays the
+    /// first thing we try, and the bookmark is what's left after a relaunch.
+    private var liveURLs: [String: URL] = [:]
 
     // MARK: - Messages
 
@@ -195,46 +203,69 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
         let data = try Self.withAccess(url) { try Self.bookmark(url) }
         let token = UUID().uuidString
         bookmarks[token] = data
+        liveURLs[token] = url
         UserDefaults.standard.set(bookmarks, forKey: bookmarksKey)
         return ["token": token, "name": url.lastPathComponent]
     }
 
-    private func resolve(_ token: Any?) throws -> URL {
+    /// Every URL worth trying for a handle, best first: the one the picker gave us this launch,
+    /// then the bookmark. They normally name the same file; when a File Provider's bookmark resolves
+    /// to somewhere stale or unreadable, the live URL is the one that still works, and after a
+    /// relaunch the bookmark is all there is.
+    private func candidates(_ token: Any?) throws -> [URL] {
         guard let token = token as? String else {
             throw Failure(name: "NotFoundError", message: "This file is no longer linked. Open it again.")
         }
+        var urls: [URL] = []
+        if let live = liveURLs[token] { urls.append(live) }
         // Another app window (each has its own bridge) may have registered this file since we loaded.
         if bookmarks[token] == nil, let saved = UserDefaults.standard.dictionary(forKey: bookmarksKey) as? [String: Data] {
             bookmarks.merge(saved) { current, _ in current }
         }
-        guard let data = bookmarks[token] else {
+        if let data = bookmarks[token] {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) {
+                if !urls.contains(url) { urls.append(url) }
+                if stale, let fresh = try? Self.withAccess(url, { try Self.bookmark(url) }) {
+                    bookmarks[token] = fresh
+                    UserDefaults.standard.set(bookmarks, forKey: bookmarksKey)
+                }
+            }
+        } else if urls.isEmpty {
             throw Failure(name: "NotFoundError", message: "This file is no longer linked. Open it again.")
         }
-        var stale = false
-        guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else {
-            throw Failure(name: "NotFoundError", message: "Can't reach the database file. If it's on a USB stick, plug it in and try again.")
-        }
-        if stale, let fresh = try? Self.withAccess(url, { try Self.bookmark(url) }) {
-            bookmarks[token] = fresh
-            UserDefaults.standard.set(bookmarks, forKey: bookmarksKey)
-        }
-        return url
+        guard !urls.isEmpty else { throw Failure(name: "NotFoundError", message: unreachableMessage) }
+        return urls
+    }
+
+    private func resolve(_ token: Any?) throws -> URL {
+        try candidates(token)[0]
     }
 
     /// Resolves the handle — the picked item, or `path` inside a picked folder — and runs `work` on
     /// it off the main thread, inside the picked item's security scope. Replies on the main thread.
     private func withFile(_ token: Any?, _ path: Any?, _ finish: @escaping Finish,
                           _ work: @escaping @Sendable (URL) throws -> [String: Any]) {
-        let root: URL, target: URL
+        let roots: [URL]
         do {
-            root = try resolve(token)
-            target = try Self.descend(root, path as? String ?? "")
+            roots = try candidates(token)
         } catch {
             return finish(.failure(error))
         }
+        let relative = path as? String ?? ""
         io.async {
-            let result = Result { try Self.withAccess(root) { try work(target) } }
-            DispatchQueue.main.async { finish(result) }
+            var failure: Error?
+            for root in roots {
+                do {
+                    let target = try Self.descend(root, relative)
+                    let value = try Self.withAccess(root) { try work(target) }
+                    return DispatchQueue.main.async { finish(.success(value)) }
+                } catch {
+                    failure = error
+                }
+            }
+            let error = failure ?? Failure(name: "NotFoundError", message: unreachableMessage)
+            DispatchQueue.main.async { finish(.failure(error)) }
         }
     }
 
@@ -252,26 +283,62 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
         try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
-    nonisolated private static func withAccess<T>(_ url: URL, _ body: () throws -> T) rethrows -> T {
+    /// Runs `body` inside the picked item's security scope. When iPadOS refuses that scope the read
+    /// that follows fails with a bare permission error, which reads like a corrupt database rather
+    /// than what it is — so name it.
+    nonisolated private static func withAccess<T>(_ url: URL, _ body: () throws -> T) throws -> T {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        return try body()
+        do {
+            return try body()
+        } catch {
+            let ns = error as NSError
+            guard !scoped, ns.domain == NSCocoaErrorDomain,
+                  ns.code == NSFileReadNoPermissionError || ns.code == NSFileWriteNoPermissionError
+            else { throw error }
+            throw Failure(name: "NotAllowedError", message: "iPadOS didn't grant this app access to that file — its cloud provider handed over a link the app can't open. Copy the database into Files, On My iPad, CRM, and open it from there.")
+        }
     }
 
-    nonisolated private static func coordinateRead(_ url: URL, _ body: (URL) throws -> Void) throws {
+    /// `.withoutChanges` told the coordinator NOT to bring the item up to date, so a cloud file that
+    /// is still a placeholder read back as "no such file". A plain coordinated read, after asking the
+    /// provider for the bytes, gets the real thing.
+    nonisolated private static func coordinateRead(_ url: URL, download: TimeInterval = 30,
+                                                   _ body: (URL) throws -> Void) throws {
+        materialize(url, within: download)
         var coordinationError: NSError?
         var bodyError: Error?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinationError) { url in
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { url in
             do { try body(url) } catch { bodyError = error }
         }
         if let error = coordinationError { throw error }
         if let error = bodyError { throw error }
     }
 
-    /// A coordinated read, so a file that's only in iCloud is fetched rather than reported missing.
+    /// Asks the file provider to bring a not-yet-downloaded item down, and waits for it. Silent by
+    /// design: a local file simply isn't ubiquitous, and the read that follows speaks for itself.
+    nonisolated private static func materialize(_ url: URL, within seconds: TimeInterval) {
+        let keys: Set<URLResourceKey> = [.ubiquitousItemDownloadingStatusKey]
+        func downloaded() -> Bool {
+            (try? url.resourceValues(forKeys: keys))?.ubiquitousItemDownloadingStatus
+                == URLUbiquitousItemDownloadingStatus.current
+        }
+        if downloaded() { return }
+        // Throws for anything that isn't cloud-backed — a stick, or On My iPad — which is the answer.
+        do { try FileManager.default.startDownloadingUbiquitousItem(at: url) } catch { return }
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if downloaded() { return }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+    }
+
+    /// A coordinated read, so a file that's only in the cloud is fetched rather than reported
+    /// missing. This one is a liveness probe on every page load, so it waits briefly and then says
+    /// "prompt" — the page offers Reconnect rather than blocking on a cold download.
     nonisolated private static func isReadable(_ url: URL) throws -> Bool {
         var readable = false
-        try coordinateRead(url) { readable = FileManager.default.isReadableFile(atPath: $0.path) }
+        try coordinateRead(url, download: 3) { readable = FileManager.default.isReadableFile(atPath: $0.path) }
         return readable
     }
 
@@ -353,19 +420,22 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
         return try stat(url)
     }
 
+    /// Friendly text, plus the underlying domain and code. The code is what makes "it just says open
+    /// failed" diagnosable from the iPad, without a Mac and a debugger attached to it.
     nonisolated private static func describe(_ error: Error) -> [String: Any] {
         if let failure = error as? Failure { return ["error": failure.message, "name": failure.name] }
         let ns = error as NSError
-        guard ns.domain == NSCocoaErrorDomain else { return ["error": ns.localizedDescription, "name": "NotReadableError"] }
+        let code = " [\(ns.domain) \(ns.code)]"
+        guard ns.domain == NSCocoaErrorDomain else { return ["error": ns.localizedDescription + code, "name": "NotReadableError"] }
         switch ns.code {
         case NSFileNoSuchFileError, NSFileReadNoSuchFileError:
-            return ["error": "Can't reach the database file. If it's on a USB stick, plug it in and try again.", "name": "NotFoundError"]
+            return ["error": unreachableMessage + code, "name": "NotFoundError"]
         case NSFileWriteVolumeReadOnlyError:
-            return ["error": "This drive is read-only. iPad can't write to NTFS — reformat the stick as exFAT.", "name": "NotAllowedError"]
+            return ["error": "This drive is read-only. iPad can't write to NTFS — reformat the stick as exFAT." + code, "name": "NotAllowedError"]
         case NSFileReadNoPermissionError, NSFileWriteNoPermissionError:
-            return ["error": ns.localizedDescription, "name": "NotAllowedError"]
+            return ["error": ns.localizedDescription + code, "name": "NotAllowedError"]
         default:
-            return ["error": ns.localizedDescription, "name": "NotReadableError"]
+            return ["error": ns.localizedDescription + code, "name": "NotReadableError"]
         }
     }
 
