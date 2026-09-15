@@ -272,7 +272,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
     private func permission(_ token: Any?, _ finish: @escaping Finish) {
         guard let url = try? resolve(token) else { return finish(.success(["state": "prompt"])) }
         io.async {
-            let reachable = (try? Self.withAccess(url) { try Self.isReadable(url) }) ?? false
+            let reachable = (try? Self.withAccess(url) { Self.isReadable(url) }) ?? false
             DispatchQueue.main.async { finish(.success(["state": reachable ? "granted" : "prompt"])) }
         }
     }
@@ -300,12 +300,12 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
         }
     }
 
-    /// `.withoutChanges` told the coordinator NOT to bring the item up to date, so a cloud file that
-    /// is still a placeholder read back as "no such file". A plain coordinated read, after asking the
-    /// provider for the bytes, gets the real thing.
-    nonisolated private static func coordinateRead(_ url: URL, download: TimeInterval = 30,
-                                                   _ body: (URL) throws -> Void) throws {
-        materialize(url, within: download)
+    /// `.withoutChanges` told the coordinator NOT to bring the item up to date, so a cloud file
+    /// that was still a placeholder read back as "no such file". Dropping it is the whole fix: a
+    /// plain coordinated read is precisely what makes a File Provider materialise a dataless item,
+    /// and it blocks until the bytes are actually there. Nothing else is needed to pull the file
+    /// down — an explicit "download it first" step here only duplicated this, badly.
+    nonisolated private static func coordinateRead(_ url: URL, _ body: (URL) throws -> Void) throws {
         var coordinationError: NSError?
         var bodyError: Error?
         NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { url in
@@ -315,31 +315,11 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
         if let error = bodyError { throw error }
     }
 
-    /// Asks the file provider to bring a not-yet-downloaded item down, and waits for it. Silent by
-    /// design: a local file simply isn't ubiquitous, and the read that follows speaks for itself.
-    nonisolated private static func materialize(_ url: URL, within seconds: TimeInterval) {
-        let keys: Set<URLResourceKey> = [.ubiquitousItemDownloadingStatusKey]
-        func downloaded() -> Bool {
-            (try? url.resourceValues(forKeys: keys))?.ubiquitousItemDownloadingStatus
-                == URLUbiquitousItemDownloadingStatus.current
-        }
-        if downloaded() { return }
-        // Throws for anything that isn't cloud-backed — a stick, or On My iPad — which is the answer.
-        do { try FileManager.default.startDownloadingUbiquitousItem(at: url) } catch { return }
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if downloaded() { return }
-            Thread.sleep(forTimeInterval: 0.2)
-        }
-    }
-
-    /// A coordinated read, so a file that's only in the cloud is fetched rather than reported
-    /// missing. This one is a liveness probe on every page load, so it waits briefly and then says
-    /// "prompt" — the page offers Reconnect rather than blocking on a cold download.
-    nonisolated private static func isReadable(_ url: URL) throws -> Bool {
-        var readable = false
-        try coordinateRead(url, download: 3) { readable = FileManager.default.isReadableFile(atPath: $0.path) }
-        return readable
+    /// A liveness probe, run on every page load, so it must answer instantly and must never force a
+    /// cold file to download: it asks only whether the handle still names something this app can
+    /// read. Deliberately uncoordinated — coordinating here would block the page behind a download.
+    nonisolated private static func isReadable(_ url: URL) -> Bool {
+        FileManager.default.isReadableFile(atPath: url.path)
     }
 
     /// A path inside a picked folder, built one checked component at a time, so nothing a page sends
