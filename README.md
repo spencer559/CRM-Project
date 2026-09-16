@@ -10,7 +10,9 @@ A small suite of browser tools for a cardiac device clinic, served as a static s
 | `protected/index.html` | Developer deck — landing page for protected tools (`/protected/*` is gated by Cloudflare Access) |
 | `protected/dashboard.html` | Command center: markets, device-check tally, clinical reference, notes/to-do |
 | `protected/Patient_Schedule.html` | Daily clinic schedule — full patient names, zero network egress, print-formatted day sheet; stores the schedule **and** every patient's files in one portable `.crmdb` database (iPad-ready) |
+| `protected/LV_Lead_Testing.html` | LV lead vector-testing capture — per-vector impedance/QRS and sitting/supine threshold + phrenic results, lead-model picker, text/JSON/print output; holds no patient identifiers |
 | `mileage-backend/` | Cloudflare Worker + D1 backend for mileage cloud sync (see its `DEPLOY.md`) |
+| `iPad_APP/` | Sideloadable iPad app bundling the Schedule, Report Generator and PDF Viewer, with a native File System Access shim so the `.crmdb` autosaves in place (see its `README.md`) |
 
 > This README doubles as a **project handoff / context document** — if you're an AI assistant (e.g. Claude in Cowork) being pointed here to continue the work, read the whole thing; it captures the architecture, conventions, and the vendor-specific gotchas that took real reports to discover.
 
@@ -43,7 +45,9 @@ Supported inputs:
 ```
 index.html                          Public landing page (self-contained static page, single file)
 _headers                            Cloudflare Pages security headers (frame-ancestors, HSTS, nosniff…)
+_redirects                          Compatibility redirects from the retired app/, dev/ and auth/ paths
 assets/                             Background images for the landing pages
+docs/                               Cloudflare Access setup steps + the Schedule/CRM redesign review
 mileage/
   index.html                        Public mileage log → expense-form .xlsx (fully self-contained)
   mileage-sync.js                   Optional cloud-sync client; its login is not Cloudflare Access
@@ -53,15 +57,27 @@ protected/
   PDF_Viewer.html                   Local PDF viewer used by the Schedule
   dashboard.html                    Command-center dashboard (single file)
   Patient_Schedule.html             Daily clinic schedule — the .crmdb's other page (see below)
+  LV_Lead_Testing.html              LV lead vector-testing capture (single file, no patient identifiers)
   crmdb-container-design.md         Design note for the .crmdb container (written before the migration)
   auth-check.json                   Same-origin Access-session probe used by the landing page
 mileage-backend/
   src/worker.js  wrangler.toml      Cloudflare Worker + D1 sync backend
   schema.sql  DEPLOY.md             (see DEPLOY.md for one-time setup)
+iPad_APP/                           Sideloadable iPad app for the three offline pages (see iPad_APP/README.md)
+  CRMiPad/                          Swift WKWebView app + crm-native-shim.js (File System Access API, injected into every page)
+  web-files.txt                     Exactly which protected/ src/ vendor/ files the app bundles — a page's new script goes here
+  build-ipa.sh  deploy.sh           Build the last commit (what "Update iPad" installs) / build + install the working tree
 src/
   crmdb-store.js                    Shared .crmdb database engine (CRMWorkspace API over an in-memory bundle; see below)
   crmdb-commit-cadence.js           WHEN a staged edit gets published — the shared commit timer + teardown hooks
   engine.js                         Shared PDF extraction engine + anchor helpers + cleaners
+  crm-episode-links.js              Logbook ↔ PDF page links + named EGM shortcuts, kept in report JSON (never in clinical exports)
+  crm-keyboard-focus.js             Keeps the focused field visible inside the report's own scroll panes, never the host's
+  pdf-page-selection.js             Parse/validate physical PDF page ranges ("12–15, 18") for EGM shortcuts
+  pdf-egm-navigation.js             The PDF viewer's EGM menu — save, jump to, reorder and select page shortcuts
+  pdf-selection-worker.js           Worker for "Print selected": copies the chosen original pages into a new PDF (pdf-lib)
+  abbott-log-redactor.js            Byte-preserving Abbott .log redaction helpers (behind the Abbott Log Redactor tool)
+  cied-pdf-redactor.js              Vendor-neutral identifier detection → redaction boxes (behind the PDF Redactor tool)
   parsers/
     medtronic.js                    Medtronic PDF parser  → window.MEDTRONIC.runMap(LINES, META)
     boston.js                       Boston Scientific PDF  → window.BOSTON.runMap(LINES, META)
@@ -71,6 +87,7 @@ vendor/
   crmdb-zip.js                      Dependency-free ZIP reader/writer for the .crmdb container (CSP-safe, no CDN)
   pdf.min.js  pdf.worker.min.js     Vendored pdf.js 3.11.174 (self-hosted, not a CDN)
   jspdf.umd.min.js (+ autotable)    Vector-PDF export
+  pdf-lib.min.js (+ license files)  Vendored pdf-lib 1.17.1 — loaded only inside the selected-page print worker
   fonts/                            Self-hosted landing-page fonts
 tools/
   CIED PDF Extraction Harness.html  Dump a PDF's text items (parser authoring/debugging)
@@ -78,8 +95,8 @@ tools/
   CIED PDF Redactor.html            Locally redact/flatten vendor PDFs before sharing samples
   CIED_Medtronic_Parser_Preview_v2.html   Older preview harness
 tests/
-  run.js                            Test runner — one child process per *.test.js (see Testing)
-  *.test.js                         Node tests for the .crmdb engine + vendor detection
+  run.js                            Test runner — one child process per *.test.js, run in parallel (see Testing)
+  *.test.js                         Node tests: .crmdb engine, parsers, page logic, PDF viewer, iPad bundle/shim, routes
 package.json                        No dependencies and no build step — it exists to give `npm test` an entrypoint
 ```
 
@@ -97,7 +114,7 @@ prefixes. Test fixtures
 | `src/parsers/boston.js` | Boston Scientific PDF parser → `window.BOSTON.runMap(LINES, META)` |
 | `src/parsers/abbott.js` | Abbott Merlin **.log** parser → `window.ABBOTT.runLog(text)` |
 | `src/parsers/biotronik.js` | Biotronik PDF parser (two report layouts) → `window.BIOTRONIK.runMap(LINES, META)` |
-| `vendor/` | Self-hosted pdf.js **+ jsPDF/autotable** (no runtime CDN dependency). |
+| `vendor/` | Self-hosted pdf.js **+ jsPDF/autotable + pdf-lib** (no runtime CDN dependency). |
 
 ---
 
@@ -278,7 +295,7 @@ Unifying tricks:
 Both landing pages are **single self-contained static pages**: cards are hardcoded in the HTML, inline styles, and fonts are self-hosted in `vendor/fonts` (no Google Fonts at runtime). The public index has one small same-origin Access-session probe; the protected deck needs no auth script because Cloudflare gates the whole namespace. **Adding/editing a tool card is an edit in the page itself.** The old shared renderer (`home.js`) and theme (`assets/site.css`) were removed with this redesign (git history has them).
 
 - `index.html` — public index (Public Sans + JetBrains Mono). The Mileage card is always public; the CRM and Developer Deck cards unlock together after the single protected-session probe succeeds.
-- `protected/index.html` — developer deck, pirate-themed (Pirata One / Cinzel / Spectral, background `assets/dev-bg-crew.webp`). Lists all four tools. The `/protected` and `/protected/*` gates are Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces them.
+- `protected/index.html` — developer deck, pirate-themed (Pirata One / Cinzel / Spectral, background `assets/dev-bg-crew.webp`). Lists six tools: the Report Generator, Mileage Calculator, Dashboard, Patient Schedule, LV Lead Testing and the CIED PDF Redactor. The `/protected` and `/protected/*` gates are Cloudflare Access, configured in the Cloudflare dashboard — nothing in this repo enforces them.
 
 ### Mileage Calculator (`mileage/index.html` + `mileage/mileage-sync.js`)
 
@@ -305,7 +322,7 @@ Persistence details worth knowing before editing:
 
 ### Patient Schedule (`protected/Patient_Schedule.html`)
 
-A daily device-clinic schedule behind the `/protected/` Cloudflare Access gate. Rows hold time, the patient's **full name**, manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…" dropdown** beside the date picker contains the destination date and confirmation controls; it reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src 'none'` like the CRM tool — nothing typed on the page can reach a network.
+A daily device-clinic schedule behind the `/protected/` Cloudflare Access gate. Rows hold time, the patient's **full name**, manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…" dropdown** beside the date picker contains the destination date and confirmation controls; it reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src crmapp:` like the CRM tool — nothing typed on the page can reach a network (`crmapp:` is the iPad app's own scheme and resolves to nothing in a browser; see **Security / hosting**).
 
 Workflow/storage: the schedule **and every patient's files** now live in a **single `.crmdb` database file** — see *The `.crmdb` database container* below for the full model. On Mac/PC it auto-saves in place as you edit; on iPad you press **Save** to write it back through the Files sheet. Data-lifetime is user-controlled **per database** via the **Memory** menu (retention window + Clear-all-past + a size readout; default is keep-everything — the old fixed 7-day purge is gone). Also: a header **All patients** overview, a manual **+ PDF** attach chip per row (for device types with no parser), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** action (now inside the Memory menu) that saves the database, wipes localStorage, and forgets the connection — the file keeps the data; only the browser is cleaned. Optional per-database password protection encrypts both the `.crmdb` file and its IndexedDB working copy entirely on-device; protected databases suppress the plaintext schedule localStorage mirror. There is deliberately no password recovery or server involvement. Never wire this page to the mileage sync Worker or any other backend.
 
@@ -330,7 +347,7 @@ tool now load `crmdb-store.js`. The original trigger was an NTFS bug — see the
 **Format.** An unprotected `.crmdb` is a standard **ZIP** (rename it to `.zip` and Finder/Explorer
 opens it — fully recoverable without the app), written by `vendor/crmdb-zip.js`, a dependency-free
 reader/writer (STORE on write with correct CRC-32s; inflates DEFLATE on read via the browser's
-`DecompressionStream`). It's self-hosted because the pages run under `connect-src 'none'` /
+`DecompressionStream`). It's self-hosted because the pages run under `connect-src crmapp:` /
 `script-src 'self'` — no CDN allowed. The internal layout mirrors the old folder tree, so it's
 still inspectable:
 
@@ -570,7 +587,7 @@ localStorage, and forgets the connection.
 ## Security / hosting
 
 - **Self-hosted libraries** — `vendor/pdf.min.js` + `pdf.worker.min.js` (pdf.js v3.11.174) **and** `jspdf.umd.min.js` + `jspdf.plugin.autotable.min.js` (the vector-PDF generator) are committed to the repo; nothing is pulled from a CDN at runtime. `engine.js` derives the worker URL from the page's own `pdf.min.js` `<script>` tag (and respects a `workerSrc` the page set explicitly), so no third-party script ever runs in the same context as PHI.
-- **Content-Security-Policy** — the app HTML ships a `<meta http-equiv="Content-Security-Policy">` whose key directive is `connect-src 'none'`: the page cannot make *any* network request, so PHI cannot be exfiltrated. `script-src`/`style-src` keep `'unsafe-inline'` only because the form uses inline handlers + `<script>` blocks (that allowance grants no network egress); `worker-src 'self' blob:` lets the local pdf.js worker run.
+- **Content-Security-Policy** — the three PHI pages (`CRM_Report_Generator.html`, `Patient_Schedule.html`, `PDF_Viewer.html`) ship a `<meta http-equiv="Content-Security-Policy">` whose key directive is `connect-src crmapp:`: no http/https origin is reachable, so the page cannot make a network request and PHI cannot be exfiltrated. `crmapp:` is the **iPad app's own custom scheme** (`iPad_APP/`) — served by the app itself, naming no network destination — and is how the app hands a page the bytes of a picked `.crmdb` as binary (`crmapp://app/__native/file`) instead of base64-ing a 55 MB database through a message handler. In a browser nothing resolves `crmapp:` at all, so on the website it is exactly as tight as `'none'`; never widen it to a real origin. Pages the app doesn't bundle and that need no network — `LV_Lead_Testing.html`, the developer deck and the `tools/` redactors — keep `connect-src 'none'`. `script-src`/`style-src` keep `'unsafe-inline'` only because the form uses inline handlers + `<script>` blocks (that allowance grants no network egress); `worker-src 'self' blob:` lets the local pdf.js worker run.
 - **Per-page CSPs across the origin** — every page on this origin shares localStorage with the CRM autosave, so each ships its own CSP: the Mileage Calculator's `connect-src` permits only the sync Worker, and the dashboard's only its two data feeds (Open-Meteo, Finnhub). No page may load third-party scripts.
 - **HTTP security headers** — the root `_headers` file makes Cloudflare Pages send real headers on every response: `X-Frame-Options: SAMEORIGIN` + `frame-ancestors 'self'` (the Schedule embeds the CRM and PDF viewer from the same origin), `nosniff`, `Referrer-Policy: no-referrer` (outbound portal clicks don't leak URLs), a locked-down `Permissions-Policy`, and HSTS. The per-page meta CSPs remain as defense-in-depth.
 - **CRM autosave retention** — the `crm-digital` autosave carries a `__savedAt` stamp; saves older than **24 h** are cleared on load instead of restored (the autosave exists to survive a refresh mid-visit, not to store records).
@@ -611,26 +628,48 @@ localStorage, and forgets the connection.
 
 - **Manual:** open `protected/CRM_Report_Generator.html` locally (or on the Pages site) and drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
 - **PDF authoring:** use `tools/CIED PDF Extraction Harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parser under `src/parsers/`.
-- **Node tests:** `npm test` (or `node tests/run.js`) runs the whole suite. The runner gives each
-  `tests/*.test.js` its **own child process** on purpose — every file installs its own fake
-  `window` / `document` / `indexedDB` into the Node global scope and re-`require`s
+- **Node tests:** `npm test` (or `node tests/run.js`) runs the whole suite — 54 files, about 5 s. The
+  runner gives each `tests/*.test.js` its **own child process** on purpose — every file installs its
+  own fake `window` / `document` / `indexedDB` into the Node global scope and re-`require`s
   `src/crmdb-store.js` to simulate a separate tab, so they cannot share a process without
-  contaminating each other. Run a single file directly (`node tests/crmdb-multitab.test.js`) when
+  contaminating each other. Those processes run **in parallel** (one core left free; results still
+  print in file order), because most of a file's time is spent waiting on its own timers — serially
+  the suite took ~23 s. `TEST_JOBS=1 npm test` runs them one at a time, for chasing a failure that
+  only shows under load. Run a single file directly (`node tests/crmdb-multitab.test.js`) when
   you're iterating on one.
+
+  The `.crmdb` store guards, one file each:
 
   | Test | What it pins down |
   |---|---|
   | `crmdb-encryption` | password round-trips |
+  | `crmdb-writer-lease` | one writer per database (Web Locks): a second tab writes nothing and reports itself read-only, and is promoted automatically when the writer tab — or just its database — closes |
   | `crmdb-multitab` | two tabs sharing one working copy — the journal/revision-CAS guard |
+  | `crmdb-journal` | the durable journal: edits staged but never committed survive a crash and replay on reopen; a commit supersedes the row, a stale or corrupt row is discarded without harming the database, and on a protected database the row is ciphertext |
   | `crmdb-freshness` | a stale station cache must never overwrite a newer OneDrive file |
   | `crmdb-selfwrite` | the other direction: this station's own saves — including one interrupted by navigation — must never be *mistaken* for another station's, while a real foreign edit still raises the conflict prompt |
+  | `crmdb-manifest-sig` | that "own write" signature hashes the ZIP central directory (`m2:`), not every byte — deterministic, sensitive to any content change, and still recognizing files signed the old full-byte way |
+  | `crmdb-save-state` | the save contract behind "where does my work live right now": a staged edit reads *edited* until it is published, a commit with no bound file reads *browser* (the resting state on iPad), and a failed save stays *failed* — typing can't clear it, only a real success |
+  | `crmdb-slot-collision` | renaming a patient onto a slot key another appointment already uses (`0800_DEMOAB`) is refused, leaving both folders intact |
   | `crmdb-handoff` | the two-page handoff: what one page commits, the other reads |
+  | `crmdb-embedded-host` | the generator embedded in the Schedule reuses the Schedule's `CRMWorkspace` instead of opening a second store |
+  | `crmdb-cross-realm-blob` | a `File` created inside the embedded iframe (another JS realm, so `instanceof Blob` is false) is stored as its bytes, not as the string `[object File]` |
   | `crmdb-deferred-write` | a staged (`{ defer: true }`) write costs no serialization, and is readable immediately |
   | `crmdb-commit-cadence` | *when* staged edits publish — typing can't starve the cadence, one page exit is one commit across all three teardown events, an idle exit costs nothing |
-  | `crmdb-commit-cost` | a commit re-deflates only what changed, not the whole database |
+  | `crmdb-commit-cost` | a commit re-reads (and CRC-32s) only files whose Blob changed — unchanged or merely renamed entries reuse a memoized CRC |
   | `crmdb-zero-copy-read` | `readBlob` hands back `blob.slice()` views, and falls back to `read()` on any layout it didn't write |
   | `crmdb-schedule-rm-share` | the remote-status field stays one value across both pages |
-  | `vendor-detect` | `Engine.scoreVendors` / `guessVendor` — a foreign lead row can't outvote the report's own brand |
+
+  The rest of the suite is named for what it covers: the vendor parsers (`vendor-detect` —
+  `Engine.scoreVendors` / `guessVendor`, so a foreign lead row can't outvote the report's own brand —
+  plus `abbott-log-parser`, `boston-*`, `biotronik-*`, `medtronic-*`), the redaction helpers
+  (`*-redactor`), Report Generator and Schedule page logic (`report-*`, `schedule-*`, `patient-*`,
+  `crm-*`), the PDF viewer and EGM shortcuts (`pdf-*`, `egm-print-order`), LV Lead Testing
+  (`lv-lead-*`), the iPad app (`ipad-bundle-complete` — every file a bundled page loads is listed in
+  `iPad_APP/web-files.txt` — and `ipad-native-shim`), and the auth/route boundary
+  (`route-boundaries`). Page logic lives inline in the HTML, so those tests read the page source and
+  either lift a function out by brace-matching and run it with `new Function`, or assert on the
+  markup — renaming or restructuring an inline function can fail one with no change in behavior.
 
   No npm install: `crmdb-store.js` exports itself under `module.exports`, a fresh `require` is a
   fresh "tab" (or a fresh page load), and the tests ship a ~40-line in-memory IndexedDB shim to keep
@@ -653,5 +692,5 @@ localStorage, and forgets the connection.
 
 This repo is **public** and the site is served from Cloudflare Pages (`device-tech.pages.dev`); only `/protected` and `/protected/*` sit behind Cloudflare Access.
 - Keep patient data (names, DOBs, device serial numbers, raw vendor exports) out of anything committed. Sample/scratch files used for testing should stay local or be `.gitignore`d (currently `Info.txt`, `Abbott Test Cases/`, and `mileage-backend/.wrangler/`).
-- The app itself never transmits data — all parsing happens in the browser, pdf.js is self-hosted, and the CSP's `connect-src 'none'` blocks every network request (see **Security / hosting**).
+- The app itself never transmits data — all parsing happens in the browser, pdf.js is self-hosted, and the CSP's `connect-src crmapp:` blocks every network request — `crmapp:` resolves only inside the iPad app, to the app itself (see **Security / hosting**).
 - This covers only what the page controls. Hosting, access control, audit logging, and encryption at rest are deployment concerns a compliance review must address before clinical use.
