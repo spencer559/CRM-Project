@@ -1,5 +1,9 @@
 # `.crmdb` Container Model — Design Sketch
 
+> **Archived.** The design sketch written before the `.crmdb` migration (July 2026), moved here from
+> `protected/`, where it was being served as part of the site. Its examples (JSZip, the save cadence)
+> do not describe the engine that was built; the current model is in [`docs/crmdb.md`](../crmdb.md).
+
 One portable database file that carries the schedule **and** every patient file
 association inside it. Desktop keeps silent live autosave; iPad gets a single
 "Save database updates" button. Same file, same format, both platforms.

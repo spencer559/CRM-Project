@@ -1,5 +1,9 @@
 # Schedule, report generator, and PDF workspace review
 
+> **Archived.** A review from September 7, 2026. The parts that shipped are documented in
+> [`docs/crmdb.md`](../crmdb.md) and the README; its remaining sections were proposals at the time.
+> Treat it as history, not as a current plan.
+
 September 7, 2026. Original review at commit `c774107`. The first viewer increment below is now implemented locally; the remaining architecture sections are proposals. Database formats have not changed.
 
 ## Current priorities, revised after user feedback
@@ -225,6 +229,6 @@ Phases 1 and 2 are foundational. Viewer search can ship independently if it addr
 - Reproduced normalized-slot collision and destination overwrite with synthetic in-memory blobs.
 - Did not open real patient records, alter an existing `.crmdb`, run a physical iPad test, or test a populated split-view document in this review.
 - Several UI tests inspect source patterns. Their passing status does not establish real browser behavior under tab termination, delayed I/O, or all output layouts. Future migration tests must exercise behavior and round trips.
-- The original `protected/crmdb-container-design.md` is explicitly a historical sketch; its JSZip and save-cadence examples do not describe today's engine. Use current code and tests as the baseline, and update handoff documentation as each phase lands.
+- The original [`crmdb-container-design.md`](crmdb-container-design.md) is explicitly a historical sketch; its JSZip and save-cadence examples do not describe today's engine. Use current code and tests as the baseline, and update handoff documentation as each phase lands.
 
 At the original review, only this document was added. The implementation scope above describes subsequent local viewer changes; no database migration or deployment was performed.
