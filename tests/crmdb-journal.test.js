@@ -69,7 +69,7 @@ function installIndexedDB() {
 }
 const shared = installIndexedDB();
 
-require("../vendor/crmdb-zip.js");
+require("../site/vendor/crmdb-zip.js");
 const realWrite = global.CRMDB.write;
 let containerWrites = 0;
 global.CRMDB.write = function (entries) {
@@ -77,7 +77,7 @@ global.CRMDB.write = function (entries) {
   return realWrite.apply(this, arguments);
 };
 
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 // Every instance ever created, because each case makes two (the one that "crashes" and the one
 // that reopens) and BOTH keep live timers.
 const tabs = [];

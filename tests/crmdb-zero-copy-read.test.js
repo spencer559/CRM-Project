@@ -63,8 +63,8 @@ function installIndexedDB() {
 }
 const shared = installIndexedDB();
 
-const CRMDB = require("../vendor/crmdb-zip.js");
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+const CRMDB = require("../site/vendor/crmdb-zip.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 function newTab() { delete require.cache[STORE]; delete global.CRMWorkspace; return require(STORE); }
 
 // Meter bytes actually pulled out of Blobs. Everything the read path could copy goes through

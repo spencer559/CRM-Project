@@ -34,7 +34,7 @@ const MAX_BLOCKS = 3;
 const SUITE_TIMEOUT_MS = 150 * 1000;      // the hook itself is given 180s in settings.json
 const OUTPUT_LIMIT = 12000;               // characters of test output handed back to Claude
 // Changes to these can't affect a test, so they never trigger a run.
-const IGNORED = [/\.md$/i, /^docs\//, /^assets\//, /\.xcassets\//];
+const IGNORED = [/\.md$/i, /^docs\//, /^site\/assets\//, /\.xcassets\//];
 
 const mode = process.argv[2];
 

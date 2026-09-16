@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const schedule = fs.readFileSync(path.join(__dirname, "..", "protected", "Patient_Schedule.html"), "utf8");
+const schedule = fs.readFileSync(path.join(__dirname, "..", "site", "protected", "Patient_Schedule.html"), "utf8");
 
 const slotPos = schedule.indexOf('<span class="crm-panel-slot">');
 const officePos = schedule.indexOf('<span class="crm-panel-last-office">');

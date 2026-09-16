@@ -1,5 +1,5 @@
 # Everything the iPad app ships: the three offline pages and exactly what they load.
-# copy-web.sh copies these (repo-relative) into the app bundle's www/ folder at build time,
+# copy-web.sh copies these (relative to site/) into the app bundle's www/ folder at build time,
 # keeping the protected/ src/ vendor/ layout because every page loads its scripts via ../ paths.
 protected/Patient_Schedule.html
 protected/CRM_Report_Generator.html

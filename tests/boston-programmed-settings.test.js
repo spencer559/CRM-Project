@@ -12,8 +12,8 @@ const assert = require("assert");
 const path = require("path");
 
 global.window = global;
-require(path.join(__dirname, "..", "src", "engine.js"));
-require(path.join(__dirname, "..", "src", "parsers", "boston.js"));
+require(path.join(__dirname, "..", "site", "src", "engine.js"));
+require(path.join(__dirname, "..", "site", "src", "parsers", "boston.js"));
 
 function line(page, y, cells) {
   return {

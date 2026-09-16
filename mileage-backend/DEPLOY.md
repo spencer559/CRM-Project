@@ -112,7 +112,7 @@ Copy that URL (no trailing slash).
 
 ## 6. Point the page at your Worker
 
-From the repository root, open **`mileage/mileage-sync.js`** and set the URL near the top:
+From the repository root, open **`site/mileage/mileage-sync.js`** and set the URL near the top:
 
 ```js
 var WORKER_URL = "https://mileage-sync.YOURNAME.workers.dev";
@@ -122,7 +122,7 @@ Save, commit, and push to GitHub:
 
 ```bash
 cd ..
-git add mileage/mileage-sync.js
+git add site/mileage/mileage-sync.js
 git commit -m "Enable mileage cloud sync"
 git push
 ```

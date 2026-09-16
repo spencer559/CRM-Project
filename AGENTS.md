@@ -6,15 +6,18 @@ tool's own file.
 
 Browser tools for a cardiac device (CIED) clinic: a daily patient schedule, an interrogation report
 generator that auto-fills from vendor programmer exports, and a PDF viewer. These three handle full
-patient PHI and run entirely client-side. The site is static on Cloudflare Pages; the same three pages
-also ship inside a sideloaded iPad app. This is a **public repo**.
+patient PHI and run entirely client-side. The site is static on Cloudflare Pages, published from
+`site/`; the same three pages also ship inside a sideloaded iPad app. The repo is **private**, but the
+site is public everywhere outside `/protected`.
 
-`README.md` is the detailed handoff document (vendor parser gotchas, `.crmdb` internals, UI
-decisions and why), and `iPad_APP/README.md` covers the iPad app. Both are updated in nearly every
-commit. Read the section for the subsystem you're changing before changing it, and update that section
-when you change documented behavior. Decisions already made, and alternatives already rejected on
-evidence, are recorded there (for example the README's *Latency overhaul* entry, and the iPad README's
-*Why it's built this way* and *Known gaps*). Check them before proposing an architectural change.
+`README.md` is the handoff overview (layout, security, status, testing). The subsystem deep dives are
+in `docs/`: `report-import.md` (parser contracts and vendor gotchas), `report-generator.md` (form UI
+decisions and why) and `crmdb.md` (`.crmdb` internals). `iPad_APP/README.md` covers the iPad app. These
+are updated in nearly every commit. Read the doc for the subsystem you're changing before changing it,
+and update it when you change documented behavior. Decisions already made, and alternatives already
+rejected on evidence, are recorded there (for example the README's *Latency overhaul* entry, and the
+iPad README's *Why it's built this way* and *Known gaps*). Check them before proposing an architectural
+change. `docs/archive/` holds superseded design notes: history, not a description of the code.
 
 ## Commands
 
@@ -27,8 +30,8 @@ TEST_JOBS=1 npm test                  # serial, for a failure that only shows up
 git config core.hooksPath .githooks   # once per clone: enables the pre-commit test gate
 ```
 
-Serve the repo root to use the pages locally (for example `python3 -m http.server 8765`), then open
-`/protected/Patient_Schedule.html`. The Schedule is the entry point that embeds the others.
+Serve `site/` to use the pages locally (for example `python3 -m http.server 8765 --directory site`),
+then open `/protected/Patient_Schedule.html`. The Schedule is the entry point that embeds the others.
 
 iPad app (needs a full Xcode with the iOS platform; see `iPad_APP/README.md`):
 
@@ -54,6 +57,11 @@ folder; one-time setup and D1 commands are in `mileage-backend/DEPLOY.md`.
   rather than weakening it, and say so.
 
 ## Architecture
+
+**Layout.** Everything the website serves is in `site/`, the Cloudflare Pages build output directory;
+nothing outside it is deployed. Paths below that name web files (`index.html`, `protected/`, `src/`,
+`vendor/`, `tools/`, `mileage/`) are relative to `site/`, which also makes them URL paths. Repo-level
+things stay at the root: `tests/`, `docs/`, `iPad_APP/`, `mileage-backend/`, `.githooks/`.
 
 **No bundler, no modules.** Each page is one large HTML file with inline `<script>` blocks. Shared code
 in `src/` and `vendor/` is loaded as classic scripts via `../` relative paths and hangs off globals
@@ -111,19 +119,21 @@ local redaction and PDF-extraction harness pages for preparing sample exports.
 - **No network egress from PHI pages.** The Schedule, generator and viewer ship a meta CSP with
   `connect-src crmapp:` (only the iPad app's own scheme resolves; in a browser nothing does). Never add
   a CDN script, fetch, analytics or third-party resource to them or to `tools/`; libraries are
-  self-hosted in `vendor/`. Every page on the origin shares localStorage with the generator's PHI
-  autosave (`crm-digital`), so each page carries its own restrictive CSP.
+  self-hosted in `vendor/` (credit new ones in `vendor/THIRD_PARTY_NOTICES.md`). Every page on the
+  origin shares localStorage with the generator's PHI autosave (`crm-digital`), so each page carries
+  its own restrictive CSP.
 - **Store mutations go through `bset`/`bdel`.** A direct `bundle.set/delete` is invisible to the journal
   and the cross-tab merge. Only the store's own ingest and journal-replay code touches `bundle` directly.
-- **A page that loads a new file must list it in `iPad_APP/web-files.txt`,** or the iPad app ships
-  without it. `tests/ipad-bundle-complete.test.js` enforces this, and `build-ipa.sh` runs it before
+- **A page that loads a new file must list it in `iPad_APP/web-files.txt`** (paths relative to
+  `site/`), or the iPad app ships without it. `tests/ipad-bundle-complete.test.js` enforces this, and `build-ipa.sh` runs it before
   every build.
 - **Web changes reach the iPad only once committed.** "Update iPad" builds HEAD; `deploy.sh` is the
   path for trying uncommitted work.
 - **Auth boundary.** `/protected/*` is gated by Cloudflare Access, configured in the dashboard with
-  nothing in the repo enforcing it. `mileage/` must stay public and never depend on Access. Don't
-  recreate top-level `app/`, `dev/` or `auth/`; old URLs live on as `_redirects`
-  (`tests/route-boundaries.test.js`).
+  nothing in the repo enforcing it. `mileage/` must stay public and never depend on Access, or on
+  anything outside `mileage/`. Don't recreate `site/app/`, `site/dev/` or `site/auth/`; old URLs live
+  on as `_redirects`. `tests/route-boundaries.test.js` enforces this, and also pins the top-level
+  entries of `site/`: adding one is a decision about what gets published.
 - **Paired lists:** `RMS` in `Patient_Schedule.html` and the `#rm-status` `<select>` in
   `CRM_Report_Generator.html` are one field shared through `schedule.json`, and must stay in step.
 - **User activation:** calls that need a click (`window.open` for stored files, directory/save

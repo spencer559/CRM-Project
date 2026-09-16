@@ -15,6 +15,8 @@ const fs = require("fs");
 const path = require("path");
 
 const repo = path.join(__dirname, "..");
+// web-files.txt paths are relative to site/, which is also the layout the app serves them under.
+const site = path.join(repo, "site");
 const listFile = path.join(repo, "iPad_APP", "web-files.txt");
 const listed = fs.readFileSync(listFile, "utf8").split("\n")
   .map((line) => line.trim())
@@ -24,7 +26,7 @@ const listed = fs.readFileSync(listFile, "utf8").split("\n")
    here is a decision: it will not be on the iPad. */
 const notBundled = new Set(["protected/dashboard.html", "protected/index.html"]);
 
-assert.deepStrictEqual(listed.filter((f) => !fs.existsSync(path.join(repo, f))), [],
+assert.deepStrictEqual(listed.filter((f) => !fs.existsSync(path.join(site, f))), [],
   "web-files.txt lists files that no longer exist");
 assert.deepStrictEqual(listed.filter((f, i) => listed.indexOf(f) !== i), [],
   "web-files.txt lists the same file twice");
@@ -33,7 +35,7 @@ const bundled = new Set(listed);
 const missing = [];
 
 for (const file of listed.filter((f) => /\.(html|js)$/.test(f))) {
-  const text = fs.readFileSync(path.join(repo, file), "utf8");
+  const text = fs.readFileSync(path.join(site, file), "utf8");
   const dir = path.dirname(file);
   const refs = new Set();
 

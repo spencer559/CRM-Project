@@ -5,8 +5,8 @@ const assert = require("assert");
 const path = require("path");
 
 global.window = global;
-require(path.join(__dirname, "..", "src", "engine.js"));
-require(path.join(__dirname, "..", "src", "parsers", "biotronik.js"));
+require(path.join(__dirname, "..", "site", "src", "engine.js"));
+require(path.join(__dirname, "..", "site", "src", "parsers", "biotronik.js"));
 
 function line(page, y, cells) {
   return { page, y, items: cells.map(([x, str]) => ({ page, x, y, w: 20, str })) };

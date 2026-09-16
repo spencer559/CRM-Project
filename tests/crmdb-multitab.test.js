@@ -63,8 +63,8 @@ Object.defineProperty(global, "navigator", { value: {}, configurable: true, writ
 
 const shared = installIndexedDB();
 
-require("../vendor/crmdb-zip.js");
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+require("../site/vendor/crmdb-zip.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 // A fresh module instance is a fresh tab: its own `bundle`, `journal` and revision baseline.
 function newTab() { delete require.cache[STORE]; delete global.CRMWorkspace; return require(STORE); }
 

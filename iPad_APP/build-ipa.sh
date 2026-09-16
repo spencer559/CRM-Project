@@ -60,7 +60,7 @@ input_paths() {
         git -C "$REPO" show HEAD:iPad_APP/web-files.txt
     else
         cat "$HERE/web-files.txt"
-    fi | sed -e 's/[[:space:]]*$//' | grep -v -e '^#' -e '^$'
+    fi | sed -e 's/[[:space:]]*$//' | grep -v -e '^#' -e '^$' | sed -e 's|^|site/|'   # listed relative to site/
 }
 
 # "<blob id> <path>" for every input file, sorted by path. git hash-object gives the same blob IDs

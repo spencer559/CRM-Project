@@ -7,7 +7,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const root = path.join(__dirname, "..");
+const root = path.join(__dirname, "..", "site");
 const reportGenerator = fs.readFileSync(path.join(root, "protected", "CRM_Report_Generator.html"), "utf8");
 const schedule = fs.readFileSync(path.join(root, "protected", "Patient_Schedule.html"), "utf8");
 

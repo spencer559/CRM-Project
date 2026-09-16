@@ -13,8 +13,8 @@ global.sessionStorage = {
   removeItem: (key) => sessionValues.delete(key)
 };
 global.window = global;
-require("../vendor/crmdb-zip.js");
-const WS = require("../src/crmdb-store.js");
+require("../site/vendor/crmdb-zip.js");
+const WS = require("../site/src/crmdb-store.js");
 
 async function openPlainFixture() {
   WS._bundle.clear();

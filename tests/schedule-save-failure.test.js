@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const source = fs.readFileSync(path.join(__dirname, '../protected/Patient_Schedule.html'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../site/protected/Patient_Schedule.html'), 'utf8');
 function extract(name) {
   const match = source.match(new RegExp('  function ' + name + '\\([^]*?\\n  \\}'));
   assert.ok(match, name);

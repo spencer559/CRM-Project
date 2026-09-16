@@ -17,7 +17,7 @@ function functionSource(source, name) {
   assert.fail("Could not find the end of " + name);
 }
 
-const html = fs.readFileSync(path.join(__dirname, "..", "protected", "Patient_Schedule.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "..", "site", "protected", "Patient_Schedule.html"), "utf8");
 
 assert.match(html, /id="dlPatientsBtn"[^>]*onclick="downloadPatients\(\)"/,
   "the schedule needs a Download patients button beside Print schedule");

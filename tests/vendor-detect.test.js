@@ -22,7 +22,7 @@ const path = require("path");
 // engine.js is an IIFE over `window`; its only side effect (initWorker) returns immediately when
 // pdfjsLib is undefined, so it loads in Node with no DOM shim at all.
 global.window = global;
-require(path.join(__dirname, "..", "src", "engine.js"));
+require(path.join(__dirname, "..", "site", "src", "engine.js"));
 const Engine = global.Engine;
 
 /* Build the {page,x,y,w,str} item array extractItems() produces. Each argument is one page;

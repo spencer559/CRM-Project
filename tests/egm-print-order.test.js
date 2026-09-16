@@ -20,8 +20,8 @@ epRow.input = { value: '', closest: () => epRow, dispatchEvent() {} };
 epRow.button = { closest: () => epRow, removeAttribute() {}, setAttribute() {} };
 epRow.querySelector = sel => sel === '[name="ep1-dt"]' ? { value: '' } : epRow.input;
 const marksField = { value: '', dispatchEvent() {} };
-vm.runInNewContext(fs.readFileSync(require.resolve('../src/crm-episode-links'), 'utf8'), {
-  window: { CRMPageSelection: require('../src/pdf-page-selection'), CRM_EMBED: true, parent: host,
+vm.runInNewContext(fs.readFileSync(require.resolve('../site/src/crm-episode-links'), 'utf8'), {
+  window: { CRMPageSelection: require('../site/src/pdf-page-selection'), CRM_EMBED: true, parent: host,
     isLoopMode: () => false, addEventListener: (_, h) => onReportMessage = h },
   document: {
     querySelectorAll(sel) {
@@ -79,8 +79,8 @@ const viewerDoc = {
   elementFromPoint: () => null
 };
 const toolbar = new El('span');
-const box = { window: { CRMPageSelection: require('../src/pdf-page-selection') }, document: viewerDoc };
-vm.runInNewContext(fs.readFileSync(require.resolve('../src/pdf-egm-navigation.js'), 'utf8'), box);
+const box = { window: { CRMPageSelection: require('../site/src/pdf-page-selection') }, document: viewerDoc };
+vm.runInNewContext(fs.readFileSync(require.resolve('../site/src/pdf-egm-navigation.js'), 'utf8'), box);
 
 // Patient_Schedule relays viewer messages to the report by swapping the prefix and keeping the payload.
 function relay(type, extra) {

@@ -50,8 +50,8 @@ const document = {
   removeEventListener(type, fn) { this.handlers[type] = (this.handlers[type] || []).filter(h => h !== fn); }
 };
 const toolbar = new El('span');
-const sandbox = { window: { CRMPageSelection: require('../src/pdf-page-selection') }, document };
-vm.runInNewContext(fs.readFileSync(require.resolve('../src/pdf-egm-navigation.js'), 'utf8'), sandbox);
+const sandbox = { window: { CRMPageSelection: require('../site/src/pdf-page-selection') }, document };
+vm.runInNewContext(fs.readFileSync(require.resolve('../site/src/pdf-egm-navigation.js'), 'utf8'), sandbox);
 
 const assigned=[],removed=[],reordered=[],printed=[];
 let page=1,restored=null,wentTo=[];
@@ -99,7 +99,7 @@ assert.equal(menu.hidden,true);assert.equal(document.activeElement,trigger);
 nav.dispose();assert.equal(document.body.children.length,0);assert.equal(toolbar.children.length,0);
 
 /* ---- the Schedule bridge, with live and obsolete frames ---------------------------------- */
-const schedule = fs.readFileSync(path.join(__dirname, '../protected/Patient_Schedule.html'), 'utf8');
+const schedule = fs.readFileSync(path.join(__dirname, '../site/protected/Patient_Schedule.html'), 'utf8');
 const begin = schedule.indexOf('  window.addEventListener("message", function (ev) {', schedule.indexOf('function notifyEgmAvailability'));
 const end = schedule.indexOf('\n  });', begin) + 6;
 let handler;

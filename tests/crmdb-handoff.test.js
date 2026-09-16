@@ -59,8 +59,8 @@ function installIndexedDB() {
 }
 const shared = installIndexedDB();
 
-require("../vendor/crmdb-zip.js");
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+require("../site/vendor/crmdb-zip.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 function newTab() { delete require.cache[STORE]; delete global.CRMWorkspace; return require(STORE); }
 
 // A OneDrive-backed file whose writes take real time — the cost the handoff should not be paying.

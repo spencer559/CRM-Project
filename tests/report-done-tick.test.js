@@ -15,7 +15,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const read = (f) => fs.readFileSync(path.join(__dirname, "..", "protected", f), "utf8");
+const read = (f) => fs.readFileSync(path.join(__dirname, "..", "site", "protected", f), "utf8");
 const report = read("CRM_Report_Generator.html");
 const sched = read("Patient_Schedule.html");
 

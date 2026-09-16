@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const page = fs.readFileSync(path.join(__dirname, "..", "protected", "LV_Lead_Testing.html"), "utf8");
+const page = fs.readFileSync(path.join(__dirname, "..", "site", "protected", "LV_Lead_Testing.html"), "utf8");
 
 /* The arrow is the clearest part of a vector name and the worst character to reach on a phone
    keyboard, so it is furniture between two boxes — never something anyone has to type. */

@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const source = fs.readFileSync(
-  path.join(__dirname, "..", "protected", "CRM_Report_Generator.html"),
+  path.join(__dirname, "..", "site", "protected", "CRM_Report_Generator.html"),
   "utf8"
 );
 

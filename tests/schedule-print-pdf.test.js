@@ -20,7 +20,7 @@ function functionSource(source, name) {
   assert.fail("Could not find the end of " + name);
 }
 
-const root = path.join(__dirname, "..");
+const root = path.join(__dirname, "..", "site");
 const html = fs.readFileSync(path.join(root, "protected", "Patient_Schedule.html"), "utf8");
 
 /* ---------- wiring ---------- */

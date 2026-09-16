@@ -9,7 +9,7 @@ global.window = {
   parent: { CRMWorkspace: hostWorkspace }
 };
 
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 delete require.cache[STORE];
 require(STORE);
 

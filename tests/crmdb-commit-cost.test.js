@@ -63,7 +63,7 @@ function installIndexedDB() {
 }
 const shared = installIndexedDB();
 
-require("../vendor/crmdb-zip.js");
+require("../site/vendor/crmdb-zip.js");
 const realCrc32 = global.CRMDB.crc32;
 
 // Measure how many stored bytes a commit pulls out of the bundle.
@@ -85,7 +85,7 @@ async function costOf(fn) {
   return { bytes: readBytes, calls: readCalls, out: out };
 }
 
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 function newTab() { delete require.cache[STORE]; delete global.CRMWorkspace; return require(STORE); }
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
@@ -218,7 +218,7 @@ async function run() {
      once as the ciphertext. It must not be resident a THIRD time as the zip Blob those bytes were
      read from, which is what happens the moment anything keeps a reference to it across the await. */
   {
-    const src = require("fs").readFileSync(path.resolve(__dirname, "../src/crmdb-store.js"), "utf8");
+    const src = require("fs").readFileSync(path.resolve(__dirname, "../site/src/crmdb-store.js"), "utf8");
     const encrypt = src.slice(src.indexOf("function encryptZip("), src.indexOf("function serialize()"));
     assert.match(encrypt, /var reading = blob\.arrayBuffer\(\);\s*\n\s*blob = null;/,
       "encryptZip must drop the zip Blob as soon as its bytes are on the heap");

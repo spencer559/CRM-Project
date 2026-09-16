@@ -11,7 +11,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const schedule = fs.readFileSync(path.join(__dirname, "..", "protected", "Patient_Schedule.html"), "utf8");
+const schedule = fs.readFileSync(path.join(__dirname, "..", "site", "protected", "Patient_Schedule.html"), "utf8");
 
 /* ---------- the panel sits below the schedule, inside the scroller ---------- */
 const schedPanel = schedule.indexOf('<div class="panel">');

@@ -63,8 +63,8 @@ function installIndexedDB() {
 }
 const shared = installIndexedDB();
 
-require("../vendor/crmdb-zip.js");
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+require("../site/vendor/crmdb-zip.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 function newTab() { delete require.cache[STORE]; delete global.CRMWorkspace; return require(STORE); }
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const dir = { prefix: "patients/2026-09-07/0800_AB/" };

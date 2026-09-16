@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const root = path.join(__dirname, "..");
+const root = path.join(__dirname, "..", "site");
 const viewer = fs.readFileSync(path.join(root, "protected", "PDF_Viewer.html"), "utf8");
 const pdfjs = require(path.join(root, "vendor", "pdf.min.js"));
 

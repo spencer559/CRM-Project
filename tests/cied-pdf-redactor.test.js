@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 global.window = global;
-require(path.join(__dirname, "..", "src", "cied-pdf-redactor.js"));
+require(path.join(__dirname, "..", "site", "src", "cied-pdf-redactor.js"));
 const R = global.CIEDPdfRedactor;
 
 assert.strictEqual(R.classifyLabel("Patient Name", true).kind, "name");
@@ -132,7 +132,7 @@ assert(!adjacent.some((b) => b.kind === "name"),
 assert(adjacent.some((b) => b.kind === "dob" && b.replacement === "01/01/2000"),
   "the adjacent label still redacts its own value");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "tools", "CIED PDF Redactor.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "..", "site", "tools", "cied-pdf-redactor.html"), "utf8");
 assert.match(html, /connect-src 'none'/, "PHI tool must prohibit network access");
 assert.match(html, /toDataURL\("image\/jpeg"/, "output must be rasterized to remove hidden PDF content");
 assert.match(html, /renderingMode:"invisible"/, "output must rebuild a selectable troubleshooting text layer");

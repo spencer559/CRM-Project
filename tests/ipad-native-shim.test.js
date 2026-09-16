@@ -131,8 +131,8 @@ function installIndexedDB() {
 const idb = installIndexedDB();
 
 require("../iPad_APP/CRMiPad/crm-native-shim.js");
-require("../vendor/crmdb-zip.js");
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+require("../site/vendor/crmdb-zip.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 function newTab() { delete require.cache[STORE]; delete global.CRMWorkspace; return require(STORE); }
 
 const ROOT = { prefix: "" };
@@ -225,7 +225,7 @@ async function run() {
 
   /* 7. Download patients: with showDirectoryPicker present the page takes its folder path, and its own
         writeExportTree builds <date>/<patient>/<file> in the picked folder — no .zip. */
-  const html = fs.readFileSync(path.join(__dirname, "..", "protected", "Patient_Schedule.html"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "..", "site", "protected", "Patient_Schedule.html"), "utf8");
   assert.match(functionSource(html, "pickExportDestination"), /if \(window\.showDirectoryPicker\)[\s\S]*kind: 'dir'/,
     "the page must prefer real folders whenever a directory picker exists");
   const writeExportTree = new Function(functionSource(html, "writeExportTree") + "\nreturn writeExportTree;")();

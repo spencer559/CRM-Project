@@ -68,8 +68,8 @@ function installIndexedDB() {
 }
 const shared = installIndexedDB();
 
-require("../vendor/crmdb-zip.js");
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+require("../site/vendor/crmdb-zip.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 // A fresh require is a fresh page: the Schedule and the Report Generator are two loads of the
 // same store over one shared IndexedDB working copy, exactly as the two HTML pages are.
 function newPage() { delete require.cache[STORE]; delete global.CRMWorkspace; return require(STORE); }

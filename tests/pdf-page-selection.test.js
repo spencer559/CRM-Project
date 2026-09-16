@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const P = require('../src/pdf-page-selection');
+const P = require('../site/src/pdf-page-selection');
 assert.deepEqual(P.parse('1-3, 3, 8, 10–12', 12), [1, 2, 3, 8, 10, 11, 12]);
 assert.equal(P.format([1, 2, 3, 8, 10, 11, 12]), '1–3, 8, 10–12');
 for (const bad of ['', '0', '-1', '3-1', '1.5', '13', '1,', '1--3', '1-999999999', '2x']) {

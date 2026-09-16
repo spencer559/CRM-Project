@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
-const { readLink, formatWhen, entryLabel } = require('../src/crm-episode-links');
+const { readLink, formatWhen, entryLabel } = require('../site/src/crm-episode-links');
 const key = 'sha256:' + 'a'.repeat(64);
 const good = { documentKey: key, file: 'source.pdf', page: 3 };
 assert.deepStrictEqual(readLink(JSON.stringify(good)), good);
@@ -45,8 +45,8 @@ const document = {
   addEventListener(type, handler) { if (type === 'click') onClick = handler; },
   getElementById: id => id === 'egm-marks' ? marks : ({})
 };
-const window = { CRMPageSelection: require('../src/pdf-page-selection'), CRM_EMBED: true, parent, isLoopMode: () => loop, addEventListener: (_, handler) => onMessage = handler };
-vm.runInNewContext(fs.readFileSync(require.resolve('../src/crm-episode-links'), 'utf8'), {
+const window = { CRMPageSelection: require('../site/src/pdf-page-selection'), CRM_EMBED: true, parent, isLoopMode: () => loop, addEventListener: (_, handler) => onMessage = handler };
+vm.runInNewContext(fs.readFileSync(require.resolve('../site/src/crm-episode-links'), 'utf8'), {
   window, document, location: { origin: 'https://local.test' }, Event: class {}, MutationObserver: class { observe() {} }
 });
 function send(data, source = parent, origin = 'https://local.test') { onMessage({ data, source, origin }); }

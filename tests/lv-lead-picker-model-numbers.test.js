@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const page = fs.readFileSync(path.join(__dirname, "..", "protected", "LV_Lead_Testing.html"), "utf8");
+const page = fs.readFileSync(path.join(__dirname, "..", "site", "protected", "LV_Lead_Testing.html"), "utf8");
 
 /* The picker exists because a <select> cannot give an option a second, quieter line. If it
    ever goes back to being a <select>, the model numbers silently lose their styling. */

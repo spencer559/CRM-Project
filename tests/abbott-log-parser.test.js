@@ -5,7 +5,7 @@ const assert = require("assert");
 const path = require("path");
 
 global.window = global;
-require(path.join(__dirname, "..", "src", "parsers", "abbott.js"));
+require(path.join(__dirname, "..", "site", "src", "parsers", "abbott.js"));
 
 const FS = String.fromCharCode(0x1c);
 function log(fields) {

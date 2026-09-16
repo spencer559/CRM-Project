@@ -1,6 +1,6 @@
 "use strict";
 const assert = require('assert');
-const { reveal, focusRow, removeRow } = require('../src/crm-keyboard-focus.js');
+const { reveal, focusRow, removeRow } = require('../site/src/crm-keyboard-focus.js');
 global.getComputedStyle = pane => pane.style;
 function rect(top, left, width, height) {
   return { top, left, width, height, bottom: top + height, right: left + width };

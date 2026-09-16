@@ -9,11 +9,12 @@ Chrome/Edge.
 |---|---|
 | `CRMiPad/` | The Swift app, plus `crm-native-shim.js`, which is injected into every page |
 | `CRMiPad.xcodeproj` | The Xcode project |
-| `web-files.txt` | The repo files bundled into the app, copied fresh on every build by `copy-web.sh` |
+| `web-files.txt` | The `site/` files bundled into the app, copied fresh on every build by `copy-web.sh` |
 | `build-ipa.sh` | Builds an unsigned, version-stamped `dist/CRMiPad.ipa` for the Sideloader |
 
-The web pages are not duplicated here. Every build copies the current `protected/`, `src/` and
-`vendor/` files listed in `web-files.txt`. The shim is covered by `tests/ipad-native-shim.test.js`.
+The web pages are not duplicated here. Every build copies the current `site/protected/`, `site/src/`
+and `site/vendor/` files listed in `web-files.txt`, keeping the layout under `site/`, so the app serves
+each page at the same path as the website (`crmapp://app/protected/Patient_Schedule.html`). The shim is covered by `tests/ipad-native-shim.test.js`.
 
 ## Install
 
@@ -63,8 +64,7 @@ To try an edit on the iPad **before committing it**, from the repo root:
 That builds the working tree as it is, uncommitted edits included, and installs it. It shows up as a
 test build until the next Update. `iPad_APP/deploy.sh --build` stops after the build.
 
-Nothing else to remember: the app always ships the `protected/`, `src/` and `vendor/` files listed in
-`web-files.txt`. If a page starts loading a file that list is missing,
+Nothing else to remember: the app always ships the `site/` files listed in `web-files.txt`. If a page starts loading a file that list is missing,
 `tests/ipad-bundle-complete.test.js` fails, in `npm test` and before every build, and names the file.
 Add it to `web-files.txt` and build again. Changing the Swift app instead (`CRMiPad/`) needs nothing
 extra; both routes rebuild that too.

@@ -19,7 +19,7 @@ function functionSource(source, name) {
   assert.fail("Could not find the end of " + name);
 }
 
-const reportHtml = fs.readFileSync(path.join(__dirname, "..", "protected", "CRM_Report_Generator.html"), "utf8");
+const reportHtml = fs.readFileSync(path.join(__dirname, "..", "site", "protected", "CRM_Report_Generator.html"), "utf8");
 const reportSource = functionSource(reportHtml, "generatedReportFilename");
 const fields = {
   "pt-name": { value: "LASTNAME, FIRSTNAME M" },
@@ -40,7 +40,7 @@ fields["pt-name"].value = "García-López, Ana";
 assert.strictEqual(reportName("not-a-date"), "Garcia-Lopez_2026-08-14_CRM_Report.pdf",
   "last names should be normalized to a safe filename");
 
-const scheduleHtml = fs.readFileSync(path.join(__dirname, "..", "protected", "Patient_Schedule.html"), "utf8");
+const scheduleHtml = fs.readFileSync(path.join(__dirname, "..", "site", "protected", "Patient_Schedule.html"), "utf8");
 // The Schedule's slot lookup and the naming rule it defers to (shared with the bulk export).
 const scheduleSource = functionSource(scheduleHtml, "generatedReportFilename") +
   "\n" + functionSource(scheduleHtml, "chartReportFilename");

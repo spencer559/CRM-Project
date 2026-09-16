@@ -1,9 +1,9 @@
 'use strict';
 const assert = require('assert');
-const { PDFDocument, degrees, StandardFonts } = require('../vendor/pdf-lib.min');
-const { selectPages } = require('../src/pdf-selection-worker');
-const pdfjs = require('../vendor/pdf.min');
-pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('../vendor/pdf.worker.min');
+const { PDFDocument, degrees, StandardFonts } = require('../site/vendor/pdf-lib.min');
+const { selectPages } = require('../site/src/pdf-selection-worker');
+const pdfjs = require('../site/vendor/pdf.min');
+pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('../site/vendor/pdf.worker.min');
 (async function () {
   const source = await PDFDocument.create();
   const font = await source.embedFont(StandardFonts.Helvetica);

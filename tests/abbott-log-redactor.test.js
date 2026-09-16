@@ -4,14 +4,14 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-const CRMDB = require(path.join(__dirname, "..", "vendor", "crmdb-zip.js"));
+const CRMDB = require(path.join(__dirname, "..", "site", "vendor", "crmdb-zip.js"));
 
 global.window = global;
-require(path.join(__dirname, "..", "src", "abbott-log-redactor.js"));
+require(path.join(__dirname, "..", "site", "src", "abbott-log-redactor.js"));
 const R = global.AbbottLogRedactor;
 const FS = String.fromCharCode(0x1c);
 
-const redactorHtml = fs.readFileSync(path.join(__dirname, "..", "tools", "CIED Abbott Log Redactor.html"), "utf8");
+const redactorHtml = fs.readFileSync(path.join(__dirname, "..", "site", "tools", "abbott-log-redactor.html"), "utf8");
 assert.match(redactorHtml, /function outputBytes\(m\)\{return AbbottLogRedactor\.redact\(m\)\}/,
   "ZIP downloads must receive raw redacted bytes");
 assert.match(redactorHtml, /data:outputBytes\(m\)/,

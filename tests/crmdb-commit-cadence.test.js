@@ -82,9 +82,9 @@ function installIndexedDB() {
 }
 const shared = installIndexedDB();
 
-require("../vendor/crmdb-zip.js");
-const CRMCadence = require("../src/crmdb-commit-cadence.js");
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+require("../site/vendor/crmdb-zip.js");
+const CRMCadence = require("../site/src/crmdb-commit-cadence.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 function newTab() { delete require.cache[STORE]; delete global.CRMWorkspace; return require(STORE); }
 
 // CRMDB.write is the synchronous heart of a serialization, so counting calls counts the expensive

@@ -15,13 +15,13 @@
 # can't block a good one. `git commit -a` and `git commit <paths>` work too: git points GIT_INDEX_FILE
 # at the index it is about to commit, and checkout-index reads that.
 #
-# A commit that stages only docs (*.md, docs/, assets/) can't change a test result, so it skips the run.
+# A commit that stages only docs (*.md, docs/, site/assets/) can't change a test result, so it skips the run.
 
 set -euo pipefail
 
 changed="$(git diff --cached --name-only --diff-filter=ACDMRT)"
 [ -n "$changed" ] || exit 0
-if ! printf '%s\n' "$changed" | grep -qvE '\.md$|^docs/|^assets/|\.xcassets/'; then
+if ! printf '%s\n' "$changed" | grep -qvE '\.md$|^docs/|^site/assets/|\.xcassets/'; then
     exit 0
 fi
 

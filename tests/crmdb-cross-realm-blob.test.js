@@ -5,7 +5,7 @@ const path = require("path");
 
 // A normal standalone workspace is enough to exercise the value-normalization boundary.
 global.window = {};
-const STORE = path.resolve(__dirname, "../src/crmdb-store.js");
+const STORE = path.resolve(__dirname, "../site/src/crmdb-store.js");
 delete require.cache[STORE];
 const workspace = require(STORE);
 
