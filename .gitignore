@@ -2,7 +2,12 @@
 /Abbott Test Cases/
 mileage-backend/.wrangler/
 node_modules/
-/.claude    
+
+# Claude Code: session worktrees and per-machine settings stay local. The shared hook config is
+# tracked so that sessions in a worktree checkout get the test gate too.
+/.claude/*
+!/.claude/settings.json
+!/.claude/hooks/
 
 # Xcode per-user state for the iPad app (iPad_APP/)
 xcuserdata/
