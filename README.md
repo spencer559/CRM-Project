@@ -98,7 +98,7 @@ iPad_APP/                           Sideloadable iPad app for the three offline 
   build-ipa.sh  deploy.sh           Build the last commit (what "Update iPad" installs) / build + install the working tree
 tests/
   run.js                            Test runner — one child process per *.test.js, run in parallel (see Testing)
-  *.test.js                         Node tests: .crmdb engine, parsers, page logic, PDF viewer, iPad bundle/shim, routes
+  *.test.js                         Node tests: .crmdb engine, parsers, page logic, PDF viewer, iPad bundle/shim, routes, CSPs
 .githooks/pre-commit                Refuses a commit whose staged files fail the tests (enable with git config core.hooksPath .githooks)
 package.json                        No dependencies and no build step — it exists to give `npm test` an entrypoint
 ```
@@ -191,7 +191,7 @@ Details worth keeping: the picker is opened **synchronously on the click**, befo
 ## Security / hosting
 
 - **Self-hosted libraries** — `vendor/pdf.min.js` + `pdf.worker.min.js` (pdf.js v3.11.174) **and** `jspdf.umd.min.js` + `jspdf.plugin.autotable.min.js` (the vector-PDF generator) are committed to the repo; nothing is pulled from a CDN at runtime. `engine.js` derives the worker URL from the page's own `pdf.min.js` `<script>` tag (and respects a `workerSrc` the page set explicitly), so no third-party script ever runs in the same context as PHI.
-- **Content-Security-Policy** — the three PHI pages (`CRM_Report_Generator.html`, `Patient_Schedule.html`, `PDF_Viewer.html`) ship a `<meta http-equiv="Content-Security-Policy">` whose key directive is `connect-src crmapp:`: no http/https origin is reachable, so the page cannot make a network request and PHI cannot be exfiltrated. `crmapp:` is the **iPad app's own custom scheme** (`iPad_APP/`) — served by the app itself, naming no network destination — and is how the app hands a page the bytes of a picked `.crmdb` as binary (`crmapp://app/__native/file`) instead of base64-ing a 55 MB database through a message handler. In a browser nothing resolves `crmapp:` at all, so on the website it is exactly as tight as `'none'`; never widen it to a real origin. Pages the app doesn't bundle and that need no network — `LV_Lead_Testing.html`, the developer deck and the `tools/` redactors — keep `connect-src 'none'`. `script-src`/`style-src` keep `'unsafe-inline'` only because the form uses inline handlers + `<script>` blocks (that allowance grants no network egress); `worker-src 'self' blob:` lets the local pdf.js worker run.
+- **Content-Security-Policy** — the three PHI pages (`CRM_Report_Generator.html`, `Patient_Schedule.html`, `PDF_Viewer.html`) ship a `<meta http-equiv="Content-Security-Policy">` whose key directive is `connect-src crmapp:`: no http/https origin is reachable, so the page cannot make a network request and PHI cannot be exfiltrated. `crmapp:` is the **iPad app's own custom scheme** (`iPad_APP/`) — served by the app itself, naming no network destination — and is how the app hands a page the bytes of a picked `.crmdb` as binary (`crmapp://app/__native/file`) instead of base64-ing a 55 MB database through a message handler. In a browser nothing resolves `crmapp:` at all, so on the website it is exactly as tight as `'none'`; never widen it to a real origin. Pages the app doesn't bundle and that need no network — `LV_Lead_Testing.html`, the developer deck and the `tools/` pages — keep `connect-src 'none'`. `tests/page-csp.test.js` fails any page under `site/` that lacks a CSP or loads a third-party script or stylesheet. `script-src`/`style-src` keep `'unsafe-inline'` only because the form uses inline handlers + `<script>` blocks (that allowance grants no network egress); `worker-src 'self' blob:` lets the local pdf.js worker run.
 - **Per-page CSPs across the origin** — every page on this origin shares localStorage with the CRM autosave, so each ships its own CSP: the Mileage Calculator's `connect-src` permits only the sync Worker, and the dashboard's only its two data feeds (Open-Meteo, Finnhub). No page may load third-party scripts.
 - **HTTP security headers** — `site/_headers` makes Cloudflare Pages send real headers on every response: `X-Frame-Options: SAMEORIGIN` + `frame-ancestors 'self'` (the Schedule embeds the CRM and PDF viewer from the same origin), `nosniff`, `Referrer-Policy: no-referrer` (outbound portal clicks don't leak URLs), a locked-down `Permissions-Policy`, and HSTS. The per-page meta CSPs remain as defense-in-depth.
 - **CRM autosave retention** — the `crm-digital` autosave carries a `__savedAt` stamp; saves older than **24 h** are cleared on load instead of restored (the autosave exists to survive a refresh mid-visit, not to store records).
@@ -232,7 +232,7 @@ Details worth keeping: the picker is opened **synchronously on the click**, befo
 
 - **Manual:** serve `site/` and open `protected/CRM_Report_Generator.html` (or use the Pages site), then drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
 - **PDF authoring:** use `tools/pdf-extraction-harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parser under `src/parsers/`.
-- **Node tests:** `npm test` (or `node tests/run.js`) runs the whole suite — 54 files, about 5 s. The
+- **Node tests:** `npm test` (or `node tests/run.js`) runs the whole suite — 55 files, about 5 s. The
   runner gives each `tests/*.test.js` its **own child process** on purpose — every file installs its
   own fake `window` / `document` / `indexedDB` into the Node global scope and re-`require`s
   `site/src/crmdb-store.js` to simulate a separate tab, so they cannot share a process without
@@ -271,7 +271,7 @@ Details worth keeping: the picker is opened **synchronously on the click**, befo
   `crm-*`), the PDF viewer and EGM shortcuts (`pdf-*`, `egm-print-order`), LV Lead Testing
   (`lv-lead-*`), the iPad app (`ipad-bundle-complete` — every file a bundled page loads is listed in
   `iPad_APP/web-files.txt` — and `ipad-native-shim`), the auth/route boundary and what `site/`
-  publishes (`route-boundaries`). Page logic lives inline in the
+  publishes (`route-boundaries`), and every page's CSP (`page-csp`). Page logic lives inline in the
   HTML, so those tests read the page source and either lift a function out by brace-matching and run
   it with `new Function`, or assert on the markup — renaming or restructuring an inline function can
   fail one with no change in behavior.

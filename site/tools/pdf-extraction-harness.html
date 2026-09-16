@@ -3,8 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Content-Security-Policy: this page opens real programmer exports and shares an origin (and so
+     localStorage) with the CRM tool's PHI autosave. connect-src 'none' blocks all network egress;
+     pdf.js and its worker come from ../vendor. It used to load Barlow from Google Fonts, which put
+     a third-party request on a page holding patient PDFs, so it now uses local system fonts. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <title>CIED PDF Extraction Harness</title>
-<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
 <style>
 :root{
   --navy:#1e3a5f; --navy-dk:#162e4d; --navy-lt:#e6eef6;
@@ -18,7 +22,7 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 
 /* header */
 header{display:flex;align-items:baseline;gap:14px;margin-bottom:4px}
-h1{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--navy)}
+h1{font-family:'Barlow Condensed','Arial Narrow',system-ui,sans-serif;font-size:22px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--navy)}
 .sub{font-size:12px;color:var(--soft)}
 .privacy{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--green);
   background:#eaf5ee;border:1px solid #bfe0cb;border-radius:3px;padding:3px 9px;margin-bottom:16px;margin-top:6px}
@@ -29,7 +33,7 @@ h1{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;lett
   cursor:pointer;transition:border-color .12s,background .12s}
 #drop:hover{border-color:var(--navy);background:#fafcff}
 #drop.over{border-color:var(--navy);background:var(--navy-lt)}
-#drop .big{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy)}
+#drop .big{font-family:'Barlow Condensed','Arial Narrow',system-ui,sans-serif;font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy)}
 #drop .small{font-size:12px;color:var(--soft);margin-top:5px}
 #file{display:none}
 
@@ -44,12 +48,12 @@ h1{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;lett
 #panel{display:none;margin-top:16px}
 .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
-.seg button{font-family:'Barlow',sans-serif;font-size:11.5px;font-weight:600;padding:6px 13px;border:none;background:var(--card);color:var(--soft);cursor:pointer}
+.seg button{font-family:'Barlow',system-ui,sans-serif;font-size:11.5px;font-weight:600;padding:6px 13px;border:none;background:var(--card);color:var(--soft);cursor:pointer}
 .seg button.on{background:var(--navy);color:#fff}
 .bar label{font-size:11px;font-weight:600;color:var(--soft);text-transform:uppercase;letter-spacing:.4px}
 .bar input[type=text]{font-family:var(--mono);font-size:12px;padding:6px 9px;border:1px solid var(--line);border-radius:4px;background:var(--inset);min-width:200px}
 .spacer{flex:1}
-.btn{font-family:'Barlow',sans-serif;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;
+.btn{font-family:'Barlow',system-ui,sans-serif;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;
   padding:6px 13px;border-radius:4px;border:1px solid var(--line);cursor:pointer;background:#f3f5f8;color:var(--soft)}
 .btn:hover{background:#e5e9ef}
 .btn-primary{background:var(--navy);color:#fff;border-color:var(--navy)} .btn-primary:hover{background:var(--navy-dk)}
@@ -81,20 +85,20 @@ td.pg{color:#aaa;width:44px}
 
 /* probe results */
 #vProbe{padding:12px 14px;font-family:var(--mono);font-size:12px}
-#vProbe .hint{font-family:'Barlow',sans-serif;font-size:12px;color:var(--soft);margin-bottom:10px}
+#vProbe .hint{font-family:'Barlow',system-ui,sans-serif;font-size:12px;color:var(--soft);margin-bottom:10px}
 .match{padding:7px 10px;border:1px solid var(--line);border-radius:4px;margin-bottom:6px;background:var(--inset)}
 .match .lbl{color:var(--soft)}
 .match .arrow{color:#bbb;margin:0 8px}
 .match .val{color:var(--navy);font-weight:600;background:#eef3f9;padding:1px 5px;border-radius:2px}
 .match .none{color:var(--amber)}
-.match .meta{font-family:'Barlow',sans-serif;font-size:10px;color:#aaa;margin-top:3px}
+.match .meta{font-family:'Barlow',system-ui,sans-serif;font-size:10px;color:#aaa;margin-top:3px}
 
 /* export */
 #exportBox{display:none;margin-top:16px}
 #exportTxt{width:100%;min-height:200px;font-family:var(--mono);font-size:11px;line-height:1.45;
   border:1px solid var(--line);border-radius:5px;padding:11px 13px;background:var(--inset);color:var(--text);resize:vertical}
 .exp-h{display:flex;align-items:center;gap:10px;margin-bottom:7px}
-.exp-h .t{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--navy)}
+.exp-h .t{font-family:'Barlow Condensed','Arial Narrow',system-ui,sans-serif;font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--navy)}
 .exp-h .scrub{font-size:11px;color:var(--soft)}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;
   font-size:12px;font-weight:600;padding:9px 18px;border-radius:5px;transition:transform .25s;z-index:50}
