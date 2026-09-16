@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+# pre-commit — refuse a commit whose staged files fail the test suite.
+#
+# Enable once per clone:     git config core.hooksPath .githooks
+# Override one commit:       git commit --no-verify
+#
+# This is the tool-neutral gate: it holds for every commit, whoever makes it — you, Claude Code,
+# Codex. It matters here more than usual because the iPad app's "Update iPad" builds the last commit,
+# so a commit is one button press from the clinic iPad. (Claude Code additionally has its own
+# end-of-turn gate, .claude/hooks/test-gate.js, which also catches a broken turn that never commits.)
+#
+# It tests exactly what is being committed. The staged files are exported to a temporary directory and
+# the suite runs there, so an unstaged fix can't let a broken commit through, and unstaged breakage
+# can't block a good one. `git commit -a` and `git commit <paths>` work too: git points GIT_INDEX_FILE
+# at the index it is about to commit, and checkout-index reads that.
+#
+# A commit that stages only docs (*.md, docs/, assets/) can't change a test result, so it skips the run.
+
+set -euo pipefail
+
+changed="$(git diff --cached --name-only --diff-filter=ACDMRT)"
+[ -n "$changed" ] || exit 0
+if ! printf '%s\n' "$changed" | grep -qvE '\.md$|^docs/|^assets/|\.xcassets/'; then
+    exit 0
+fi
+
+# GUI git clients often run hooks without the shell's PATH.
+NODE="$(command -v node || true)"
+for n in /usr/local/bin/node /opt/homebrew/bin/node; do [ -n "$NODE" ] || { [ -x "$n" ] && NODE="$n"; }; done
+if [ -z "$NODE" ]; then
+    echo "pre-commit: node not found, so the tests were NOT run for this commit." >&2
+    exit 0
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+git checkout-index --all --prefix="$tmp/"
+
+if [ ! -f "$tmp/tests/run.js" ]; then
+    exit 0
+fi
+
+echo "pre-commit: running npm test on the staged files…" >&2
+if out="$("$NODE" "$tmp/tests/run.js" 2>&1)"; then
+    echo "pre-commit: $(printf '%s\n' "$out" | tail -n 1)" >&2
+    exit 0
+fi
+
+# The runner prints one PASS/FAIL line per file, then each failure's output, then a summary.
+printf '%s\n' "$out" | grep -vE '^[^[:space:]]+\.test\.js[[:space:]]*PASS[[:space:]]*$' >&2
+echo >&2
+echo "pre-commit: commit refused — the staged files fail the test suite." >&2
+echo "            Fix the failure and commit again, or use git commit --no-verify to override." >&2
+exit 1

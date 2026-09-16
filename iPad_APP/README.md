@@ -17,8 +17,10 @@ The web pages are not duplicated here. Every build copies the current `protected
 
 ## Install
 
-**With the Sideloader**, which renews the 7-day free signature automatically. Run from the repo
-root, after running the Sideloader's `./install.sh` once so `atvrefresh` understands `--profile`:
+**With the Sideloader**, which renews the 7-day signature a free Apple ID gets. Renewal is manual on
+purpose: the Apple TV Refresh app's **Refresh Now** button, with its Auto switch deliberately left off
+(see *Known gaps*). Run from the repo root, after running the Sideloader's `./install.sh` once so
+`atvrefresh` understands `--profile`:
 
     iPad_APP/build-ipa.sh
     atvrefresh --profile ipad setup iPad_APP/dist/CRMiPad.ipa
@@ -84,9 +86,79 @@ The version and build number (the build date and the commit count) are still set
 iPad's Settings ▸ General ▸ iPad Storage shows, but they don't say which code is inside. The stamp
 does.
 
+If the app **stops opening**, the 7-day signature has run out: press Refresh Now. It doesn't need a
+rebuild.
+
+## Why it's built this way
+
+The app exists for one reason: WebKit has no File System Access API, so in iPad Safari
+`canAutosave` in `src/crmdb-store.js` is false and the desktop path (bound file handle, autosave in
+place, the cross-station freshness guard) never runs. A WKWebView alone doesn't change that; it's the
+same engine with the same missing API. The app is only worth having because Swift can **supply** the
+missing API (`crm-native-shim.js` over `NativeBridge.swift`), so every existing desktop code path
+runs unchanged.
+
+Alternatives that were considered and rejected, so they don't get proposed again:
+
+- **A loopback HTTP server** was the original plan, on the belief that WebKit doesn't treat a custom
+  scheme as a secure context. That would have disabled `crypto.subtle`, and with it `.crmdb` password
+  protection. A startup check in the iPad Simulator showed the pages **are** a secure context under
+  `crmapp://`, so the server was dropped. It remains the known fallback (about an hour's work) if
+  `crypto.subtle` ever fails on a real device. `file://` was never viable: its opaque origin breaks
+  workers and IndexedDB.
+- **Capacitor** was passed over for the hand-written bridge. Its filesystem plugin can't keep
+  security-scoped bookmarks to files outside the app (a USB stick, a OneDrive folder), so that part
+  of the bridge would have been written anyway.
+
+Two constraints to keep:
+
+- **`lastModified` must be the file's real modification time, never faked.** The freshness guard keys
+  off it, and that guard is what stops one clinic station's stale copy overwriting another's work.
+- **The app is fully offline, with no Cloudflare Access in front of it.** That was a deliberate scope
+  decision, and it is why nothing but the iPad's own lock screen gates patient data on the device (see
+  *Known gaps*).
+
+`showDirectoryPicker` was at first left out (Download patients fell back to one `.zip`), then
+implemented once the zip proved useless for printing patient folders at the clinic.
+
 ## Notes
 
 - USB sticks must be **exFAT**, because iPadOS mounts NTFS read-only.
+- The **first** file picker after launch takes around 8 seconds to appear, with no visual feedback.
+  It looks broken, but it isn't.
 - You can debug the app from Safari › Develop on the Mac while the iPad is connected.
-- Not yet verified on hardware: password-protected databases. The encryption needs a secure
-  context. If it fails under the `crmapp://` scheme, serve the pages from a loopback server instead.
+- The icon's source picture isn't in the repo; only the cropped `icon-1024.png` is. Changing the crop
+  with `make-icon.sh` needs the original image.
+- **Not yet verified on real hardware** (Simulator or headless tests only): password-protected
+  databases, all three print paths (day sheet, report, PDF viewer), the PDF viewer opening as a child
+  window, and downloads. Printing is the one most likely to come up in clinic.
+
+## Known gaps
+
+After the first successful day at a clinic (September 2026), a review listed these. Only the app icon
+was done then; the rest were **deliberately deferred**, in this order of importance. The first three
+were re-checked against the code on 2026-09-16 and are still open.
+
+1. **Recent edits can miss the file.** Edits commit to the `.crmdb` at most every 30 seconds, and
+   when the page is hidden. But nothing asks iOS for time to finish a save when the app goes to the
+   background, and iOS suspends or ends background apps freely. The durable journal keeps staged edits
+   in the app's own storage and replays them on the next launch, so they aren't lost from the iPad.
+   Until then, though, the file on the stick or in OneDrive doesn't have them. On desktop you see a
+   page close; on iPad you don't. Fix: on entering the background, start a short background task and
+   flush (about an hour).
+2. **The signature expires without warning.** A free Apple ID signature lasts 7 days and automatic
+   renewal is off, so the app simply stops opening, possibly mid-clinic, and the fix needs the Mac.
+   Options: turn Auto on, pay for a developer account (1-year signatures), or have the app read its
+   own expiry at launch and warn a few days ahead.
+3. **Nothing locks the app.** On the website, `/protected/` sits behind Cloudflare Access; the offline
+   app has no equivalent, and the `.crmdb` password is optional. An unlocked iPad opens straight into
+   patient data. Fix: Face ID or passcode on launch and on return from the background (about an hour).
+4. **Portrait still scrolls sideways.** The column trim targeted landscape (1194pt wide, with 10px to
+   spare). Portrait is 834pt and the schedule table needs 1122pt.
+5. **Multiple windows are allowed.** Stage Manager can open two windows on one database. That behaves
+   like two browser tabs (the store's writer lease leaves the second read-only), but it was flagged to
+   be turned off.
+6. **A lost file link needs a manual re-pick.** After an iPadOS update or a USB replug the page shows
+   "Can't reach the database file". It could retry, and offer the picker on its own.
+7. **There's only one copy.** One `.crmdb` on one stick. Each save to USB could also drop a dated
+   backup on the iPad.
