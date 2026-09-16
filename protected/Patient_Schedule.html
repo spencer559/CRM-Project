@@ -937,7 +937,7 @@
       // everything from here on belongs below it.
       if (keep && panel && slotOf(r) === panel.slot) place = function (node) { tb.appendChild(node); };
     });
-    tb.querySelectorAll("td.notes-cell textarea").forEach(autoGrow);   // size each note to its content
+    autoGrowAll(tb.querySelectorAll("td.notes-cell textarea"));   // size each note to its content
     renderCounts();
     // Reminders aren't date-scoped, but render() is also what runs after a database load or another
     // tab's state arrives — so the list is rebuilt here too, or it would show the previous copy.
@@ -945,6 +945,15 @@
     scanSlots();
   }
   function autoGrow(el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 220) + "px"; }
+  // The same for a whole list at once, in three passes. autoGrow per element reads scrollHeight right
+  // after writing a height, so every note forced its own layout of the entire table: 40 of the 57ms a
+  // 40-patient day took to redraw. Collapse all, measure all, then set all is one layout.
+  function autoGrowAll(els) {
+    els = Array.prototype.slice.call(els);
+    els.forEach(function (el) { el.style.height = "auto"; });
+    var heights = els.map(function (el) { return el.scrollHeight; });
+    els.forEach(function (el, i) { el.style.height = Math.min(heights[i], 220) + "px"; });
+  }
   function renderCounts() {
     var all = rows(), rs = visibleRows().map(function (x) { return x.r; }), by = {};
     rs.forEach(function (r) { by[r.check] = (by[r.check] || 0) + 1; });
@@ -1077,7 +1086,7 @@
         ? "All caught up &mdash; " + doneN + " completed reminder" + (doneN === 1 ? "" : "s") + " hidden."
         : "No reminders yet &mdash; add anything you need to follow up on."
     ) + "</li>";
-    box.querySelectorAll("textarea.rem-text").forEach(autoGrow);
+    autoGrowAll(box.querySelectorAll("textarea.rem-text"));
     $("remCounts").textContent = (openN || doneN)
       ? openN + " to do" + (doneN ? " \u00b7 " + doneN + " done" : "")
       : "";
