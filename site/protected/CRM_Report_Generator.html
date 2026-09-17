@@ -3642,6 +3642,17 @@ window.ensureReportPdfBuilder = function () {
   // the stored report.pdf the Schedule reads is never behind the form) and commits — this is what
   // keeps the 30s cadence from ever costing a normal exit. Cheap when idle: `dirty` stays false
   // and nothing rebuilds, but the cadence still commits anything staged.
+  /* The app's background save (crm-native-shim.js flushForBackground) calls this on whichever page
+     is on top before the store writes through to the file — this one when the generator is open
+     full-page. Same work as the leave hook below, but awaited rather than fire-and-forget. Embedded,
+     the Schedule owns the exit and asks this frame to publish over crm:finalize instead. */
+  window.CRMFlushPending = function () {
+    if (window.CRM_EMBED) return Promise.resolve();
+    dirty = false;
+    cadence.cancel();
+    return Promise.resolve(syncArmed ? finalizeReports() : (WS && WS.flush ? WS.flush() : null));
+  };
+
   cadence.attachLeaveHooks(function () {
     if (!(syncArmed && dirty)) return false;   // nothing to rebuild; the cadence commits if pending
     // Claim the work SYNCHRONOUSLY. All three teardown events can fire for one page exit, and

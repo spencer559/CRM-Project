@@ -184,6 +184,14 @@ and a `flush()` (IndexedDB-only, no download) runs before every cross-page navig
 page opens the latest bundle. MIME types are re-assigned by extension on read, so a `report.pdf`
 chip still opens inline after a round-trip strips the raw blob's type.
 
+**`persistNow()`** is the third save entry point, for the iPad/iPhone app's background save. It
+commits and then *waits for the file*, which `flush()` deliberately doesn't, and it never falls back
+to the share sheet or a download, which `saveNow()` does — nothing can answer a dialog once iOS has
+backgrounded the app. It resolves true only when the bytes reached the file, and queues behind the
+cadence's own write-through, so "already current" from the app's log means the page's tab-hide save
+got there first, not that nothing was saved. See the *Leaving the app finishes the save* note in
+`iPad_APP/README.md` and `tests/crmdb-background-flush.test.js`.
+
 The custom PDF viewer's **Download** button uses the system **Save As** picker on supported
 Chromium browsers, allowing a USB drive or any other folder to be selected. Browsers without the
 File System Access picker retain the standard download-to-default-folder behavior.

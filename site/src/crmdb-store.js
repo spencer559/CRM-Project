@@ -1332,6 +1332,28 @@
   }
 
   // Explicit save (the separate button). Desktop: flush to file now. iPad: download.
+  // Everything staged, published, and written through to the bound file — awaited all the way, and
+  // with no share sheet or download when there is no file to write to. flush() deliberately does
+  // not wait for the file, and saveNow() falls back to the share sheet, which needs a user gesture;
+  // neither works for the app's background save, where nothing is waiting for a dialog and iOS is
+  // counting seconds (see flushForBackground in iPad_APP/CRMiPad/crm-native-shim.js).
+  // Resolves true only when the file now holds the edits.
+  function persistNow() {
+    if (!opened || !isWriter) return Promise.resolve(false);
+    clearTimeout(persistTimer);
+    return enqueueCommit(commit).then(function (c) {
+      var bound = !!(fileHandle && canAutosave);
+      if (!c) syncSaveState();
+      else if (!bound) emitSaveState("browser");
+      // Queued behind whatever the cadence already started, so this resolves once the FILE is
+      // current — not merely once our own commit is.
+      return enqueueFile(function () {
+        if (!c || !bound) return false;
+        return writeThroughToFile(c.blob, c.seq);
+      });
+    });
+  }
+
   function saveNow() {
     if (!opened) return Promise.resolve();
     clearTimeout(persistTimer);
@@ -1799,6 +1821,7 @@
     stats: stats,
     saveNow: saveNow,
     flush: flush,
+    persistNow: persistNow,
     reloadWorkingCopy: reloadWorkingCopy,
     verifyFreshness: verifyFreshness,
     isVerified: function () { return freshnessVerified; },

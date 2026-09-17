@@ -94,7 +94,9 @@ guards sit on top, each with its own `tests/crmdb-*.test.js`:
 
 `src/crmdb-commit-cadence.js` decides *when* staged edits commit: at most every 30s, plus immediately on
 every exit (patient switch, Save, tab hide, pagehide). Pages stage cheap `writeFile(..., { defer: true })`
-writes in between.
+writes in between. In the app, a tab-hide exit is also a *backgrounded app*, which iOS suspends within
+seconds: it asks for time and drives `CRMFlushPending` → `persistNow()` so the write reaches the file
+before the app freezes (`docs/crmdb.md`, `iPad_APP/README.md`).
 
 **Platforms.** Desktop Chrome/Edge have the File System Access API and autosave. iPad Safari has none:
 Save goes out through the share sheet. The **iPad app** (`iPad_APP/`) is a WKWebView serving the bundled

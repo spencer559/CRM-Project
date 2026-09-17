@@ -261,6 +261,30 @@
         ? new NativeDirectoryHandle(h.crmNativeToken, h.name, h.crmNativePath)
         : new NativeFileHandle(h.crmNativeToken, h.name, h.crmNativePath);
     },
+    // iOS suspends a backgrounded app within seconds, which used to leave the last edits in the
+    // app's own storage only: the durable journal replays them on the next launch, but the .crmdb
+    // on the stick or in OneDrive didn't have them until then. WebViewController asks iOS for time
+    // and calls this, so the page can finish what a deliberate exit does — the page's own pending
+    // work first (CRMFlushPending: the Schedule stages its schedule.json and has an open report
+    // publish itself; the generator rebuilds its report set), then the database written through to
+    // the file and awaited. It resolves a short string the app logs, and never rejects: a rejection
+    // would leave the app holding its background assertion until iOS killed it.
+    flushForBackground: function () {
+      return Promise.resolve()
+        .then(function () {
+          var pending = root.CRMFlushPending;
+          return typeof pending === "function" ? pending() : null;
+        })
+        .then(function () {
+          var ws = root.CRMWorkspace;
+          return (ws && ws.persistNow) ? ws.persistNow() : false;
+        })
+        // "already current" is the ordinary case, not an idle one: the page's own tab-hide handler
+        // usually takes the commit first, and persistNow then waits for that write to reach the
+        // file. Either way the app can let go of the time it asked iOS for.
+        .then(function (written) { return written ? "wrote the database" : "already current"; },
+              function (e) { return "failed: " + ((e && e.message) || e); });
+    },
     // WKWebView can't print a PDF sitting in a frame, so PDF bytes go straight to the print sheet.
     printPdf: function (data) {
       return blobToBase64(new Blob([data], { type: "application/pdf" })).then(function (b64) {

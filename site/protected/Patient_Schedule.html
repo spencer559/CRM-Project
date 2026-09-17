@@ -2261,6 +2261,18 @@
   })();
   /* Leaving the page, in every way a browser signals it — tab-hide, Back out of the schedule, tab
      close. This is what keeps the commit cadence from ever costing a normal exit. */
+  /* The app's background save (crm-native-shim.js flushForBackground) calls this before the store
+     writes the database through to the file: the same work the leave hook below does, but awaitable,
+     so iOS can be asked to hold the app alive until it has actually finished. An open report panel
+     publishes its report set first, exactly as closing it would — finalizePanel is already bounded,
+     so a frame that never answers can't hold the background assertion open. */
+  window.CRMFlushPending = function () {
+    return new Promise(function (resolve) {
+      if (!panel || !panel.ready) { resolve(flushPending()); return; }
+      finalizePanel(function () { resolve(flushPending()); });
+    });
+  };
+
   cadence.attachLeaveHooks(function () {
     mirrorNow();                       // synchronous: the browser copy must not lose the last edit
     if (!syncTimer) return false;      // nothing waiting to be staged; the cadence commits if it has work

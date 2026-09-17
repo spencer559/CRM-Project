@@ -11,6 +11,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private var webView: WKWebView!
     private var popups: [ObjectIdentifier: UINavigationController] = [:]
     private var downloads: [ObjectIdentifier: URL] = [:]
+    private var backgroundSaveTimeout: Timer?
 
     override var prefersStatusBarHidden: Bool { true }
 
@@ -46,6 +47,45 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         web.allowsLinkPreview = false
         if #available(iOS 16.4, *) { web.isInspectable = true }   // debuggable from Safari ▸ Develop on a Mac
         return web
+    }
+
+    // MARK: - Saving on the way out
+
+    /// Ask iOS for time, let the page finish the save its own tab-hide handler started, and give the
+    /// time back the moment it reports done. The page does the deciding (`flushForBackground` in
+    /// crm-native-shim.js): this only keeps the app — and with it the web content process — alive
+    /// long enough for the write to land in the `.crmdb`.
+    ///
+    /// Belt and braces around a background assertion, because iOS ends the app if one is left open:
+    /// the expiration handler releases it, a timer releases it if the page never answers, and
+    /// `release` runs once however it arrives.
+    func saveInBackground() {
+        var task = UIBackgroundTaskIdentifier.invalid
+        var released = false
+        let release: () -> Void = { [weak self] in
+            guard !released else { return }
+            released = true
+            self?.backgroundSaveTimeout?.invalidate()
+            self?.backgroundSaveTimeout = nil
+            if task != .invalid { UIApplication.shared.endBackgroundTask(task) }
+        }
+        task = UIApplication.shared.beginBackgroundTask(withName: "crm.save") { release() }
+        guard task != .invalid else { return }   // iOS refused; nothing to hold the app open with
+
+        // The page's own work is bounded (a report rebuild gives up after 6s), so this is only for
+        // a page that never replies at all — a crashed content process, say.
+        backgroundSaveTimeout = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { _ in
+            NSLog("CRM background save: gave up waiting for the page")
+            release()
+        }
+        webView.callAsyncJavaScript("return await window.CRMNative.flushForBackground()",
+                                    in: nil, in: .page) { result in
+            switch result {
+            case .success(let value): NSLog("CRM background save: %@", (value as? String) ?? "done")
+            case .failure(let error): NSLog("CRM background save failed: %@", "\(error)")
+            }
+            release()
+        }
     }
 
     // MARK: - Popups (window.open / target=_blank)

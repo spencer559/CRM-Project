@@ -208,6 +208,16 @@ implemented once the zip proved useless for printing patient folders at the clin
 - The **first** file picker after launch takes around 8 seconds to appear, with no visual feedback.
   It looks broken, but it isn't.
 - You can debug the app from Safari › Develop on the Mac while the iPad or iPhone is connected.
+- **Leaving the app finishes the save.** Edits publish to the `.crmdb` at most every 30 seconds and
+  whenever the page is hidden, but iOS suspends a backgrounded app within seconds, so that last save
+  used to be frozen part-way: the edits survived in the app's own storage and replayed on the next
+  launch, while the file on the stick or in OneDrive didn't have them until then. On entering the
+  background the app now asks iOS for time (`saveInBackground` in `WebViewController.swift`), has the
+  page finish what an exit does (`flushForBackground` in the shim, `CRMFlushPending` on the page, then
+  the store's `persistNow`), and gives the time back as soon as the write lands. A page that never
+  answers is given up on after 20 seconds, because an unreleased background assertion is itself a way
+  to get killed. Covered by `tests/crmdb-background-flush.test.js`; watch it work with
+  `xcrun simctl spawn booted log show --last 2m --predicate 'process == "CRMiPad"' | grep "background save"`.
 - The icon's source picture isn't in the repo; only the cropped `icon-1024.png` is. Changing the crop
   with `make-icon.sh` needs the original image.
 - **Not yet verified on real hardware** (Simulator or headless tests only): password-protected
@@ -216,33 +226,26 @@ implemented once the zip proved useless for printing patient folders at the clin
 
 ## Known gaps
 
-After the first successful day at a clinic (September 2026), a review listed these. Only the app icon
-was done then; the rest were **deliberately deferred**, in this order of importance. The first three
-were re-checked against the code on 2026-09-16 and are still open.
+After the first successful day at a clinic (September 2026), a review listed these, in this order of
+importance. The app icon was done then, and finishing the save when the app goes to the background on
+2026-09-17 (see *Notes*); the rest were **deliberately deferred**. The first two below were
+re-checked against the code on 2026-09-17 and are still open.
 
-1. **Recent edits can miss the file.** Edits commit to the `.crmdb` at most every 30 seconds, and
-   when the page is hidden. But nothing asks iOS for time to finish a save when the app goes to the
-   background, and iOS suspends or ends background apps freely. The durable journal keeps staged edits
-   in the app's own storage and replays them on the next launch, so they aren't lost from the iPad.
-   Until then, though, the file on the stick or in OneDrive doesn't have them. On desktop you see a
-   page close; on iPad you don't. Fix: on entering the background, start a short background task and
-   flush (about an hour). On an iPhone this matters more: a phone is locked, or leaves the app for
-   a call or a message, far more often than a clinic iPad.
-2. **The signature expires without warning.** A free Apple ID signature lasts 7 days and automatic
+1. **The signature expires without warning.** A free Apple ID signature lasts 7 days and automatic
    renewal is off, so the app simply stops opening, possibly mid-clinic, and the fix needs the Mac.
    Options: turn Auto on, pay for a developer account (1-year signatures), or have the app read its
    own expiry at launch and warn a few days ahead.
-3. **Nothing locks the app.** On the website, `/protected/` sits behind Cloudflare Access; the offline
+2. **Nothing locks the app.** On the website, `/protected/` sits behind Cloudflare Access; the offline
    app has no equivalent, and the `.crmdb` password is optional. An unlocked iPad opens straight into
    patient data. Fix: Face ID or passcode on launch and on return from the background (about an hour).
    An iPhone that leaves the clinic in a pocket makes this one sharper too.
-4. **iPad portrait still scrolls sideways.** The column trim targeted landscape (1194pt wide, with 10px
+3. **iPad portrait still scrolls sideways.** The column trim targeted landscape (1194pt wide, with 10px
    to spare). Portrait is 834pt and the schedule table needs 1122pt. The phone layout's cards start
    below 640pt, so they don't reach it; widening that breakpoint is the obvious fix to try.
-5. **Multiple windows are allowed.** Stage Manager can open two windows on one database. That behaves
+4. **Multiple windows are allowed.** Stage Manager can open two windows on one database. That behaves
    like two browser tabs (the store's writer lease leaves the second read-only), but it was flagged to
    be turned off.
-6. **A lost file link needs a manual re-pick.** After an iPadOS update or a USB replug the page shows
+5. **A lost file link needs a manual re-pick.** After an iPadOS update or a USB replug the page shows
    "Can't reach the database file". It could retry, and offer the picker on its own.
-7. **There's only one copy.** One `.crmdb` on one stick. Each save to USB could also drop a dated
+6. **There's only one copy.** One `.crmdb` on one stick. Each save to USB could also drop a dated
    backup on the iPad.
