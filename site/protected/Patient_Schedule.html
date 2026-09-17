@@ -154,12 +154,22 @@
   td select { padding:3px 2px; }
   td.provider-cell select { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   /* Native time/date controls have different intrinsic heights across browsers (especially
-     iPad Safari), so pin both to the same height as the other row controls. */
-  td.time input, td.lo input { height:25px; min-height:25px; }
+     iPad Safari), so pin both to the same height as the other row controls. Pinning alone isn't
+     enough: WebKit draws these two as native controls that ignore the height and width they are
+     given, so on an iPad the date sat 2px taller than the fields either side of it, and on an
+     iPhone it was 38px in a 36px row and spilled into Remote whenever the date was long enough
+     ("Nov 20, 2025"). Without the native appearance they take the box the row gives them; tapping
+     one still opens the system picker. */
+  td.time input, td.lo input { -webkit-appearance:none; appearance:none; }
+  /* One row, one height. Left to themselves a text input, a select and a native date field settle on
+     different heights, and which one is the odd one out changes with the engine: WebKit made the
+     selects 23px against 25px elsewhere, Chromium does the reverse with text inputs. The notes
+     textarea is left out — it grows with its content. */
+  td input:not([type=checkbox]), td select { height:25px; min-height:25px; }
   td.time input { width:106px; color-scheme:dark; }
   td.lo { vertical-align:middle; }
   td.lo input { width:108px; color-scheme:dark; }
-  td.pt input { width:160px; }
+  td.pt input { width:152px; }
   /* Landscape iPad (11-inch: 1194pt wide) leaves 1132px for the table, 60px short of the columns
      above, which clipped Files and the delete control. Wherever the full layout would not fit,
      trim the wordier columns just enough that the whole row stays on screen. The header widths
@@ -167,17 +177,18 @@
   @media (max-width: 1260px) {
     .twrap table { min-width:1122px; }
     .twrap thead th:nth-child(1)  { width:104px !important; }  /* Time */
-    .twrap thead th:nth-child(2)  { width:156px !important; }  /* Patient */
+    .twrap thead th:nth-child(2)  { width:142px !important; }  /* Patient */
     .twrap thead th:nth-child(3)  { width:90px !important; }   /* MFR */
     .twrap thead th:nth-child(4)  { width:80px !important; }   /* Device */
     .twrap thead th:nth-child(5)  { width:110px !important; }  /* Provider */
     .twrap thead th:nth-child(6)  { width:84px !important; }   /* Check type */
     .twrap thead th:nth-child(7)  { width:108px !important; }  /* Last office */
     .twrap thead th:nth-child(8)  { width:104px !important; }  /* Remote */
-    .twrap thead th:nth-child(12) { width:88px !important; }   /* Files */
+    /* Files needs the width the caret costs; Patient gives it up, so the row still totals 1122. */
+    .twrap thead th:nth-child(12) { width:102px !important; }  /* Files */
     td.time input { width:96px; }
     td.lo input { width:98px; }
-    td.pt input { width:146px; }
+    td.pt input { width:132px; }
   }
   /* The appointment row and its full-width notes row read as one block: drop the divider
      between them, and let the notes row carry the bottom border. */
@@ -226,6 +237,12 @@
     background:var(--panel2); color:var(--text); font:inherit; font-size:.7rem; font-weight:700;
     padding:3px 5px; white-space:nowrap; cursor:pointer;
   }
+  /* One row: the label gives way before the caret does. WebKit measures "Report ✓ · 2 ▾" wider than
+     Chromium does (82px against 76px in a 76px box), so the arrow was the part that fell off the
+     end — which read as a broken button rather than a long label. */
+  .files-trigger { display:flex; align-items:center; justify-content:center; gap:3px; }
+  .files-trigger .files-label { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .files-trigger .files-caret { flex:none; }
   .crm-link { color:var(--green); }
   .crm-link:hover, .files-trigger:hover, .files-trigger[aria-expanded="true"] { border-color:var(--accent); }
   .crm-link:disabled { color:var(--muted); cursor:default; opacity:.65; }
@@ -418,10 +435,6 @@
     .twrap td input, .twrap td select, .twrap td textarea { font-size:15px; }
     .twrap td input:not([type=checkbox]), .twrap td select,
     td.time input, td.lo input, td.pt input { width:100%; height:36px; min-height:36px; }
-    /* iOS draws a native time field at its own intrinsic width and ignores width:100% (measured:
-       79pt in a 110pt cell). Without the native appearance it takes the width; tapping it still
-       opens the system time picker. */
-    .twrap td.time input { -webkit-appearance:none; appearance:none; }
     .twrap td.done input[type=checkbox], .twrap td.cerner input[type=checkbox] { width:28px; height:28px; margin-bottom:4px; }
     .twrap td.done input[type=checkbox]::before, .twrap td.cerner input[type=checkbox]::before { width:15px; height:15px; }
     .crm-link, .files-trigger { min-height:36px; font-size:.78rem; }
@@ -573,7 +586,7 @@
     <table>
       <thead><tr>
         <th style="width:114px">Time</th>
-        <th style="width:170px">Patient</th>
+        <th style="width:162px">Patient</th>
         <th style="width:96px" title="Manufacturer">MFR</th>
         <th style="width:82px">Device</th>
         <th style="width:118px">Provider</th>
@@ -583,7 +596,7 @@
         <th class="done" style="width:54px" title="Mark once this patient's report is finished — also ticked from inside the report">Done</th>
         <th class="cerner" style="width:60px" title="Mark once this patient has been entered into Cerner">Cerner</th>
         <th class="crm-head" style="width:54px">CRM</th>
-        <th class="files-head" style="width:92px">Files</th>
+        <th class="files-head" style="width:100px">Files</th>
         <th class="row-spacer"></th>
         <th style="width:30px"></th>
       </tr>
@@ -2417,8 +2430,11 @@
         var cls = "empty", label = "No files";
         if (hasProgrammerReport) { cls = "complete"; label = "Report \u2713" + (names.length > 1 ? " \u00b7 " + names.length : ""); }
         else if (hasGeneratedReport) { cls = "draft"; label = "Generated"; }
+        // The caret is its own element so it can't be the part that gets cut: the label shortens
+        // instead (see .files-trigger). A clipped \u25be was what made the button look broken on iPad.
         td.innerHTML = '<button type="button" class="files-trigger ' + cls + '" data-files-slot="' + esc(slot) +
-          '" aria-haspopup="menu" aria-expanded="false" title="Show files for this patient">' + label + ' \u25be</button>';
+          '" aria-haspopup="menu" aria-expanded="false" title="Show files for this patient">' +
+          '<span class="files-label">' + label + '</span><span class="files-caret" aria-hidden="true">\u25be</span></button>';
         // A file attached or removed while this patient's panel is open: keep the split's file
         // switcher in step with the badge that was just redrawn.
         if (panel && panel.date === curDate && panel.slot === slot) populatePanelViewer(false);

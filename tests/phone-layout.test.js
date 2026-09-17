@@ -103,13 +103,43 @@ assert.match(sched, /\.main-scroll \{[^}]*-webkit-overflow-scrolling:auto;/,
   "iOS clips a fixed panel to a touch-scrolling ancestor, which hid the panel's Close button");
 assert.match(sched, /\.crm-panel\.split-open \.crm-panel-body \{[^}]*flex-direction:column;/,
   "split view stacks the file under the form");
-assert.match(sched, /\.twrap td\.time input \{ -webkit-appearance:none; appearance:none; \}/,
-  "iOS ignores width on a natively drawn time field");
+// Not in the phone block: WebKit's native date and time fields ignore the box they are given on
+// iPad too (2px taller than their neighbours there, 38px in a 36px phone row, and wide enough to
+// spill into Remote), so the whole schedule drops their native appearance and pins one row height.
+assert.match(schedule, /td\.time input, td\.lo input \{ -webkit-appearance:none; appearance:none; \}/,
+  "the date and time fields take the box the row gives them, on every engine");
+assert.match(schedule, /td input:not\(\[type=checkbox\]\), td select \{ height:25px; min-height:25px; \}/,
+  "text inputs, selects and the native date field are pinned to one row height");
 
 const bodyRule = /\n  body \{[^}]*\}/.exec(schedule)[0];
 assert.match(bodyRule, /height:100%;/, "the app shell is sized to the page");
 assert.doesNotMatch(bodyRule, /100vh/, "100vh includes the safe areas in the app's web view");
 assert.match(schedule, /\n  html \{ height:100%; \}/, "body's 100% needs a sized root");
+
+/* ---- the Files button keeps its caret ---- */
+
+// WebKit measures the label wider than Chromium, so "Report ✓ · 2 ▾" as one string lost its ▾ off
+// the end of the button and looked broken. The caret is its own element, and the label is what
+// gives way; the column is wide enough that it doesn't have to.
+const slotCell = functionSource(schedule, "renderSlotCell");
+assert.match(slotCell, /<span class="files-label">' \+ label \+ '<\/span><span class="files-caret"/,
+  "the label and the caret are separate elements");
+assert.match(schedule, /\.files-trigger \.files-label \{ min-width:0; overflow:hidden; text-overflow:ellipsis; \}/,
+  "the label is the part that shortens");
+assert.match(schedule, /\.files-trigger \.files-caret \{ flex:none; \}/, "the caret never shrinks");
+const filesWidth = Number(/\.twrap thead th:nth-child\(12\) \{ width:(\d+)px/.exec(schedule)[1]);
+assert.ok(filesWidth >= 102, "the Files column fits the label WebKit draws (measured 90px of content)");
+// The trimmed row still has to total the 1122px the iPad's landscape viewport leaves.
+const trimmed = [...schedule.matchAll(/\.twrap thead th:nth-child\((\d+)\)\s*\{ width:(\d+)px/g)]
+  .reduce((all, m) => (all[Number(m[1])] = Number(m[2]), all), {});
+const headerWidths = [...schedule.slice(schedule.indexOf("<thead>"), schedule.indexOf("</thead>"))
+  .matchAll(/<th[^>]*style="width:(\d+)px"/g)].map((m) => Number(m[1]));
+const columns = headerWidths.map((w, i) => trimmed[i + 1] || w);
+// The trim block is the iPad's: its own min-width is what the columns have to add up to.
+const trimBlock = schedule.slice(schedule.indexOf("@media (max-width: 1260px)"));
+const minWidth = Number(/\.twrap table \{ min-width:(\d+)px; \}/.exec(trimBlock)[1]);
+assert.strictEqual(columns.reduce((a, b) => a + b, 0), minWidth,
+  "the trimmed columns add up to the table's minimum, or the row scrolls sideways on an iPad again");
 
 /* ---- Schedule: the divider, stacked and side by side ---- */
 
