@@ -113,6 +113,70 @@ The bundle **is** the one database, and it is:
 - on **desktop** (Chrome/Edge) additionally bound to a real `.crmdb` **file handle** (also stored
   in IndexedDB, so both same-origin pages share it) and **autosaved in place** — no button.
 
+**WebKit's IndexedDB copies (Sep 2026).** Symptom: in the iPad/iPhone app, relaunching after
+opening a `.crmdb` showed "Database is closed — open schedule.crmdb to reconnect", with
+`lastOpenError()` reporting `crmdb: corrupt central directory`. The zero-copy container (the
+README's *Latency overhaul*, item 4) runs into two WebKit IndexedDB bugs. They hit Safari, every iOS
+browser, and the app's WKWebView. Both were measured in the iOS 18.0 Simulator, in Safari, killing
+and relaunching it between steps:
+
+1. **A sliced Blob is stored as its whole parent.** WebKit writes each backing part of a Blob out
+   whole, so a `slice()` reaches disk as the entire buffer or file it was cut from, while the record
+   keeps its original size. In the process that wrote it, reads come from the original Blob and look
+   right. After a restart they come from disk: a 950-byte Blob built from two slices of a 10 KB buffer
+   was stored as 20,150 bytes and read back that way. Every committed container is made of slices
+   (`CRMDB.readBlob` hands them out, `buildZip` passes them through by reference), so the working copy
+   read back corrupt. It was slow as well. Storing a synthetic 55 MB, 181-entry container wrote a
+   **9.94 GB** blob file (the whole database once per entry) and took **12.8 s**.
+2. **A Blob read back after a restart dies with its record.** It is backed by the record's file, and
+   overwriting or deleting the record deletes that file while the Blob is still in use. Every later
+   read of it, or of a slice of it, fails with `NotFoundError` ("The object can not be found here.").
+   Commits replace `bundle` and journal writes replace `journal`, so a bundle sliced from what
+   IndexedDB returned lost its unchanged entries at the next save. Fixing only the first bug showed
+   this: the second commit after a relaunch failed. In the app, the file write-through after the
+   first one would fail too.
+
+The fix, WebKit only (`isWebKitIdb()`: Apple's `navigator.vendor`, or an AppleWebKit user agent that
+isn't Chromium's): `forIdb` rebuilds what goes into IndexedDB (the container and the unsealed
+journal row) from whole parts, and `fromIdb` copies the working copy that `stored()`/`adoptShared()`
+read out before the bundle slices it. `unsealJournal` does the same with the journal bytes it
+already holds. Sealed envelopes are whole buffers already and are never copied again. Chromium does
+exactly what it did before. The bundle still holds one copy of the database, serializing stays by
+reference, and the file write-through still sends the by-reference container. On WebKit that one
+copy now lives in memory (outside the JS heap), as a freshly opened file's bytes already did, where
+before it was the IndexedDB file that the next save deleted.
+
+Cost on the synthetic 55 MB database, in the Simulator (a Mac's CPU and SSD, so an iPad will be
+slower):
+
+| | before | after |
+|---|---|---|
+| storing a commit's container in IndexedDB | 12.8 s, 9.94 GB written | 30–50 ms copy + 40–190 ms write, 55 MB written |
+| edit commit, end to end | — (failed after a relaunch) | 60–125 ms (one 273 ms outlier) |
+| page load after a relaunch (`stored()`) | failed | 110–190 ms (51 ms by reference, without the copy) |
+| WebContent peak while copying | — | 82 MB (8 MB groups via `stream()`); a single `arrayBuffer()` or `new Response(blob).blob()` peaked at 182–188 MB |
+
+Copy methods compared: one `arrayBuffer()`, `slice()` in 8 MB chunks, `stream()` in 8 MB groups, and
+`Response.blob()`. All four read back correctly after a relaunch, in similar time (30–65 ms from
+memory, 45–126 ms from an IndexedDB file). `stream()` won on peak memory, which matters because a
+jetsammed WebContent process takes the unsaved edit window with it.
+
+**Rejected, so it isn't proposed again:** keeping page loads by reference and re-pointing the bundle
+at the flattened copy after each commit. It saves the 60–130 ms load copy, but anything that still
+holds a slice of the old record breaks as soon as a commit lands: another window's store until it
+adopts, a file write-through still streaming the previous container, a `File` the Files menu
+resolved before the commit. Generational IndexedDB keys that are never overwritten fail the same way
+(the bundle keeps referencing whichever generation it loaded) and leave extra PHI copies on disk.
+Flattening on every engine would hand Chromium a full copy per commit for a bug it doesn't have.
+
+A working copy that an older build already stored corrupt stays unreadable: after updating, reopen
+the file once. The app build was checked on the iPhone 16 Pro Simulator. After that one reopen, the
+database reconnected by itself across two kill-and-relaunch cycles (one of them after pressing Home
+first), where the old build had failed 3 of 3. Covered by `tests/crmdb-webkit-idb-slices.test.js`. Node's Blob has neither bug, so
+the test models both (Blobs that record which whole buffers they are cut from, and an IndexedDB whose
+`restart()` swaps in what WebKit's disk holds and deletes a record's file when the record is
+replaced). It also runs a control showing that the unflattened container reproduces the field error.
+
 **Capability split.** `WS.canAutosave = !!showSaveFilePicker` (true on desktop Chromium). Desktop:
 silent debounced autosave to the file + IndexedDB. iPad: the green **Save** button (`saveNow`)
 hands the whole `.crmdb` to `navigator.share` → "Save to Files → USB" (falls back to a download),

@@ -233,7 +233,7 @@ async function run() {
     /* Opening is the bigger moment: it is the one time the whole database is decrypted at once,
        and it used to hold FOUR copies — the container Blob, its ArrayBuffer, a slice() copy of the
        ciphertext, and the plaintext. The two avoidable ones must stay avoided. */
-    const ingest = src.slice(src.indexOf("function ingest("), src.indexOf("function ingest(") + 900);
+    const ingest = src.slice(src.indexOf("function ingest("), src.indexOf("function verifyPassword("));
     assert.match(ingest, /var reading = source\.arrayBuffer\(\);\s*\n\s*source = null;/,
       "opening must drop the container Blob once its bytes are on the heap");
     const envelope = src.slice(src.indexOf("function decryptEnvelope("), src.indexOf("function decryptEnvelope(") + 1800);

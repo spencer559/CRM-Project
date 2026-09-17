@@ -125,6 +125,11 @@ local redaction and PDF-extraction harness pages for preparing sample exports.
   self-hosted in `vendor/` (credit new ones in `vendor/THIRD_PARTY_NOTICES.md`). Every page on the
   origin shares localStorage with the generator's PHI autosave (`crm-digital`), so each page carries
   its own restrictive CSP (`tests/page-csp.test.js`).
+- **On WebKit, Blobs cross IndexedDB as copies.** A sliced Blob put there is stored as its whole
+  parent, and a Blob read back after a restart dies when its record is replaced. Anything new that
+  puts a Blob into IndexedDB, or keeps one it read out, goes through `forIdb`/`fromIdb` in
+  `crmdb-store.js` (`docs/crmdb.md`, *WebKit's IndexedDB copies*). Node can't show either bug:
+  `tests/crmdb-webkit-idb-slices.test.js` models them.
 - **Store mutations go through `bset`/`bdel`.** A direct `bundle.set/delete` is invisible to the journal
   and the cross-tab merge. Only the store's own ingest and journal-replay code touches `bundle` directly.
 - **A page that loads a new file must list it in `iPad_APP/web-files.txt`** (paths relative to

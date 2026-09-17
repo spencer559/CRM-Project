@@ -413,10 +413,13 @@
       // Hold the CRCs, not the zip: `r` outlives the encrypt below, and pinning its Blob there
       // would keep a whole extra copy of the database alive for the length of the encryption.
       var crcs = r.crcs;
+      // Read in the same turn as encryptZip's own check, so this says whether `out` is the sealed
+      // envelope (whole buffers) or the by-reference zip itself.
+      var sealed = !!protection;
       return encryptZip(r.blob, function () { r.blob = null; }).then(function (out) {
         // An encrypted container is re-read by decrypting it whole, never through the by-reference
         // path, so a stored memo would only ever be dead weight there.
-        return { blob: out, crcs: protection ? null : crcs };
+        return { blob: out, crcs: protection ? null : crcs, sealed: sealed };
       });
     });
   }
@@ -475,11 +478,18 @@
       opened = true;
     });
   }
-  function ingest(source) {
+  // `idbCopy`: the source was read out of IndexedDB. On WebKit it is copied before the bundle slices
+  // it, because the next save deletes the file behind it (see fromIdb). An encrypted container needs
+  // nothing extra: it is read whole below anyway.
+  function ingest(source, idbCopy) {
     if ((typeof Blob !== "undefined") && (source instanceof Blob)) {
       // Only the magic is needed to tell the two container shapes apart — a few bytes, not the file.
       return source.slice(0, ENC_MAGIC.length).arrayBuffer().then(function (head) {
-        if (!isEncryptedBytes(new Uint8Array(head))) { protection = null; return ingestZip(source); }
+        if (!isEncryptedBytes(new Uint8Array(head))) {
+          protection = null;
+          var copying = idbCopy && fromIdb(source);
+          return copying ? copying.then(ingestZip) : ingestZip(source);
+        }
         // Encrypted: AES-GCM has to authenticate the whole envelope at once, so there is nothing to
         // stream here and nothing the by-reference path could save. Drop the Blob the moment its
         // bytes are on the heap, though — opening is the single biggest memory moment this app has,
@@ -628,6 +638,83 @@
     });
   }
 
+  /* --------------------------------------------------- WebKit's IndexedDB and Blobs
+   * WebKit (Safari, every iOS browser, and the iPad app's WKWebView) mishandles Blobs in IndexedDB
+   * in two ways, and the zero-copy container runs straight into both. Measured in the iOS 18.0
+   * Simulator, in Safari, quitting and relaunching it between steps.
+   *
+   * 1. It writes each backing part of a Blob out WHOLE. A slice() is a range of a larger buffer or
+   *    file, and it reaches disk as that entire buffer or file, while the record keeps the size it
+   *    was given. Reads in the process that wrote it are served from the original Blob and look
+   *    right; after a restart they come from disk. A 950-byte Blob built from two slices of a 10 KB
+   *    buffer was stored as 20,150 bytes and read back that way. Every container a commit publishes
+   *    is built like that (CRMDB.readBlob hands out slices, buildZip passes them through by
+   *    reference), so relaunching the app read the working copy as "crmdb: corrupt central
+   *    directory" and the Schedule opened as "Database is closed". It is slow too: a synthetic
+   *    55 MB, 181-entry database was stored as a 9.94 GB blob file, the whole file once per entry,
+   *    which took 12.8 s.
+   *
+   * 2. A Blob read out of IndexedDB after a restart is backed by the record's file, and WebKit
+   *    deletes that file as soon as the record is overwritten or deleted, while the Blob is still in
+   *    use. Every later read of it, or of any slice of it, fails with NotFoundError ("The object can
+   *    not be found here."). A commit replaces the working copy and a journal write replaces the
+   *    journal row, so a bundle sliced from what IndexedDB handed back lost every unchanged entry at
+   *    the next save: the second commit after a relaunch failed, and in the app the file write-
+   *    through after the first one would too.
+   *
+   * So on WebKit only: what goes into IndexedDB is rebuilt from whole parts (forIdb), and what comes
+   * out is copied before the bundle slices it (fromIdb). The bundle still holds one copy of the
+   * database, serializing stays by reference, and the file write-through still sends the
+   * by-reference container. The copy lives outside the JS heap, as the bytes of a freshly opened
+   * file already do. Chromium handles both cases correctly and skips all of this.
+   *
+   * Same 55 MB database, same Simulator (a Mac's CPU and SSD, so expect an iPad to be slower):
+   *   • a commit's copy takes 30–50 ms, and IndexedDB then writes it in 40–190 ms, where storing
+   *     the unflattened container took 12.8 s; edit commits measured 60–125 ms end to end, with one
+   *     273 ms outlier
+   *   • a page load's copy out of IndexedDB takes 45–126 ms (the first read is the slow one), which
+   *     puts stored() at 110–190 ms instead of the 51 ms it took by reference
+   * Copies are read in 8 MB groups through stream() rather than with one arrayBuffer(): that kept
+   * the WebContent process's peak at 82 MB instead of 182 MB, and that is the process whose jetsam
+   * loses the unsaved edit window.
+   */
+  var WEBKIT_COPY_GROUP = 8 * 1024 * 1024;
+  // A wrong yes costs a copy and a wrong no corrupts the working copy, so this leans yes. Apple's
+  // vendor string covers Safari and every WKWebView; the user-agent test catches a WebKit that
+  // reports another vendor, excluding Chromium, which keeps the AppleWebKit token.
+  function isWebKitIdb() {
+    try {
+      if (typeof navigator === "undefined" || !navigator) return false;
+      if (navigator.vendor === "Apple Computer, Inc.") return true;
+      var ua = String(navigator.userAgent || "");
+      return /AppleWebKit\//.test(ua) && !/(Chrome|Chromium|Edg)\//.test(ua);
+    } catch (e) { return false; }
+  }
+  var WEBKIT_IDB = isWebKitIdb();
+  // The same bytes as `blob`, held in whole buffers of their own: no slices, and nothing IndexedDB
+  // can delete from underneath.
+  function wholeCopy(blob) {
+    if (typeof blob.stream !== "function") {
+      return blob.arrayBuffer().then(function (ab) { return new Blob([ab], { type: blob.type }); });
+    }
+    var reader = blob.stream().getReader(), parts = [], group = [], groupSize = 0;
+    function cut() { if (groupSize) { parts.push(new Blob(group)); group = []; groupSize = 0; } }
+    function pump() {
+      return reader.read().then(function (r) {
+        if (r.done) { cut(); return new Blob(parts, { type: blob.type }); }
+        group.push(r.value); groupSize += r.value.byteLength;
+        if (groupSize >= WEBKIT_COPY_GROUP) cut();
+        return pump();
+      });
+    }
+    return pump();
+  }
+  // Both resolve the copy, or return null when the Blob can be used as it is, so every other engine
+  // keeps running in the same turns it always did. `whole` is for a Blob already built from whole
+  // buffers, like a sealed envelope: copying it again would buy nothing.
+  function forIdb(blob, whole) { return (WEBKIT_IDB && !whole && blob) ? wholeCopy(blob) : null; }
+  function fromIdb(blob) { return (WEBKIT_IDB && blob) ? wholeCopy(blob) : null; }
+
   // Publish the bundle only if the shared revision is still what we based our work on. The
   // re-read and both puts ride in ONE readwrite transaction, so a tab that commits while we were
   // busy serializing loses the race here rather than silently clobbering.
@@ -755,7 +842,9 @@
       var bytes = new Uint8Array(ab);
       if (!isEncryptedBytes(bytes)) {
         if (protection) throw new Error("journal is not sealed but this database is protected");
-        return blob;
+        // On WebKit the replayed entries must not be slices of the row itself: the next journal
+        // write deletes the file behind it (see fromIdb). The bytes are already in hand.
+        return WEBKIT_IDB ? new Blob([ab]) : blob;
       }
       if (!protection) throw new Error("sealed journal but no key");
       if (bytes.length <= ENC_HEADER_SIZE || bytes[8] !== ENC_VERSION) throw new Error("unsupported journal");
@@ -795,17 +884,23 @@
     // An attachment belongs in the container, not in a blob we rewrite on every pause. writeFile
     // without { defer } already schedules a commit for it, so nothing is at risk by skipping here.
     if (bytes > JOURNAL_CAP) return Promise.resolve();
-    var rev = myRev;
-    return serializeJournal().then(function (zip) { return encryptZip(zip); }).then(function (sealed) {
-      // A commit landed while we were sealing: it cleared the journal and advanced the revision,
-      // so this row now describes work already in the container. Publishing it would resurrect it.
-      if (rev !== myRev || !opened) return;
-      return idbSet(JOURNAL_KEY, { rev: rev, blob: sealed }).then(function () {
-        // The row has landed, so these edits now survive a crash. "edited" meant at-risk before
-        // the journal existed; it must not keep saying so once the work is actually durable.
-        if (saveState.state === "edited") emitSaveState("browser");
-      });
-    }).catch(function () {});
+    var rev = myRev, envelope = false;
+    // The journal is a zip of by-reference entries, and those can be slices too: moveSlot re-keys
+    // an entry the container handed out, and a replayed journal is itself read back as slices. So
+    // it gets the same WebKit treatment as the container, or the crash replay is what corrupts.
+    return serializeJournal()
+      .then(function (zip) { envelope = !!protection; return encryptZip(zip); })
+      .then(function (out) { return forIdb(out, envelope) || out; })
+      .then(function (sealed) {
+        // A commit landed while we were sealing: it cleared the journal and advanced the revision,
+        // so this row now describes work already in the container. Publishing it would resurrect it.
+        if (rev !== myRev || !opened) return;
+        return idbSet(JOURNAL_KEY, { rev: rev, blob: sealed }).then(function () {
+          // The row has landed, so these edits now survive a crash. "edited" meant at-risk before
+          // the journal existed; it must not keep saying so once the work is actually durable.
+          if (saveState.state === "edited") emitSaveState("browser");
+        });
+      }).catch(function () {});
   }
   function scheduleJournalWrite() {
     if (!opened || journalTimer) return;
@@ -859,7 +954,8 @@
       return idbGet(BUNDLE_KEY).then(function (blob) {
         if (!blob) return ROOT;
         return idbGet(CRC_KEY).then(function (crcs) {
-          return ingest(blob).then(function () {     // the Blob itself: by-reference, no full read
+          // By reference everywhere but WebKit, which copies it first (see fromIdb).
+          return ingest(blob, true).then(function () {
             // Strictly BEFORE applyJournal. The map describes the shared bundle's blobs; replaying
             // the journal first would put this tab's own (different) blob under a path the map has
             // a CRC for, and seeding that CRC onto it would write a container whose checksums lie.
@@ -927,7 +1023,12 @@
           var seq = mutSeq;                        // what this snapshot contains
           return serializeForCommit().then(function (s) {
             var blob = s.blob;
-            return idbCas(shared, blob, s.crcs).then(function (res) {
+            // On WebKit, IndexedDB gets a copy it can store correctly (see forIdb), taken before
+            // idbCas opens its transaction, which would commit itself across the await. `blob` stays
+            // the by-reference container: that is what the file write-through sends.
+            var publish = function (stored) { return idbCas(shared, stored, s.crcs); };
+            var copying = forIdb(blob, s.sealed);
+            return (copying ? copying.then(publish) : publish(blob)).then(function (res) {
               if (!res.ok) {                       // another tab committed mid-serialize
                 if (++tries >= COMMIT_RETRIES) throw new Error("Database is busy in another tab. Save again.");
                 return attempt();
@@ -1465,7 +1566,7 @@
             // knows whether anyone else has moved since.
             return idbGet(REV_KEY).then(function (r) {
               return idbGet(CRC_KEY).then(function (crcs) {
-                return ingest(blob).then(function () {
+                return ingest(blob, true).then(function () {
                   seedCrcs(crcs);
                   opened = true; myRev = Number(r) || 0; journal.clear(); authoritative = false;
                   claimWriterLease();
