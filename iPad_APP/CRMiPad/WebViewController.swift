@@ -20,6 +20,9 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         config.setURLSchemeHandler(BundleSchemeHandler(root: www, files: bridge.files), forURLScheme: BundleSchemeHandler.scheme)
         config.websiteDataStore = .default()
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        // Pinch zoom stays available after crm-native-shim.js caps the viewport at maximum-scale=1,
+        // which it does so an iPhone stops zooming the page into every small field that gets focus.
+        config.ignoresViewportScaleLimits = true
         if let shim = Bundle.main.url(forResource: "crm-native-shim", withExtension: "js"),
            let source = try? String(contentsOf: shim, encoding: .utf8) {
             config.userContentController.addUserScript(

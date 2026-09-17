@@ -7,7 +7,8 @@ tool's own file.
 Browser tools for a cardiac device (CIED) clinic: a daily patient schedule, an interrogation report
 generator that auto-fills from vendor programmer exports, and a PDF viewer. These three handle full
 patient PHI and run entirely client-side. The site is static on Cloudflare Pages, published from
-`site/`; the same three pages also ship inside a sideloaded iPad app. The repo is **private**, but the
+`site/`; the same three pages also ship inside a sideloaded app, one universal build for iPad and
+iPhone. The repo is **private**, but the
 site is public everywhere outside `/protected`.
 
 `README.md` is the handoff overview (layout, security, status, testing). The subsystem deep dives are
@@ -33,7 +34,7 @@ git config core.hooksPath .githooks   # once per clone: enables the pre-commit t
 Serve `site/` to use the pages locally (for example `python3 -m http.server 8765 --directory site`),
 then open `/protected/Patient_Schedule.html`. The Schedule is the entry point that embeds the others.
 
-iPad app (needs a full Xcode with the iOS platform; see `iPad_APP/README.md`):
+iPad/iPhone app (needs a full Xcode with the iOS platform; see `iPad_APP/README.md`):
 
 ```bash
 iPad_APP/deploy.sh                      # build the working tree (uncommitted edits too) and install on the iPad
@@ -101,7 +102,9 @@ pages at `crmapp://app/`. It injects `CRMiPad/crm-native-shim.js`, which supplie
 `showOpenFilePicker`/`showSaveFilePicker`/`showDirectoryPicker` backed by native pickers
 (`NativeBridge.swift`), so the store's desktop code path runs unchanged. Browsers without the API
 (Firefox, iPad Safari) fall back to the share sheet or a download, and to one `.zip` in place of real
-folders.
+folders. The same app build runs on iPhone. There, each of the three pages switches to its phone
+layout, a single `@media (max-width: 640px)` block per page: Schedule rows become cards, the report
+panel goes full screen, and split view stacks.
 
 **Report import pipeline.** A vendor file is dropped into the generator. PDFs go through pdf.js →
 `Engine.extractItems/normalize/tagSections` → `Engine.scoreVendors` → `src/parsers/<vendor>.js`
@@ -136,6 +139,10 @@ local redaction and PDF-extraction harness pages for preparing sample exports.
   entries of `site/`: adding one is a decision about what gets published.
 - **Paired lists:** `RMS` in `Patient_Schedule.html` and the `#rm-status` `<select>` in
   `CRM_Report_Generator.html` are one field shared through `schedule.json`, and must stay in step.
+- **Phone cards reuse the table.** A new Schedule column needs a `data-label` matching its header in
+  `render()`, plus a grid placement in the 640px block, or it shows up uncaptioned on an iPhone.
+  Desktop checks can't catch WebKit-only phone problems (`100vh`, clipped fixed panels, focus zoom):
+  `iPad_APP/README.md` lists the ones found. `tests/phone-layout.test.js` pins them.
 - **User activation:** calls that need a click (`window.open` for stored files, directory/save
   pickers) must happen synchronously in the click handler, before any `await`. iPad Safari is strictest.
 - **Dates:** day keys use local dates, never `toISOString()` (UTC rolls evening entries to tomorrow).

@@ -19,9 +19,14 @@
   * { box-sizing:border-box; margin:0; padding:0; }
   /* App shell: the body never scrolls (stays locked at scroll 0) so the iPad "Save to Files"
      share popover — which WebKit anchors to the document — always appears on screen no matter
-     how many patients are added. All scrolling happens inside .main-scroll. */
+     how many patients are added. All scrolling happens inside .main-scroll.
+     100%, not 100vh: in the app's web view 100vh is the whole screen, safe areas included, while
+     the page is laid out below the iPhone's Dynamic Island and above its home indicator. On an
+     iPhone 16 Pro that put the last 96pt of .main-scroll below the visible bottom, where no amount
+     of scrolling could reach it (on iPad, the 20pt behind the home indicator). */
+  html { height:100%; }
   body { background:var(--bg); color:var(--text); font-family:"Segoe UI",system-ui,sans-serif;
-         padding:0; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+         padding:0; height:100%; overflow:hidden; display:flex; flex-direction:column; }
   header { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;
            flex:0 0 auto; padding:16px 16px 12px; }
   .main-scroll { flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:0 16px 16px; }
@@ -334,7 +339,7 @@
   .all-meta { color:var(--muted); font-size:.83rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .all-files { font-size:.7rem; color:var(--green); flex-shrink:0; white-space:nowrap; }
   @media (max-width: 480px) {
-    .all-time { width:64px; }
+    .all-time { width:74px; white-space:nowrap; }   /* 64px wrapped "10:00 AM" onto two lines on an iPhone */
     .all-pt { width:110px; }
   }
 
@@ -365,6 +370,91 @@
   .rem-del:hover { color:var(--red); }
   .rem-empty { color:var(--muted); font-size:.84rem; padding:3px 2px; }
   .rem-foot { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+
+  /* ---------- Phone: the iPhone app, or any window narrower than a small tablet ----------
+     Portrait iPhones are 375-440pt wide and the table needs 1122px, so below 640px each
+     appointment becomes a card. The markup is the same <tr>/<td> with the same data-i/data-f
+     inputs, so none of the handlers change; the cells are laid out on a 12-column grid and each
+     one's data-label is drawn as its caption. 640 also covers iPad Slide Over and narrow Split
+     View, which have the same problem.
+     The report panel stops being inline. A form 340px wide inside a scrolling list of cards is
+     unusable, so the panel covers the screen, and split view stacks the programmer file under the
+     form rather than beside it (initPanelDivider drags vertically when the body is a column). */
+  @media (max-width: 640px) {
+    header { padding:10px 10px 8px; gap:8px; }
+    h1 { font-size:1.1rem; }
+    .hdr-actions { gap:6px; }
+    button { padding:7px 10px; }
+    #readonlyBanner { margin:0 8px 10px; }
+    /* touch scrolling makes iOS clip position:fixed descendants to this scroller, which cut the
+       full-screen report panel off below the header (Close included). Momentum scrolling is the
+       default for every scroller since iOS 13, so nothing is lost. */
+    .main-scroll { padding:0 8px 16px; -webkit-overflow-scrolling:auto; }
+    .panel { padding:10px; }
+    /* Menus anchored to one edge of their button run off a 400pt screen: the Database menu opened
+       past the left edge, taking Open database with it. Fixed, with top left at auto, each still
+       drops from its own button but spans the screen. */
+    .hdr-dropdown, .provider-menu, .move-menu {
+      position:fixed; top:auto; left:8px; right:8px; width:auto; min-width:0 !important;
+      margin-top:6px; max-height:70vh; overflow-y:auto; }
+    .datebar { gap:6px; }
+    #dayLabel, #counts { flex:1 0 100%; margin-left:0; }
+
+    .twrap { overflow:visible; }
+    .twrap table, .twrap tbody { display:block; width:100%; min-width:0 !important; }
+    .twrap thead { display:none; }
+    .twrap tr.appt-row { display:grid; grid-template-columns:repeat(12, minmax(0, 1fr)); gap:8px 6px;
+      align-items:end; margin-top:10px; padding:10px 10px 8px;
+      border:1px solid var(--border); border-bottom:none; border-radius:10px 10px 0 0; }
+    .twrap tr.appt-row > td { display:block; grid-column:span 4; min-width:0; padding:0; border:none; }
+    .twrap tr.appt-row > td[data-label]::before { content:attr(data-label); display:block; margin:0 0 3px 1px;
+      color:var(--muted); font-size:.64rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .twrap tr.appt-row > td.pt { grid-column:span 8; }
+    .twrap tr.appt-row > td.row-spacer { display:none; }
+    .twrap tr.appt-row > td.done, .twrap tr.appt-row > td.cerner, .twrap tr.appt-row > td.crm-cell,
+    .twrap tr.appt-row > td.del { grid-column:span 2; }
+    .twrap tr.appt-row > td.fbadges { grid-column:span 4; }
+    .twrap td input, .twrap td select, .twrap td textarea { font-size:15px; }
+    .twrap td input:not([type=checkbox]), .twrap td select,
+    td.time input, td.lo input, td.pt input { width:100%; height:36px; min-height:36px; }
+    /* iOS draws a native time field at its own intrinsic width and ignores width:100% (measured:
+       79pt in a 110pt cell). Without the native appearance it takes the width; tapping it still
+       opens the system time picker. */
+    .twrap td.time input { -webkit-appearance:none; appearance:none; }
+    .twrap td.done input[type=checkbox], .twrap td.cerner input[type=checkbox] { width:28px; height:28px; margin-bottom:4px; }
+    .twrap td.done input[type=checkbox]::before, .twrap td.cerner input[type=checkbox]::before { width:15px; height:15px; }
+    .crm-link, .files-trigger { min-height:36px; font-size:.78rem; }
+    td.del button { width:100%; min-height:36px; border:1px solid var(--border); border-radius:6px;
+      background:var(--panel2); font-size:.95rem; }
+    .twrap tr.notes-row { display:block; padding:0 10px 10px; border:1px solid var(--border); border-top:none;
+      border-radius:0 0 10px 10px; }
+    .twrap tr.notes-row > td { display:block; padding:0; border:none; }
+    td.notes-cell textarea { min-height:36px; padding:7px 8px; }
+
+    tr.crm-panel-row, tr.crm-panel-row > td { display:block; padding:0; border:none; }
+    .crm-panel, .crm-panel.split-open { position:fixed; inset:0; z-index:500; width:auto !important;
+      display:flex; flex-direction:column; border:none; border-radius:0; box-shadow:none; }
+    .crm-panel-body, .crm-panel.split-open .crm-panel-body { flex:1 1 auto; flex-direction:column; height:auto; min-height:0; }
+    .crm-frame, .crm-viewer { height:auto; min-height:0; }
+    .crm-divider { flex:0 0 12px; cursor:row-resize; border-left:none; border-right:none;
+      border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+    /* Two rows: who, and Close; then the file controls. The patient's basis leaves exactly room for
+       Close, which pushes everything after it onto the second row. */
+    .crm-panel-hdr { flex-wrap:wrap; gap:6px; padding:8px 10px; }
+    .crm-panel-pt { flex:1 1 calc(100% - 90px); font-size:.95rem; }
+    .crm-panel-hdr [data-panel-close] { order:1; }
+    .crm-panel-hdr [data-panel-split] { order:2; }
+    .crm-panel-hdr select { order:3; flex:1 1 0; min-width:0; max-width:none; }
+    .crm-panel-hdr .save-state { order:4; }
+    .crm-panel-hdr button, .crm-panel-hdr select { min-height:34px; font-size:.84rem; }
+    /* The slot and last office are on the form's own bar just below; Full page would only reopen
+       the same form at the same size. */
+    .crm-panel-slot, .crm-panel-last-office, .crm-panel-sync, .crm-panel-hdr [data-panel-full] { display:none; }
+
+    .modal-overlay { padding:8px; }
+    .modal { max-height:100%; }   /* the overlay's own height; 100vh would run under the home indicator */
+  }
 
   /* ---------- print: clean white formatted schedule ---------- */
   @media print {
@@ -905,20 +995,22 @@
       var r = x.r, i = x.i;
       var tr = document.createElement("tr");
       tr.className = "appt-row";
+      // data-label repeats the column header on each cell. Only the phone layout shows it, as the
+      // caption over each field of the card the row becomes there (the table header is hidden).
       tr.innerHTML =
-        '<td class="time"><input type="time" data-i="' + i + '" data-f="time" value="' + esc(r.time) + '"></td>' +
-        '<td class="pt"><input maxlength="80" placeholder="Last, First" aria-label="Patient full name" data-i="' + i + '" data-f="pt" value="' + esc(r.pt) + '"></td>' +
-        '<td><select data-i="' + i + '" data-f="mfr">' + opts(MFRS, r.mfr) + "</select></td>" +
-        '<td><select data-i="' + i + '" data-f="dtype">' + opts(DEVS, r.dtype) + "</select></td>" +
-        '<td class="provider-cell"><select data-i="' + i + '" data-f="provider" title="' + esc(r.provider || "Tech") + '">' + providerOpts(state.providers, r.provider || "Tech") + "</select></td>" +
-        '<td><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
-        '<td class="lo"><input type="date" title="Date of the last in-office check" data-i="' + i + '" data-f="lastOff" value="' + esc(r.lastOff) + '"></td>' +
-        '<td><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
-        '<td class="done"><input type="checkbox" data-i="' + i + '" data-f="done" title="' +
+        '<td class="time" data-label="Time"><input type="time" data-i="' + i + '" data-f="time" value="' + esc(r.time) + '"></td>' +
+        '<td class="pt" data-label="Patient"><input maxlength="80" placeholder="Last, First" aria-label="Patient full name" data-i="' + i + '" data-f="pt" value="' + esc(r.pt) + '"></td>' +
+        '<td data-label="MFR"><select data-i="' + i + '" data-f="mfr">' + opts(MFRS, r.mfr) + "</select></td>" +
+        '<td data-label="Device"><select data-i="' + i + '" data-f="dtype">' + opts(DEVS, r.dtype) + "</select></td>" +
+        '<td class="provider-cell" data-label="Provider"><select data-i="' + i + '" data-f="provider" title="' + esc(r.provider || "Tech") + '">' + providerOpts(state.providers, r.provider || "Tech") + "</select></td>" +
+        '<td data-label="Check type"><select data-i="' + i + '" data-f="check">' + opts(CHECKS, r.check) + "</select></td>" +
+        '<td class="lo" data-label="Last office"><input type="date" title="Date of the last in-office check" data-i="' + i + '" data-f="lastOff" value="' + esc(r.lastOff) + '"></td>' +
+        '<td data-label="Remote"><select data-i="' + i + '" data-f="rm" title="Remote monitoring connection status">' + opts(RMS, r.rm) + "</select></td>" +
+        '<td class="done" data-label="Done"><input type="checkbox" data-i="' + i + '" data-f="done" title="' +
           (r.done && r.doneAt
             ? esc("Report finished — ticked " + new Date(r.doneAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))
             : "Report finished") + '"' + (r.done ? " checked" : "") + "></td>" +
-        '<td class="cerner"><input type="checkbox" data-i="' + i + '" data-f="cerner" title="Uploaded to Cerner"' + (r.cerner ? " checked" : "") + "></td>" +
+        '<td class="cerner" data-label="Cerner"><input type="checkbox" data-i="' + i + '" data-f="cerner" title="Uploaded to Cerner"' + (r.cerner ? " checked" : "") + "></td>" +
         '<td class="crm-cell" data-cslot="' + i + '"><button class="crm-link" type="button" disabled>Open</button></td>' +
         '<td class="fbadges" data-fslot="' + i + '"><span class="fnone">&mdash;</span></td>' +
         '<td class="row-spacer"></td>' +
@@ -3187,8 +3279,11 @@
       divider.setPointerCapture(ev.pointerId);
       divider.classList.add("dragging");
       var rect = body.getBoundingClientRect();
+      // On a phone the panes are stacked (the 640px rule), so the same drag runs down the panel.
+      var stacked = getComputedStyle(body).flexDirection === "column";
       var move = function (mv) {
-        var pct = Math.max(25, Math.min(75, ((mv.clientX - rect.left) / rect.width) * 100));
+        var at = stacked ? (mv.clientY - rect.top) / rect.height : (mv.clientX - rect.left) / rect.width;
+        var pct = Math.max(25, Math.min(75, at * 100));
         frame.style.flex = "0 0 " + pct + "%";
         viewer.style.flex = "0 0 " + (100 - pct) + "%";
       };

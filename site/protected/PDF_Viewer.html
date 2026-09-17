@@ -112,6 +112,24 @@ body.panning .page-stage { cursor: grabbing; }
 .egm-empty[hidden] { display: none; }
 .egm-menu button:focus-visible, .egm-menu select:focus-visible, .bar button:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
 @media (max-width: 650px) { .embedded .bar { gap: 5px; } .embedded .bar .name { display: none; } }
+/* Phone (the iPhone app, or the stacked split on one): every control on one row that is 375-440pt
+   wide. The name goes: in the split the panel's file switcher shows it, and in the viewer's own
+   window it's the price of keeping every control reachable. The row may scroll sideways rather
+   than wrap, because --bar is what the pages are laid out under.
+   The EGM menu is a body child, so the scrolling row cannot clip it. Contents opens over the page:
+   232px beside it would leave a phone's page about 170px wide. */
+@media (max-width: 640px) {
+  :root { --toc-w: min(280px, 82vw); }
+  .bar { gap: 5px; padding: 0 6px; overflow-x: auto; scrollbar-width: none; }
+  .bar::-webkit-scrollbar { display: none; }
+  .bar .name { display: none; }
+  .bar button { padding: 5px 8px; }
+  .zoom-controls { gap: 2px; margin-left: 0; }
+  .zoom-controls button { min-width: 30px; padding-left: 5px; padding-right: 5px; }
+  #zoomFit { min-width: 38px; }
+  body.toc-open #pages, body.toc-open #status { left: 0; }
+  #toc { box-shadow: 8px 0 24px rgba(0, 0, 0, .55); }
+}
 </style>
 </head>
 <body>
@@ -477,6 +495,12 @@ body.panning .page-stage { cursor: grabbing; }
     if (want) highlightToc(true);
   }
   tocBtn.addEventListener("click", function () { toggleToc(); });
+  // On a phone Contents covers the page (see the 640px rule), so picking an entry has to put it
+  // away again or the page it jumped to stays hidden. The entry's own handler has already run.
+  var tocOverlays = window.matchMedia ? window.matchMedia("(max-width: 640px)") : { matches: false };
+  tocEl.addEventListener("click", function (ev) {
+    if (tocOverlays.matches && ev.target.closest(".toc-item")) toggleToc(false);
+  });
 
   // An outline destination names a page indirectly; resolve to a 1-based number, null on any
   // of the malformed shapes real-world PDFs produce.

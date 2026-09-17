@@ -1,4 +1,4 @@
-/* crm-native-shim.js — injected by the iPad app into every frame at document start.
+/* crm-native-shim.js — injected by the iPad/iPhone app into every frame at document start.
  *
  * WebKit has no File System Access API, so in iPad Safari crmdb-store.js falls back to a manual
  * Save through the share sheet. This supplies the subset of that API the pages use —
@@ -275,6 +275,14 @@
       var style = document.createElement("style");
       style.textContent = 'a[href="../mileage/"],a[href="dashboard.html"],a[href="index.html"]{display:none!important}';
       (document.head || document.documentElement).appendChild(style);
+      // On an iPhone, WebKit zooms the whole page into any field whose text is under 16px, and the
+      // Report Generator's measurement tables are 10px: every tap on one left the page zoomed in,
+      // with the report panel's own controls off screen. maximum-scale=1 stops that zoom, and pinch
+      // zoom still works because WebViewController sets ignoresViewportScaleLimits. Only the top
+      // page's viewport counts (a frame's is ignored). iPad never zooms to a focused field, and the
+      // website keeps its own viewport: this runs only inside the app.
+      var viewport = root.top === root && document.querySelector && document.querySelector('meta[name="viewport"]');
+      if (viewport && !/maximum-scale/.test(viewport.content)) viewport.content += ", maximum-scale=1";
     });
   }
 })(typeof window !== "undefined" ? window : globalThis);

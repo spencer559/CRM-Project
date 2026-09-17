@@ -1,9 +1,13 @@
-# CRM iPad app
+# CRM iPad and iPhone app
 
-A sideloadable iPad app for the three offline pages: Patient Schedule, CRM Report Generator and PDF
+A sideloadable app for the three offline pages: Patient Schedule, CRM Report Generator and PDF
 Viewer. It exists because iPad Safari has no File System Access API. In the app, the `.crmdb` you
 pick (On My iPad, iCloud Drive or a USB stick) is autosaved in place, exactly as on desktop
 Chrome/Edge.
+
+It is one universal build: the same `dist/CRMiPad.ipa` installs on an iPad or an iPhone. On an iPhone
+the pages switch to their phone layout (see [iPhone](#iphone)). The folder and target keep their
+iPad names because renaming them would break the Sideloader's `BUILD_COMMAND`.
 
 | Path | What it is |
 |---|---|
@@ -36,7 +40,7 @@ card and **Update iPad** button:
 the iPad, then press ⌘R. You'll need to re-run it every 7 days.
 
 Either way, the first time: connect the iPad by cable, tap **Trust**, and turn on
-**Settings › Privacy & Security › Developer Mode**.
+**Settings › Privacy & Security › Developer Mode**. The same steps apply to an iPhone.
 Xcode also needs its **iOS platform** installed (Settings › Components › iOS). It's separate from
 the SDK, and nothing will build for an iPad without it.
 
@@ -89,6 +93,78 @@ does.
 If the app **stops opening**, the 7-day signature has run out: press Refresh Now. It doesn't need a
 rebuild.
 
+## iPhone
+
+The iPhone runs the same app: same `.ipa`, same bundle ID (`com.spencer.crmdb.ipad`). It isn't a
+second app, so on a free Apple ID it registers no new App ID. The bundle ID stays as it is: changing
+it costs one of the 10 App IDs a free account gets per 7 days, and would leave the iPad's data behind in
+the old app's container.
+
+**Install** with a second Sideloader profile, from the repo root:
+
+    iPad_APP/build-ipa.sh
+    atvrefresh --profile iphone setup iPad_APP/dist/CRMiPad.ipa
+    atvrefresh --profile iphone refresh
+
+then add the same `BUILD_COMMAND` line to `~/.config/atvrefresh-iphone/config`. **Before the iPhone is
+paired with this Mac,** set `DEVICE_NAME` in `~/.config/atvrefresh-ipad/config` to the iPad's name,
+and in the iPhone profile to the iPhone's. An empty `DEVICE_NAME` means "the only paired device", so
+once there are two, the iPad profile stops with *More than one iOS device is visible* instead of
+installing. Each device has its own 7-day signature, renewed separately.
+
+**What changes on a phone.** Each of the three pages has one `@media (max-width: 640px)` block. Below
+640pt, which covers every iPhone in portrait and also iPad Slide Over and narrow Split View, the layout is:
+
+- **Schedule:** each appointment is a card. It's the same `<tr>`/`<td>` markup, laid out on a 12-column
+  grid, with each cell's `data-label` shown as its caption, so no handler changes. The header menus
+  span the screen.
+- **Report panel:** it covers the screen instead of opening under the row. Split view stacks the programmer
+  file under the form, and the divider drags vertically.
+- **Report Generator:** the app bar is two rows (patient and actions, then last office and save
+  status), so Done, Files and ☰ stay on screen.
+- **PDF Viewer:** the toolbar drops the file name and tightens up. Contents opens over the page and closes
+  when you pick an entry. At 375pt the toolbar is 27px too wide and scrolls sideways, which is the
+  intended fallback; at 402pt (Pro) and 440pt (Pro Max) it fits.
+
+The iPhone is portrait only. The iPad keeps its layout, because its narrowest orientation is 744pt.
+
+**Things WebKit on an iPhone does that a desktop browser at the same width doesn't.** Each was found in
+the iOS Simulator; each fix carries a comment where it's made:
+
+- `100vh` in the app's web view is the whole screen, safe areas included, while the page sits
+  below the Dynamic Island. The Schedule's shell was 96pt taller than the visible area, and the end
+  of the list could never scroll into view. It's sized with `height:100%` now; on iPad this also
+  frees the 20pt behind the home indicator.
+- `-webkit-overflow-scrolling:touch` makes iOS clip a `position:fixed` child to that scroller, which
+  hid the full-screen panel's top bar, Close included. The phone block turns it off.
+- iOS draws a native time field at its own width and ignores `width:100%`. The phone cards drop its
+  native appearance, and tapping it still opens the time picker.
+- iOS zooms the whole page into any focused field under 16px, which is every Report Generator
+  measurement cell. The shim adds `maximum-scale=1` to the top page's viewport, and
+  `WebViewController` sets `ignoresViewportScaleLimits` so pinch zoom still works. The iPad never
+  focus-zooms, and the website's own viewport is untouched.
+
+`tests/phone-layout.test.js` pins the universal build, the captions matching the headers, the
+stacked divider, the bar heights that must agree, and the shim's viewport change.
+
+**Why universal, not a second target.** Nothing in the Swift app is iPad-specific: the pickers,
+bookmarks, scheme handler, printing and popups all run unchanged on iOS. One target means one build,
+one fingerprint for the Sideloader's update check, and one App ID. The phone layout is responsive CSS
+in the existing pages rather than separate phone pages, because the three pages act as one app (the
+embedded generator, the viewer handoff, the shared store), and a second set of pages would split all
+of that.
+
+**Verified** on September 16, 2026, in the iOS 18 Simulator, on an iPhone 16 Pro (402pt), using a synthetic
+database:
+
+- opening it from the Files picker, and autosave writing back to the file
+- the cards and the report panel
+- the stacked split and its divider, and Contents
+- the Files menu, and a generated report in the viewer window with the print sheet
+- focus zoom off, and pinch zoom still working
+
+Overflow was also measured at 375pt and 440pt in a desktop browser. **Not yet run on a real iPhone.**
+
 ## Why it's built this way
 
 The app exists for one reason: WebKit has no File System Access API, so in iPad Safari
@@ -123,7 +199,8 @@ implemented once the zip proved useless for printing patient folders at the clin
 
 ## Notes
 
-- USB sticks must be **exFAT**, because iPadOS mounts NTFS read-only.
+- USB sticks must be **exFAT**, because iPadOS and iOS mount NTFS read-only. (An iPhone needs USB-C,
+  or an adapter, to take a stick at all.)
 - The **first** file picker after launch takes around 8 seconds to appear, with no visual feedback.
   It looks broken, but it isn't.
 - You can debug the app from Safari › Develop on the Mac while the iPad is connected.
@@ -145,7 +222,8 @@ were re-checked against the code on 2026-09-16 and are still open.
    in the app's own storage and replays them on the next launch, so they aren't lost from the iPad.
    Until then, though, the file on the stick or in OneDrive doesn't have them. On desktop you see a
    page close; on iPad you don't. Fix: on entering the background, start a short background task and
-   flush (about an hour).
+   flush (about an hour). On an iPhone this matters more: a phone is locked, or leaves the app for
+   a call or a message, far more often than a clinic iPad.
 2. **The signature expires without warning.** A free Apple ID signature lasts 7 days and automatic
    renewal is off, so the app simply stops opening, possibly mid-clinic, and the fix needs the Mac.
    Options: turn Auto on, pay for a developer account (1-year signatures), or have the app read its
@@ -153,8 +231,10 @@ were re-checked against the code on 2026-09-16 and are still open.
 3. **Nothing locks the app.** On the website, `/protected/` sits behind Cloudflare Access; the offline
    app has no equivalent, and the `.crmdb` password is optional. An unlocked iPad opens straight into
    patient data. Fix: Face ID or passcode on launch and on return from the background (about an hour).
-4. **Portrait still scrolls sideways.** The column trim targeted landscape (1194pt wide, with 10px to
-   spare). Portrait is 834pt and the schedule table needs 1122pt.
+   An iPhone that leaves the clinic in a pocket makes this one sharper too.
+4. **iPad portrait still scrolls sideways.** The column trim targeted landscape (1194pt wide, with 10px
+   to spare). Portrait is 834pt and the schedule table needs 1122pt. The phone layout's cards start
+   below 640pt, so they don't reach it; widening that breakpoint is the obvious fix to try.
 5. **Multiple windows are allowed.** Stage Manager can open two windows on one database. That behaves
    like two browser tabs (the store's writer lease leaves the second read-only), but it was flagged to
    be turned off.

@@ -325,7 +325,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
             guard !scoped, ns.domain == NSCocoaErrorDomain,
                   ns.code == NSFileReadNoPermissionError || ns.code == NSFileWriteNoPermissionError
             else { throw error }
-            throw Failure(name: "NotAllowedError", message: "iPadOS didn't grant this app access to that file — its cloud provider handed over a link the app can't open. Copy the database into Files, On My iPad, CRM, and open it from there.")
+            // Worded for either device: the same build runs on iPad and iPhone.
+            throw Failure(name: "NotAllowedError", message: "The system didn't grant this app access to that file — its cloud provider handed over a link the app can't open. Copy the database into the Files app's CRM folder (On My iPad, or On My iPhone), and open it from there.")
         }
     }
 
@@ -456,7 +457,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply, UIDocumentP
         case NSFileNoSuchFileError, NSFileReadNoSuchFileError:
             return ["error": unreachableMessage + code, "name": "NotFoundError"]
         case NSFileWriteVolumeReadOnlyError:
-            return ["error": "This drive is read-only. iPad can't write to NTFS — reformat the stick as exFAT." + code, "name": "NotAllowedError"]
+            return ["error": "This drive is read-only. iPad and iPhone can't write to NTFS — reformat the stick as exFAT." + code, "name": "NotAllowedError"]
         case NSFileReadNoPermissionError, NSFileWriteNoPermissionError:
             return ["error": ns.localizedDescription + code, "name": "NotAllowedError"]
         default:

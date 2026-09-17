@@ -14,7 +14,7 @@ Everything the website serves lives in **`site/`**, which is the Pages build out
 | `protected/Patient_Schedule.html` | Daily clinic schedule — full patient names, zero network egress, print-formatted day sheet; stores the schedule **and** every patient's files in one portable `.crmdb` database (iPad-ready) |
 | `protected/LV_Lead_Testing.html` | LV lead vector-testing capture — per-vector impedance/QRS and sitting/supine threshold + phrenic results, lead-model picker, text/JSON/print output; holds no patient identifiers |
 | `mileage-backend/` | Cloudflare Worker + D1 backend for mileage cloud sync (see its `DEPLOY.md`) |
-| `iPad_APP/` | Sideloadable iPad app bundling the Schedule, Report Generator and PDF Viewer, with a native File System Access shim so the `.crmdb` autosaves in place (see its `README.md`) |
+| `iPad_APP/` | Sideloadable iPad and iPhone app (one universal build) bundling the Schedule, Report Generator and PDF Viewer, with a native File System Access shim so the `.crmdb` autosaves in place (see its `README.md`) |
 
 > This README is the entry point of the **project handoff / context documentation**; the deep dives live in [`docs/`](#documentation). Together they capture the architecture, conventions, and the vendor-specific gotchas that took real reports to discover. **AI coding agents** (Claude Code, Codex/ChatGPT, or anything else) start from [`AGENTS.md`](AGENTS.md), the short working brief — commands, architecture, rules that are easy to break — which points back into the relevant sections. `CLAUDE.md` just imports it.
 
@@ -92,7 +92,7 @@ docs/                               Subsystem docs (see Documentation below); do
 mileage-backend/
   src/worker.js  wrangler.toml      Cloudflare Worker + D1 sync backend
   schema.sql  DEPLOY.md             (see DEPLOY.md for one-time setup)
-iPad_APP/                           Sideloadable iPad app for the three offline pages (see iPad_APP/README.md)
+iPad_APP/                           Sideloadable iPad/iPhone app for the three offline pages (see iPad_APP/README.md)
   CRMiPad/                          Swift WKWebView app + crm-native-shim.js (File System Access API, injected into every page)
   web-files.txt                     Exactly which site/ files the app bundles — a page's new script goes here
   build-ipa.sh  deploy.sh           Build the last commit (what "Update iPad" installs) / build + install the working tree
@@ -131,7 +131,7 @@ paths hold there too. Test fixtures (`Abbott Test Cases/`) stay local and are gi
 | [`docs/report-generator.md`](docs/report-generator.md) | The Report Generator's form, exports (text, JSON, vector PDF) and the UI decisions behind them |
 | [`docs/crmdb.md`](docs/crmdb.md) | The `.crmdb` container: format, encryption, the engine's cross-tab and cross-station guards, and the Schedule / Report Generator features built on it |
 | [`docs/cloudflare-access.md`](docs/cloudflare-access.md) | Cloudflare Pages build settings and the Access boundary (`/protected` gated, `/mileage` public) |
-| [`iPad_APP/README.md`](iPad_APP/README.md) | The sideloaded iPad app: why it's built this way, building, updating, known gaps |
+| [`iPad_APP/README.md`](iPad_APP/README.md) | The sideloaded iPad and iPhone app: why it's built this way, building, updating, the phone layout, known gaps |
 | [`mileage-backend/DEPLOY.md`](mileage-backend/DEPLOY.md) | One-time setup of the mileage sync Worker and D1 database |
 | [`site/vendor/THIRD_PARTY_NOTICES.md`](site/vendor/THIRD_PARTY_NOTICES.md) | Vendored libraries and fonts, their licenses and copyright lines |
 | [`docs/archive/`](docs/archive/) | Superseded design notes, kept for history — they do not describe today's code |
@@ -175,6 +175,8 @@ Persistence details worth knowing before editing:
 A daily device-clinic schedule behind the `/protected/` Cloudflare Access gate. Rows hold time, the patient's **full name**, manufacturer, device type, check type (in-clinic / remote / pre-op), a **last in-office check** date, a remote-monitoring connection status (Connected / Not connected / External clinic / N/A — "Not connected" rows are tallied in the count line and the printed header), and a notes line. A **"Move day…" dropdown** beside the date picker contains the destination date and confirmation controls; it reassigns an entire day to a different date (merge-confirm if the target day already has rows, and it moves that day's patient files too) — the fix for a schedule accidentally entered under the wrong date. Its CSP is `connect-src crmapp:` like the CRM tool — nothing typed on the page can reach a network (`crmapp:` is the iPad app's own scheme and resolves to nothing in a browser; see **Security / hosting**).
 
 Workflow/storage: the schedule **and every patient's files** now live in a **single `.crmdb` database file** — see [`docs/crmdb.md`](docs/crmdb.md) for the full model. On Mac/PC it auto-saves in place as you edit; on iPad you press **Save** to write it back through the Files sheet. Data-lifetime is user-controlled **per database** via the **Memory** menu (retention window + Clear-all-past + a size readout; default is keep-everything — the old fixed 7-day purge is gone). Also: a header **All patients** overview, a manual **+ PDF** attach chip per row (for device types with no parser), plain JSON export/import, a dedicated **print view** (`@media print` day sheet — sorted by time, serif, count summary, "shred after use" footer), and a **"Leave Station"** action (now inside the Memory menu) that saves the database, wipes localStorage, and forgets the connection — the file keeps the data; only the browser is cleaned. Optional per-database password protection encrypts both the `.crmdb` file and its IndexedDB working copy entirely on-device; protected databases suppress the plaintext schedule localStorage mirror. There is deliberately no password recovery or server involvement. Never wire this page to the mileage sync Worker or any other backend.
+
+**On a phone** (below 640px: the iPhone app, or any narrow window) each appointment is a card instead of a table row. It's the same markup with the header names as captions, the report panel covers the screen, and split view stacks the programmer file under the form. See the iPhone section of [`iPad_APP/README.md`](iPad_APP/README.md).
 
 **Reminders** (Aug 2026) is a second panel directly under the schedule: a running list of follow-ups the day generates — *"Call Doe, Jane about her ERI battery"*, *"Tell Dr. Smith that Roe, John stopped his blood thinners"*. Type it, press Enter, tick it off when it's done. Each entry is editable in place (a follow-up gets rewritten far more often than retyped), carries an age label once it's older than today (`yesterday`, `3d ago`, then a date), and completed ones sink to the bottom struck through — with a *Show completed* toggle and *Clear completed*. **Deliberately not per-day:** the list lives at `state.reminders`, *outside* `state.dates`, so stepping to another date never hides an outstanding task and the Memory retention window — which only ever prunes `state.dates` — can never quietly delete one. It rides in the same `schedule.json`, so it travels between stations with the rest of the database and syncs across tabs on the existing revision/broadcast path. It is also **not printed**: the day sheet is what goes out to the clinic, the reminder list is the tech's own. Covered by `tests/schedule-reminders.test.js`.
 
@@ -270,7 +272,7 @@ Details worth keeping: the picker is opened **synchronously on the click**, befo
   (`*-redactor`), Report Generator and Schedule page logic (`report-*`, `schedule-*`, `patient-*`,
   `crm-*`), the PDF viewer and EGM shortcuts (`pdf-*`, `egm-print-order`), LV Lead Testing
   (`lv-lead-*`), the iPad app (`ipad-bundle-complete` — every file a bundled page loads is listed in
-  `iPad_APP/web-files.txt` — and `ipad-native-shim`), the auth/route boundary and what `site/`
+  `iPad_APP/web-files.txt` — `ipad-native-shim`, and `phone-layout` for the iPhone), the auth/route boundary and what `site/`
   publishes (`route-boundaries`), and every page's CSP (`page-csp`). Page logic lives inline in the
   HTML, so those tests read the page source and either lift a function out by brace-matching and run
   it with `new Function`, or assert on the markup — renaming or restructuring an inline function can
