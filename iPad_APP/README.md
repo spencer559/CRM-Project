@@ -195,8 +195,11 @@ Two constraints to keep:
 - **`lastModified` must be the file's real modification time, never faked.** The freshness guard keys
   off it, and that guard is what stops one clinic station's stale copy overwriting another's work.
 - **The app is fully offline, with no Cloudflare Access in front of it.** That was a deliberate scope
-  decision, and it is why nothing but the iPad's own lock screen gates patient data on the device (see
-  *Known gaps*).
+  decision, and it is why nothing but the device's own lock screen gates patient data here.
+- **No Face ID or passcode inside the app**, asked for and declined on 2026-09-17: the device lock is
+  the gate Spencer wants, on the iPhone as well as the iPad, and a second prompt on every return from
+  the background would cost more than it adds during a clinic day. The `.crmdb` password is still
+  there for a database that leaves on a stick. Don't propose an in-app lock again without asking.
 
 `showDirectoryPicker` was at first left out (Download patients fell back to one `.zip`), then
 implemented once the zip proved useless for printing patient folders at the clinic.
@@ -227,25 +230,21 @@ implemented once the zip proved useless for printing patient folders at the clin
 ## Known gaps
 
 After the first successful day at a clinic (September 2026), a review listed these, in this order of
-importance. The app icon was done then, and finishing the save when the app goes to the background on
-2026-09-17 (see *Notes*); the rest were **deliberately deferred**. The first two below were
-re-checked against the code on 2026-09-17 and are still open.
+importance. Since then the app icon was done, the background save on 2026-09-17 (see *Notes*), and an
+in-app lock was considered and declined (see *Why it's built this way*). The rest were **deliberately
+deferred**, and were re-checked against the code on 2026-09-17.
 
 1. **The signature expires without warning.** A free Apple ID signature lasts 7 days and automatic
    renewal is off, so the app simply stops opening, possibly mid-clinic, and the fix needs the Mac.
    Options: turn Auto on, pay for a developer account (1-year signatures), or have the app read its
    own expiry at launch and warn a few days ahead.
-2. **Nothing locks the app.** On the website, `/protected/` sits behind Cloudflare Access; the offline
-   app has no equivalent, and the `.crmdb` password is optional. An unlocked iPad opens straight into
-   patient data. Fix: Face ID or passcode on launch and on return from the background (about an hour).
-   An iPhone that leaves the clinic in a pocket makes this one sharper too.
-3. **iPad portrait still scrolls sideways.** The column trim targeted landscape (1194pt wide, with 10px
+2. **iPad portrait still scrolls sideways.** The column trim targeted landscape (1194pt wide, with 10px
    to spare). Portrait is 834pt and the schedule table needs 1122pt. The phone layout's cards start
    below 640pt, so they don't reach it; widening that breakpoint is the obvious fix to try.
-4. **Multiple windows are allowed.** Stage Manager can open two windows on one database. That behaves
+3. **Multiple windows are allowed.** Stage Manager can open two windows on one database. That behaves
    like two browser tabs (the store's writer lease leaves the second read-only), but it was flagged to
    be turned off.
-5. **A lost file link needs a manual re-pick.** After an iPadOS update or a USB replug the page shows
+4. **A lost file link needs a manual re-pick.** After an iPadOS update or a USB replug the page shows
    "Can't reach the database file". It could retry, and offer the picker on its own.
-6. **There's only one copy.** One `.crmdb` on one stick. Each save to USB could also drop a dated
+5. **There's only one copy.** One `.crmdb` on one stick. Each save to USB could also drop a dated
    backup on the iPad.
