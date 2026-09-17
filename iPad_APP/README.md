@@ -163,7 +163,11 @@ database:
 - the Files menu, and a generated report in the viewer window with the print sheet
 - focus zoom off, and pinch zoom still working
 
-Overflow was also measured at 375pt and 440pt in a desktop browser. **Not yet run on a real iPhone.**
+Overflow was also measured at 375pt and 440pt in a desktop browser.
+
+**On a real iPhone** (an iPhone 14 Pro Max, 430pt wide, on iOS 26) since September 17, 2026: it
+installs through its own Sideloader profile and the phone layout looks right in use. The flows the
+*Notes* section lists as unverified on hardware are still unverified on the phone too.
 
 ## Why it's built this way
 
@@ -203,7 +207,7 @@ implemented once the zip proved useless for printing patient folders at the clin
   or an adapter, to take a stick at all.)
 - The **first** file picker after launch takes around 8 seconds to appear, with no visual feedback.
   It looks broken, but it isn't.
-- You can debug the app from Safari › Develop on the Mac while the iPad is connected.
+- You can debug the app from Safari › Develop on the Mac while the iPad or iPhone is connected.
 - The icon's source picture isn't in the repo; only the cropped `icon-1024.png` is. Changing the crop
   with `make-icon.sh` needs the original image.
 - **Not yet verified on real hardware** (Simulator or headless tests only): password-protected
