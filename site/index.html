@@ -11,6 +11,9 @@
      egress); fonts are self-hosted in vendor/fonts (no CDN at runtime). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self' https://*.cloudflareaccess.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'">
 <title>Cardiac CRM Toolkit</title>
+<!-- Inline favicon: no extra file to deploy or bundle, and it stays inside img-src data:.
+     The generator's <head> has the full reasoning. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231e3a5f'/%3E%3Cpath d='M16 26.5S6 20.5 6 13a5 5 0 0 1 10-1.5A5 5 0 0 1 26 13c0 7.5-10 13.5-10 13.5z' fill='%23fff'/%3E%3Cpolyline points='8,16 12.5,16 14,12.5 16.5,20 18,15 19.5,16 24,16' fill='none' stroke='%23d62839' stroke-width='1.7' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
   /* Self-hosted fonts (vendor/fonts) — repo rule: nothing pulled from a CDN at runtime */
   @font-face{font-family:'Public Sans';font-style:normal;font-weight:400;font-display:swap;src:url('vendor/fonts/public-sans-latin-400-normal.woff2') format('woff2');}

@@ -7,8 +7,11 @@
      PHI to localStorage — so like every page on this origin it ships its own CSP.
      connect-src 'none' blocks all network egress; fonts come from ../vendor/fonts (no
      Google Fonts / CDN at runtime); the page is static, so script-src is 'none'. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'">
 <title>Developer Deck — Cardiac CRM Toolkit</title>
+<!-- Inline favicon: no extra file to deploy or bundle, and it stays inside img-src data:.
+     The generator's <head> has the full reasoning. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231e3a5f'/%3E%3Cpath d='M12 10l-5 6 5 6M20 10l5 6-5 6' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17.5 9l-3 14' stroke='%23d62839' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
 <link href="../vendor/fonts/fonts.css" rel="stylesheet">
 <style>
   :root{

@@ -14,6 +14,10 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src crmapp:; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CRM Interrogation — Digital Form</title>
+<!-- Inline so the icon needs no extra file (nothing to add to iPad_APP/web-files.txt, no new
+     top-level site entry) and stays inside the CSP's img-src data:. Without it Chrome shows
+     the origin's /favicon.ico, which is Cloudflare's. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231e3a5f'/%3E%3Cpath d='M9 5h11l4 4v18H9z' fill='%23fff'/%3E%3Cpath d='M20 5v4h4' fill='%23c8d8e8'/%3E%3Cpolyline points='10.5,19 14,19 15.5,15 17.5,23 19,17 20,19 22.5,19' fill='none' stroke='%23d62839' stroke-width='1.7' stroke-linejoin='round' stroke-linecap='round'/%3E%3Cpath d='M12 10.5h5M12 13h7' stroke='%23c8d8e8' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E">
 
 <style>
 :root {
