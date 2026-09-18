@@ -72,6 +72,8 @@ site/                               Cloudflare Pages build output: everything he
     pdf-selection-worker.js         Worker for "Print selected": copies the chosen original pages into a new PDF (pdf-lib)
     abbott-log-redactor.js          Byte-preserving Abbott .log redaction helpers (behind the Abbott Log Redactor tool)
     cied-pdf-redactor.js            Vendor-neutral identifier detection → redaction boxes (behind the PDF Redactor tool)
+    import-case.js                  Import-problem cases: de-identify a failed import with the form's own identifiers, replay it (docs/import-cases.md)
+    import-case-panel.js            The case-mode panel both redactors show when the Report Generator opens them
     parsers/
       medtronic.js                  Medtronic PDF parser  → window.MEDTRONIC.runMap(LINES, META)
       boston.js                     Boston Scientific PDF  → window.BOSTON.runMap(LINES, META)
@@ -86,9 +88,11 @@ site/                               Cloudflare Pages build output: everything he
     THIRD_PARTY_NOTICES.md          Versions, copyright lines and full license texts for everything vendored
   tools/
     pdf-extraction-harness.html     Dump a PDF's text items (parser authoring/debugging)
-    abbott-log-redactor.html        Locally inspect/redact Abbott .log files without damaging FS delimiters
-    cied-pdf-redactor.html          Locally redact/flatten vendor PDFs before sharing samples
+    abbott-log-redactor.html        Locally inspect/redact Abbott .log files without damaging FS delimiters (+ case mode)
+    cied-pdf-redactor.html          Locally redact/flatten vendor PDFs before sharing samples (+ case mode)
 docs/                               Subsystem docs (see Documentation below); docs/archive/ holds superseded design notes
+scripts/
+  import-case.js                    Replay an import-problem case, print its lines/fields, `add` it as a regression case
 mileage-backend/
   src/worker.js  wrangler.toml      Cloudflare Worker + D1 sync backend
   schema.sql  DEPLOY.md             (see DEPLOY.md for one-time setup)
@@ -99,6 +103,7 @@ iPad_APP/                           Sideloadable iPad/iPhone app for the three o
 tests/
   run.js                            Test runner — one child process per *.test.js, run in parallel (see Testing)
   *.test.js                         Node tests: .crmdb engine, parsers, page logic, PDF viewer, iPad bundle/shim, routes, CSPs
+  import-cases/<name>/              De-identified reports that once imported badly, replayed on every run (docs/import-cases.md)
 .githooks/pre-commit                Refuses a commit whose staged files fail the tests (enable with git config core.hooksPath .githooks)
 package.json                        No dependencies and no build step — it exists to give `npm test` an entrypoint
 ```
@@ -128,6 +133,7 @@ paths hold there too. Test fixtures (`Abbott Test Cases/`) stay local and are gi
 | Doc | Covers |
 |---|---|
 | [`docs/report-import.md`](docs/report-import.md) | The import data flow, the `RESULT` / `LEADS` parser contracts and field keys, `engine.js`, every vendor's hard-won gotchas, and how to add a vendor |
+| [`docs/import-cases.md`](docs/import-cases.md) | *Report import problem*: turning a failed import into a de-identified case (what is removed and how), the bundle format, replaying and fixing it, regression cases, limits and decisions |
 | [`docs/report-generator.md`](docs/report-generator.md) | The Report Generator's form, exports (text, JSON, vector PDF) and the UI decisions behind them |
 | [`docs/crmdb.md`](docs/crmdb.md) | The `.crmdb` container: format, encryption, the engine's cross-tab and cross-station guards, and the Schedule / Report Generator features built on it |
 | [`docs/cloudflare-access.md`](docs/cloudflare-access.md) | Cloudflare Pages build settings and the Access boundary (`/protected` gated, `/mileage` public) |
@@ -219,6 +225,8 @@ Details worth keeping: the picker is opened **synchronously on the click**, befo
 - **Remote-monitoring status shared between the two pages (Jul 2026):** the Schedule's **Remote** precharting column and the Report Generator's Final Session Summary **Status** dropdown are one field, not two — it travels in the schedule row (`r.rm`) inside `schedule.json`. Opening a patient pulls the precharted value into the form (the schedule wins, since that's where precharting happens; if it's blank and the report has a value, the schedule is seeded instead so the two never disagree), and changing it in the report writes back, bumps `schedule.json`'s revision stamp and broadcasts a `committed` message — otherwise an open Schedule tab would treat its own copy as newer and put the old value straight back. Covered by `tests/crmdb-schedule-rm-share.test.js`. **Coupling to keep in mind:** the `RMS` list in `protected/Patient_Schedule.html` and the `#rm-status` `<select>` in `protected/CRM_Report_Generator.html` must stay in step (both carry a comment saying so).
 - **Site passover (Jul 2026):** dashboard data-file snapshot/restore whitelisted to dashboard-owned keys (a full-localStorage mirror was writing the CRM PHI autosave into exports); tally + mileage "Add day" switched to local dates (UTC `toISOString` rolled evening entries to tomorrow); Mileage Calculator got a CSP matching the other pages; `mileage-backend/.wrangler/` untracked and git-ignored.
 
+- **Import-problem cases (Sep 2026):** a failed or wrong import is now one click from a de-identified, replayable case: *Report import problem* in the import status box or the Import menu (which also lists every export already in the patient's slot). The redactors open in case mode with the export and the finished form. The form's own identifiers are replaced wherever they appear and verified gone, every date is shifted by one hidden offset instead of blanked, and review shrinks to a short list of distinct strings plus any page with images or no text. The bundle (`case.json`, the de-identified parser input, optional page images) replays in Node with `scripts/import-case.js`, and after a fix `add` installs it under `tests/import-cases/`, where `npm test` replays it from then on. See [`docs/import-cases.md`](docs/import-cases.md).
+
 **Known gaps / TODO ideas:**
 - Abbott PDF (scanned image) is **not** supported — `.log` only. (OCR would be the only PDF route.)
 - Abbott individual episode rows and nonzero AF burden cannot be derived from the tested `.log` exports. AHR and ICD VT/VF aggregate counters, zero burden, and a common last-cleared date are supported.
@@ -233,8 +241,8 @@ Details worth keeping: the picker is opened **synchronously on the click**, befo
 ## Testing / continuing the work
 
 - **Manual:** serve `site/` and open `protected/CRM_Report_Generator.html` (or use the Pages site), then drop a vendor PDF or Abbott `.log` on the "Auto-fill" panel.
-- **PDF authoring:** use `tools/pdf-extraction-harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parser under `src/parsers/`.
-- **Node tests:** `npm test` (or `node tests/run.js`) runs the whole suite — 55 files, about 5 s. The
+- **PDF authoring:** use `tools/pdf-extraction-harness.html` to dump a PDF's text items, then write/adjust anchors in the vendor parser under `src/parsers/`. For a report that imported badly, an import-problem case is faster: `node scripts/import-case.js <case.zip> --lines` prints the same rows from the de-identified input, and the summary says which fields differ from the tech's report ([`docs/import-cases.md`](docs/import-cases.md)).
+- **Node tests:** `npm test` (or `node tests/run.js`) runs the whole suite — 61 files, about 5 s. The
   runner gives each `tests/*.test.js` its **own child process** on purpose — every file installs its
   own fake `window` / `document` / `indexedDB` into the Node global scope and re-`require`s
   `site/src/crmdb-store.js` to simulate a separate tab, so they cannot share a process without
@@ -270,7 +278,8 @@ Details worth keeping: the picker is opened **synchronously on the click**, befo
   The rest of the suite is named for what it covers: the vendor parsers (`vendor-detect` —
   `Engine.scoreVendors` / `guessVendor`, so a foreign lead row can't outvote the report's own brand —
   plus `abbott-log-parser`, `boston-*`, `biotronik-*`, `medtronic-*`), the redaction helpers
-  (`*-redactor`), Report Generator and Schedule page logic (`report-*`, `schedule-*`, `patient-*`,
+  (`*-redactor`), import-problem cases (`import-case` for the de-identifier, `import-case-pages` for
+  the handoff, `import-cases` replaying every case in `tests/import-cases/`), Report Generator and Schedule page logic (`report-*`, `schedule-*`, `patient-*`,
   `crm-*`), the PDF viewer and EGM shortcuts (`pdf-*`, `egm-print-order`), LV Lead Testing
   (`lv-lead-*`), the iPad app (`ipad-bundle-complete` — every file a bundled page loads is listed in
   `iPad_APP/web-files.txt` — `ipad-native-shim`, and `phone-layout` for the iPhone), the auth/route boundary and what `site/`

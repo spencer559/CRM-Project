@@ -17,6 +17,8 @@
 .table-wrap{overflow:auto;max-height:62vh;border-top:1px solid var(--line)}table{width:100%;border-collapse:collapse;table-layout:fixed}th{position:sticky;top:0;z-index:2;background:var(--navy);color:#fff;text-transform:uppercase;font-size:9px;letter-spacing:.35px;text-align:left;padding:7px;border-right:1px solid rgba(255,255,255,.15)}td{border-bottom:1px solid #e4e9ee;border-right:1px solid #edf0f3;padding:5px;vertical-align:top}tr.redact{background:#fff6f3}tr.hidden{display:none}.sel{width:42px;text-align:center}.code{width:68px;font-family:var(--mono);font-size:11px}.param{width:30%}.value{width:30%;font-family:var(--mono);font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}.replacement input{width:100%;border:1px solid var(--line);border-radius:3px;padding:5px;font-family:var(--mono);font-size:11px}.replacement input:disabled{background:#f1f3f5;color:#8a9299}.sensitive-tag{display:inline-block;margin-top:4px;background:#f1d4ca;color:#7e2d1e;border-radius:8px;padding:1px 6px;font-size:8px;text-transform:uppercase;font-weight:800}
 .empty{padding:45px;text-align:center;color:var(--muted)}.footer-actions{display:flex;gap:7px;justify-content:flex-end;align-items:center;padding:10px;border-top:1px solid var(--line)}.save-status{margin-right:auto;color:var(--green);font-size:11px;font-weight:700}
 @media(max-width:760px){.wrap{padding:10px}.workspace{grid-template-columns:1fr}.side{max-height:170px;overflow:auto}.toolbar{align-items:stretch}.search{width:100%}.toolbar .grow{display:none}.table-wrap{max-height:58vh}.param{width:34%}.value{width:28%}}
+.workspace.case{grid-template-columns:minmax(0,1fr) 390px}.case-panel{padding:12px 14px;align-self:start;position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto}.case-wait{margin-top:12px;padding:30px;text-align:center;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:8px}tr.auto td{background:#f3f7fb}
+@media(max-width:980px){.workspace.case{grid-template-columns:1fr}.case-panel{position:static;max-height:none}}
 </style>
 </head>
 <body>
@@ -25,6 +27,7 @@
   <div class="privacy"><i></i>Local only — files never leave this browser and the originals are never modified.</div>
   <label id="drop" for="pick"><strong>Drop Abbott .log files here</strong><span>or click to select one or many files</span></label>
   <input id="pick" type="file" accept=".log,.txt" multiple>
+  <div class="case-wait" id="case-wait" hidden></div>
 
   <div class="workspace" id="workspace">
     <aside class="side"><div class="side-h"><span>Loaded files</span><button class="btn danger" id="clear" type="button">Clear</button></div><div id="files"></div></aside>
@@ -41,14 +44,19 @@
       <div class="table-wrap"><table><thead><tr><th class="sel">Redact</th><th class="code">Code</th><th class="param">Parameter</th><th class="value">Original value</th><th>Replacement</th></tr></thead><tbody id="rows"></tbody></table><div class="empty" id="empty">Select a file.</div></div>
       <div class="footer-actions"><span class="save-status" id="save-status" role="status"></span><button class="btn secondary" id="download-one" type="button">Download this redacted .log</button><button class="btn" id="download-all" type="button">Download all as ZIP</button></div>
     </main>
+    <aside class="side case-panel" id="case-panel" hidden></aside>
   </div>
 </div>
 <script src="../vendor/crmdb-zip.js"></script>
 <script src="../src/abbott-log-redactor.js"></script>
+<!-- case mode (#case=<id>): abbott.js replays the log, import-case.js de-identifies it -->
+<script src="../src/parsers/abbott.js"></script>
+<script src="../src/import-case.js"></script>
+<script src="../src/import-case-panel.js"></script>
 <script>
 (function(){
   'use strict';
-  var models=[], active=0;
+  var models=[], active=0, CASE=null;
   function $(id){return document.getElementById(id)}
   function redactedName(name){return String(name||'Abbott.log').replace(/\.(log|txt)$/i,'')+'.redacted.log'}
   function safeZipName(name){return redactedName(name).replace(/[\\/]/g,'_')}
@@ -60,15 +68,15 @@
   function renderFiles(){
     $('files').innerHTML=''; models.forEach(function(m,i){var b=document.createElement('button');b.type='button';b.className='file-btn'+(i===active?' active':'');var selected=m.rows.filter(function(r){return r.redact}).length;b.innerHTML='<b></b><small></small>';b.querySelector('b').textContent=m.filename;b.querySelector('small').textContent=m.encoding.toUpperCase()+' · '+selected+' redaction'+(selected===1?'':'s');b.onclick=function(){active=i;render()};$('files').appendChild(b)})
   }
-  function matches(row){var q=$('search').value.trim().toLowerCase();if($('identifiers').checked&&!row.sensitive)return false;return !q||(row.code+' '+row.name+' '+row.value).toLowerCase().indexOf(q)>=0}
+  function matches(row){var q=$('search').value.trim().toLowerCase();if($('identifiers').checked&&!row.sensitive&&!(CASE&&row.redact))return false;return !q||(row.code+' '+row.name+' '+row.value).toLowerCase().indexOf(q)>=0}
   function renderRows(){
     var body=$('rows');body.innerHTML='';var m=models[active];$('empty').style.display=m?'none':'block';if(!m)return;
-    m.rows.forEach(function(row,idx){var tr=document.createElement('tr');tr.className=(row.redact?'redact ':'')+(matches(row)?'':'hidden');
-      var td0=document.createElement('td');td0.className='sel';var cb=document.createElement('input');cb.type='checkbox';cb.checked=row.redact;cb.onchange=function(){row.redact=cb.checked;if(row.redact&&row.replacement===row.value)row.replacement=AbbottLogRedactor.defaultReplacement(row);render()};td0.appendChild(cb);
+    m.rows.forEach(function(row,idx){var tr=document.createElement('tr');tr.className=(row.redact?'redact ':'')+(CASE&&row.auto?'auto ':'')+(matches(row)?'':'hidden');
+      var td0=document.createElement('td');td0.className='sel';var cb=document.createElement('input');cb.type='checkbox';cb.checked=row.redact;cb.disabled=!!(CASE&&row.auto);cb.onchange=function(){row.redact=cb.checked;if(row.redact&&row.replacement===row.value)row.replacement=AbbottLogRedactor.defaultReplacement(row);if(CASE){row.manual=true;caseRefresh();return}render()};td0.appendChild(cb);
       var td1=document.createElement('td');td1.className='code';td1.textContent=row.code;
       var td2=document.createElement('td');td2.className='param';td2.appendChild(document.createTextNode(row.name));if(row.sensitive){var tag=document.createElement('span');tag.className='sensitive-tag';tag.textContent='possible identifier';td2.appendChild(document.createElement('br'));td2.appendChild(tag)}
       var td3=document.createElement('td');td3.className='value';td3.textContent=row.value||'(blank)';
-      var td4=document.createElement('td');td4.className='replacement';var inp=document.createElement('input');inp.type='text';inp.value=row.replacement;inp.disabled=!row.redact;inp.setAttribute('aria-label','Replacement for '+row.name);inp.oninput=function(){row.replacement=inp.value};td4.appendChild(inp);
+      var td4=document.createElement('td');td4.className='replacement';var inp=document.createElement('input');inp.type='text';inp.value=row.replacement;inp.disabled=!row.redact||!!(CASE&&row.auto);inp.setAttribute('aria-label','Replacement for '+row.name);inp.oninput=function(){row.replacement=inp.value};inp.onchange=function(){if(CASE)caseRefresh()};td4.appendChild(inp);
       tr.append(td0,td1,td2,td3,td4);body.appendChild(tr)
     });
     var selected=m.rows.filter(function(r){return r.redact}).length, visible=m.rows.filter(matches).length;$('summary').innerHTML='<b>'+m.filename+'</b> · '+m.rows.length+' parsed fields · '+selected+' selected for redaction · '+visible+' shown';
@@ -89,6 +97,115 @@
   $('download-one').onclick=function(){var m=models[active];if(m)save(output(m),redactedName(m.filename))};
   $('download-all').onclick=function(){if(!models.length)return;var entries=models.map(function(m){return{name:safeZipName(m.filename),data:outputBytes(m)}});save(CRMDB.write(entries),'redacted-abbott-logs.zip')};
   render();
+
+  /* ---------- import-problem case mode ---------------------------------------------------------
+     The Report Generator's "Report import problem" opens this page with #case=<id> and sends the
+     Merlin .log plus the form the tech finished (docs/import-cases.md). Every value is run through
+     CRMImportCase: the patient's own identifiers are replaced wherever they appear and every date
+     is shifted by one hidden offset; the known-PHI codes above still apply as a second net. Rows
+     the case rewrote are locked; tick any other row to redact it too. The bundle is case.json plus
+     input.log, the byte-preserving redacted log that abbott.js replays. */
+  var IC=window.CRMImportCase;
+  var SERIAL_CODES={'202':1,'2468':1,'2469':1,'2470':1,'2471':1};
+  function decodeLog(bytes,enc){try{return new TextDecoder(enc).decode(bytes)}catch(e){return new TextDecoder('utf-8').decode(bytes)}}
+
+  function openCase(msg){
+    var p=msg.payload||{},bytes=new Uint8Array(msg.bytes),m=AbbottLogRedactor.parse(bytes,'Import case.log');
+    // the untouched log, parsed the way the import did
+    var original=IC.replay('log',decodeLog(bytes,m.encoding)),bundle=original.bundle||{};
+    var known=IC.knownFromSources({snapshot:p.snapshot||{},result:bundle.RESULT,leads:bundle.LEADS,extraNames:p.extraNames||[]});
+    CASE={id:IC.newCaseId(),payload:p,model:m,original:original,scrub:IC.createScrubber({known:known}),decided:{},notes:'',done:'',busy:''};
+    models=[m];active=0;
+    $('case-wait').hidden=true;
+    caseRefresh();
+  }
+  function failCase(message){var w=$('case-wait');w.hidden=false;w.textContent=message}
+
+  function caseRefresh(){
+    var c=CASE,m=c.model,scrub=c.scrub,hits={};
+    function count(k,n){hits[k]=(hits[k]||0)+(n||1)}
+    m.rows.forEach(function(row){
+      if(row.manual)return;   // the reviewer's own choice for this row stands
+      var r=scrub.scrubText(row.value),v=r.text;
+      Object.keys(r.hits).forEach(function(k){count(k,r.hits[k])});
+      if(row.sensitive&&row.value.trim()){
+        if(v===row.value){
+          // a known-PHI code the form didn't cover: serials get a distinct pseudonym (two leads
+          // must stay two leads), everything else the standalone replacement
+          v=SERIAL_CODES[row.code]||/serial/i.test(row.name)?scrub.pseudonym(row.value,'serial'):AbbottLogRedactor.defaultReplacement(row);
+          count('label');
+        } else if(row.code==='2430'||row.code==='2432'||/name|physician/i.test(row.name)){
+          var g=scrub.nameGuard(v);if(g!==v){v=g;count('label')}
+        }
+      }
+      row.redact=v!==row.value;row.auto=row.redact;row.replacement=v;
+    });
+    m.rows.forEach(function(row){if(row.manual&&row.redact)count('manual')});
+    c.out=AbbottLogRedactor.redact(m);
+    var text=decodeLog(c.out,m.encoding);
+    c.hits=hits;
+    var lines=text.split(/\r?\n/).map(function(t,i){return{page:i+1,text:t.split(String.fromCharCode(28)).join(' | ')}});
+    c.residual=[];
+    lines.forEach(function(l){c.scrub.residualText(l.text).forEach(function(h){c.residual.push({kind:h.kind,match:h.match,page:l.page})})});
+    c.suspects=IC.suspects(lines,c.decided,scrub.nameWords(),scrub.loneWords());
+    // parse exactly the log the case will hold
+    c.redacted=IC.replay('log',text);
+    var ev=IC.evaluate(c.original,c.redacted,c.payload.snapshot,scrub);
+    Object.keys(ev).forEach(function(k){c[k]=ev[k]});
+    render();
+    renderCasePanel();
+  }
+
+  function renderCasePanel(){
+    var c=CASE;if(!c)return;
+    var route=(c.after&&c.after.route)||(c.before&&c.before.route)||{};
+    var error=c.redacted&&c.redacted.error?c.scrub.scrubText(c.redacted.error).text:'';
+    CRMImportCasePanel.render($('case-panel'),{
+      title:['Abbott / St. Jude .log',route.label,c.model.rows.length+' fields'].filter(Boolean).join(' - '),unit:'line',
+      parseError:error,counts:c.scrub.counts(),noKnown:!c.scrub.hasKnown(),hits:c.hits,
+      residual:c.residual,suspects:c.suspects,
+      diff:c.diff,leadDiff:c.leadDiff,fidelity:c.fidelity,matched:c.matched,hasExpected:c.hasExpected,
+      notes:c.notes,busy:c.busy,done:c.done
+    },{
+      decide:function(text,verdict){c.decided[text]=verdict;if(verdict==='redact')c.scrub.addCustom(text);caseRefresh()},
+      redactResidual:function(){c.residual.forEach(function(h){c.scrub.addCustom(h.match)});caseRefresh()},
+      gotoPage:function(){},
+      setNotes:function(v){c.notes=v;return !c.scrub.residualText(v).length},
+      setIncludePdf:function(){},
+      exportCase:exportCase
+    });
+  }
+
+  function exportCase(){
+    var c=CASE,m=c.model,enc=new TextEncoder();
+    var manifest=IC.buildManifest({
+      id:c.id,kind:'log',
+      source:{fields:m.rows.length,encoding:m.encoding},
+      detection:{vendor:'Abbott / St. Jude',forced:false},
+      parse:{parser:'Abbott / St. Jude',error:c.scrub.scrubText(c.redacted.error||'').text,stack:c.scrub.scrubText(c.redacted.stack||'').text,
+        route:c.after?c.after.route:null,fields:c.after?c.after.fields:{},leads:c.after?c.after.leads:[],episodes:c.after?c.after.episodes:[]},
+      expected:c.expected,diff:c.diff,leadDiff:c.leadDiff,fidelity:c.fidelity,notes:c.notes,
+      deid:{method:'known identifiers + date shift + known PHI codes',known:c.scrub.counts(),replaced:c.hits,
+        kept:Object.keys(c.decided).filter(function(k){return c.decided[k]==='keep'}),redactedStrings:c.scrub.custom().length,residual:0}
+    });
+    // last gate: the finished files themselves
+    var hits=c.scrub.residualObject(manifest).concat(c.scrub.residualText(decodeLog(c.out,m.encoding)));
+    if(hits.length){$('save-status').textContent='Export stopped: the case still holds '+hits.length+' identifier'+(hits.length===1?'':'s')+'.';return}
+    var name=IC.bundleName(c.id,'Abbott');
+    save(CRMDB.write([{name:'case.json',data:enc.encode(JSON.stringify(manifest,null,2))},{name:'input.log',data:c.out}]),name);
+    c.done=name;renderCasePanel();
+  }
+
+  (function startCase(){
+    if(!/[#&]case=/.test(location.hash)||!window.CRMImportCasePanel)return;
+    $('drop').style.display='none';
+    document.querySelector('.side').hidden=true;
+    $('workspace').classList.add('case');$('case-panel').hidden=false;
+    ['select-auto','select-none','download-one','download-all'].forEach(function(id){$(id).style.display='none'});
+    document.querySelector('.notice').innerHTML='<b>Import problem case.</b> The patient\'s name, DOB, MRN and serial numbers from your form were replaced in every field, and every date was shifted by the same hidden amount. Rows the case changed are shaded and locked; tick any other row to redact it too. Resolve the panel on the right, then export.';
+    var w=$('case-wait');w.hidden=false;w.textContent='Waiting for the log from the Report Generator...';
+    CRMImportCasePanel.receive(openCase,failCase);
+  })();
 })();
 </script>
 </body>

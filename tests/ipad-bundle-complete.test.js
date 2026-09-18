@@ -39,9 +39,9 @@ for (const file of listed.filter((f) => /\.(html|js)$/.test(f))) {
   const dir = path.dirname(file);
   const refs = new Set();
 
-  // ../src/x.js, ../vendor/y.js — however it is written: <script src>, new Worker, importScripts,
-  // or a bare string the page turns into a URL later.
-  for (const m of text.matchAll(/(?:\.\.\/)+(?:src|vendor|assets)\/[A-Za-z0-9_\-./]+\.[a-z0-9]+/g)) {
+  // ../src/x.js, ../vendor/y.js, ../tools/z.html — however it is written: <script src>, new Worker,
+  // importScripts, window.open, or a bare string the page turns into a URL later.
+  for (const m of text.matchAll(/(?:\.\.\/)+(?:src|vendor|assets|tools)\/[A-Za-z0-9_\-./]+\.[a-z0-9]+/g)) {
     refs.add(path.normalize(path.join(dir, m[0])));
   }
   // Sibling pages: "PDF_Viewer.html#embed=1", 'CRM_Report_Generator.html?embed=1#slot='

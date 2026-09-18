@@ -16,9 +16,12 @@ iPad names because renaming them would break the Sideloader's `BUILD_COMMAND`.
 | `web-files.txt` | The `site/` files bundled into the app, copied fresh on every build by `copy-web.sh` |
 | `build-ipa.sh` | Builds an unsigned, version-stamped `dist/CRMiPad.ipa` for the Sideloader |
 
-The web pages are not duplicated here. Every build copies the current `site/protected/`, `site/src/`
-and `site/vendor/` files listed in `web-files.txt`, keeping the layout under `site/`, so the app serves
-each page at the same path as the website (`crmapp://app/protected/Patient_Schedule.html`). The shim is covered by `tests/ipad-native-shim.test.js`.
+The web pages are not duplicated here. Every build copies the current `site/protected/`, `site/src/`,
+`site/vendor/` and `site/tools/` files listed in `web-files.txt`, keeping the layout under `site/`, so
+the app serves each page at the same path as the website (`crmapp://app/protected/Patient_Schedule.html`).
+The two redactors in `tools/` ship too, because the Report Generator's *Report import problem* opens
+them as case builders (`docs/import-cases.md`). Like the PDF viewer, each opens as a child window, and
+its export goes to the Files sheet. The shim is covered by `tests/ipad-native-shim.test.js`.
 
 ## Install
 
@@ -225,7 +228,8 @@ implemented once the zip proved useless for printing patient folders at the clin
   with `make-icon.sh` needs the original image.
 - **Not yet verified on real hardware** (Simulator or headless tests only): password-protected
   databases, all three print paths (day sheet, report, PDF viewer), the PDF viewer opening as a child
-  window, and downloads. Printing is the one most likely to come up in clinic.
+  window, and downloads. The case builders (*Report import problem*) haven't run in the app at all
+  yet, not even in the Simulator; they were checked in a desktop browser. Printing is the one most likely to come up in clinic.
 
 ## Known gaps
 

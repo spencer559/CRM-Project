@@ -4,6 +4,9 @@
 protected/Patient_Schedule.html
 protected/CRM_Report_Generator.html
 protected/PDF_Viewer.html
+# The case builders the Report Generator's "Report import problem" opens (docs/import-cases.md).
+tools/cied-pdf-redactor.html
+tools/abbott-log-redactor.html
 src/crmdb-store.js
 src/crmdb-commit-cadence.js
 src/engine.js
@@ -12,6 +15,10 @@ src/crm-keyboard-focus.js
 src/pdf-page-selection.js
 src/pdf-egm-navigation.js
 src/pdf-selection-worker.js
+src/cied-pdf-redactor.js
+src/abbott-log-redactor.js
+src/import-case.js
+src/import-case-panel.js
 src/parsers/abbott.js
 src/parsers/biotronik.js
 src/parsers/boston.js

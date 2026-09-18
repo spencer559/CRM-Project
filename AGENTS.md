@@ -12,8 +12,9 @@ iPhone. The repo is **private**, but the
 site is public everywhere outside `/protected`.
 
 `README.md` is the handoff overview (layout, security, status, testing). The subsystem deep dives are
-in `docs/`: `report-import.md` (parser contracts and vendor gotchas), `report-generator.md` (form UI
-decisions and why) and `crmdb.md` (`.crmdb` internals). `iPad_APP/README.md` covers the iPad app. These
+in `docs/`: `report-import.md` (parser contracts and vendor gotchas), `import-cases.md` (turning a
+failed import into a de-identified regression case), `report-generator.md` (form UI decisions and
+why) and `crmdb.md` (`.crmdb` internals). `iPad_APP/README.md` covers the iPad app. These
 are updated in nearly every commit. Read the doc for the subsystem you're changing before changing it,
 and update it when you change documented behavior. Decisions already made, and alternatives already
 rejected on evidence, are recorded there (for example the README's *Latency overhaul* entry, and the
@@ -46,6 +47,27 @@ iPad_APP/build-ipa.sh --describe        # JSON stamp/fingerprint of what would b
 Mileage sync backend (`mileage-backend/`, Cloudflare Worker + D1): `npx wrangler deploy` from that
 folder; one-time setup and D1 commands are in `mileage-backend/DEPLOY.md`.
 
+Import-problem cases (`docs/import-cases.md`):
+
+```bash
+node scripts/import-case.js <case.zip>                    # what went wrong, replayed with today's parsers
+node scripts/import-case.js <case.zip> --lines --grep RE  # the parser's input as x###|"text" rows
+node scripts/import-case.js add <case.zip>                # after the fix: install it in tests/import-cases/
+```
+
+## When the user hands you an import case
+
+An `import-case-<vendor>-<id>.zip` is a report that imported badly, de-identified by the case builder
+(the redactors opened from the Report Generator's *Report import problem*). Start with
+`node scripts/import-case.js <zip>`: it replays the case through the current parsers and lists every
+field that differs from the tech's finished report, plus the reviewer's note. Use `--lines --grep` to
+find the anchors, fix the parser, and replay until the summary is clean. A difference can also be a
+clinical edit rather than a parser bug; the note usually says which. Then `add` the case, so
+`npm test` replays it from then on, and commit the fixture with the fix. `report.pdf` in the zip is
+for looking at the layout (the Read tool renders its pages); it is never committed. If `add`'s PHI
+lint refuses the case, don't edit the case to get past it: tell the user which strings it flagged,
+so they can rebuild the case and decide them in the review list.
+
 ## Before you finish
 
 - **Run `npm test` after any change outside docs, and finish only with it passing.** If a failure
@@ -62,7 +84,7 @@ folder; one-time setup and D1 commands are in `mileage-backend/DEPLOY.md`.
 **Layout.** Everything the website serves is in `site/`, the Cloudflare Pages build output directory;
 nothing outside it is deployed. Paths below that name web files (`index.html`, `protected/`, `src/`,
 `vendor/`, `tools/`, `mileage/`) are relative to `site/`, which also makes them URL paths. Repo-level
-things stay at the root: `tests/`, `docs/`, `iPad_APP/`, `mileage-backend/`, `.githooks/`.
+things stay at the root: `tests/`, `docs/`, `scripts/`, `iPad_APP/`, `mileage-backend/`, `.githooks/`.
 
 **No bundler, no modules.** Each page is one large HTML file with inline `<script>` blocks. Shared code
 in `src/` and `vendor/` is loaded as classic scripts via `../` relative paths and hangs off globals
@@ -112,12 +134,17 @@ panel goes full screen, and split view stacks.
 `Engine.extractItems/normalize/tagSections` → `Engine.scoreVendors` → `src/parsers/<vendor>.js`
 `runMap(LINES)`. Abbott is a Merlin `.log` text file → `ABBOTT.runLog(text)`. Every parser returns
 `{ RESULT, LEADS, ROUTE, ORDER, GOTCHAS, EPISODES? }`, with `RESULT` keyed by form field id, and that
-bundle goes to `prefillForm`. `engine.js` holds the only vendor-detection list.
+bundle goes to `prefillForm`. `engine.js` holds the only vendor-detection list. When an import goes
+wrong, *Report import problem* hands the export and the finished form to a redactor in case mode.
+`src/import-case.js` then removes the form's own identifiers wherever they appear, shifts every date
+by one hidden offset, and writes a bundle that `scripts/import-case.js` replays
+(`docs/import-cases.md`).
 
 **Everything else:** `index.html` is the public landing page. `mileage/` is a public calculator whose
 optional sync talks to `mileage-backend/`, the only code that makes network calls, and it never touches
 PHI. `protected/dashboard.html` and `protected/LV_Lead_Testing.html` are standalone. `tools/` holds
-local redaction and PDF-extraction harness pages for preparing sample exports.
+local redaction and PDF-extraction harness pages. The two redactors double as the case builders, and
+the iPad app bundles them for that.
 
 ## Invariants that are easy to break
 
@@ -168,9 +195,11 @@ local redaction and PDF-extraction harness pages for preparing sample exports.
   no change in behavior: update the extraction, don't loosen the assertion.
 - Timing tests must also hold on Windows, where `setTimeout` has a ~15.6ms floor. Derive bounds from
   measured `Date.now()` deltas, not nominal delays (see `crmdb-commit-cadence.test.js`).
-- Fixtures must be synthetic or redacted (`tools/` has the redactors). `Info.txt` and
-  `Abbott Test Cases/` are git-ignored local samples containing **real patient data**: don't print them
-  and never commit them.
+- Fixtures must be synthetic or redacted (`tools/` has the redactors). A real report enters the repo
+  only as an import-problem case, built by the case builder and installed with
+  `scripts/import-case.js add`, whose PHI lint `tests/import-cases.test.js` re-runs on every case.
+  `Info.txt` and `Abbott Test Cases/` are git-ignored local samples containing **real patient data**:
+  don't print them and never commit them.
 
 ## Conventions
 

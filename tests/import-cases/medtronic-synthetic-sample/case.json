@@ -1,0 +1,485 @@
+{
+  "schema": 1,
+  "id": "e1eo4et",
+  "kind": "pdf",
+  "source": {
+    "pages": 3,
+    "textItems": 91,
+    "pagesWithoutText": [],
+    "pagesWithLargeImages": []
+  },
+  "detection": {
+    "detected": "Medtronic",
+    "vendor": "Medtronic",
+    "forced": false,
+    "ranked": [
+      {
+        "name": "Medtronic",
+        "score": 15,
+        "strongPages": 3,
+        "weakPages": 2,
+        "strongTokens": 2
+      },
+      {
+        "name": "Biotronik",
+        "score": 1,
+        "strongPages": 0,
+        "weakPages": 1,
+        "strongTokens": 0
+      },
+      {
+        "name": "Abbott / St. Jude",
+        "score": 0,
+        "strongPages": 0,
+        "weakPages": 0,
+        "strongTokens": 0
+      },
+      {
+        "name": "Boston Scientific",
+        "score": 0,
+        "strongPages": 0,
+        "weakPages": 0,
+        "strongTokens": 0
+      }
+    ],
+    "afterDeidentification": "Medtronic"
+  },
+  "parse": {
+    "parser": "Medtronic",
+    "error": "",
+    "stack": "",
+    "route": {
+      "family": "dual",
+      "dtype": "PPM-DC",
+      "label": "Dual-chamber PPM",
+      "note": ""
+    },
+    "fields": {
+      "pt-name": {
+        "v": "DOE, TEST Q",
+        "status": "auto",
+        "note": "",
+        "src": "p1 · Final"
+      },
+      "dev-model": {
+        "v": "Azure XT DR MRI W1DR01",
+        "status": "auto",
+        "note": "",
+        "src": "p1 · Final"
+      },
+      "dev-serial": {
+        "v": "XXX000001X",
+        "status": "auto",
+        "note": "",
+        "src": "p1 · Final"
+      },
+      "pt-date": {
+        "v": "2024-12-15",
+        "status": "auto",
+        "note": "",
+        "src": "p1 · Final"
+      },
+      "pt-provider": {
+        "v": "Dr. Provider Provider",
+        "status": "auto",
+        "note": "",
+        "src": "p1 · Final"
+      },
+      "pt-mrn": {
+        "v": "00000001",
+        "status": "auto",
+        "note": "Blank in export — pull from EHR.",
+        "src": "p1 · Final"
+      },
+      "pt-dob": {
+        "v": "1948-05-03",
+        "status": "auto",
+        "note": "",
+        "src": "p1 · Final"
+      },
+      "dev-implant": {
+        "v": "2017-09-02",
+        "status": "auto",
+        "note": "",
+        "src": "p2 · Final"
+      },
+      "mfr": {
+        "v": "Medtronic",
+        "status": "auto",
+        "note": "",
+        "src": "vendor"
+      },
+      "dtype": {
+        "v": "PPM-DC",
+        "status": "auto",
+        "note": "",
+        "src": "from model"
+      },
+      "bat-lon-cur": {
+        "v": "9.5",
+        "status": "auto",
+        "note": "",
+        "src": "p1 · Final"
+      },
+      "bat-lon-unit": {
+        "v": "years",
+        "status": "auto",
+        "note": "",
+        "src": "p1 · Final"
+      },
+      "pct-v": {
+        "v": "<0.1",
+        "status": "review",
+        "note": "Device Total VP (ventricular paced). Reported \"<0.1 %\".",
+        "src": "p1"
+      },
+      "pct-a": {
+        "v": "12.3",
+        "status": "auto",
+        "note": "Device Total AP (atrial paced).",
+        "src": "p1"
+      },
+      "p-mode": {
+        "v": "DDDR",
+        "status": "auto",
+        "note": "",
+        "src": "p1"
+      },
+      "p-lrl": {
+        "v": "60",
+        "status": "auto",
+        "note": "",
+        "src": "p1"
+      },
+      "p-utr": {
+        "v": "130",
+        "status": "auto",
+        "note": "",
+        "src": "p1"
+      },
+      "p-usr": {
+        "v": "120",
+        "status": "auto",
+        "note": "",
+        "src": "p1"
+      },
+      "p-sav": {
+        "v": "",
+        "status": "empty",
+        "note": "",
+        "src": ""
+      },
+      "p-pav": {
+        "v": "",
+        "status": "empty",
+        "note": "",
+        "src": ""
+      },
+      "p-ms": {
+        "v": "",
+        "status": "empty",
+        "note": "",
+        "src": ""
+      },
+      "p-msrate": {
+        "v": "",
+        "status": "empty",
+        "note": "",
+        "src": ""
+      },
+      "lead-ra-imp": {
+        "v": "456",
+        "status": "review",
+        "note": "Atrial column. Verify.",
+        "src": "p1"
+      },
+      "lead-rv-imp": {
+        "v": "589",
+        "status": "review",
+        "note": "RV column. Verify.",
+        "src": "p1"
+      },
+      "lead-ra-sens": {
+        "v": "2.8",
+        "status": "review",
+        "note": "Device-measured value (no in-office reading). Verify.",
+        "src": "p1"
+      },
+      "lead-rv-sens": {
+        "v": "11.2",
+        "status": "review",
+        "note": "Device-measured value (no in-office reading). Verify.",
+        "src": "p1"
+      },
+      "lead-ra-thr": {
+        "v": "0.625",
+        "status": "review",
+        "note": "Device-measured value (no in-office reading). Verify.",
+        "src": "p1"
+      },
+      "lead-rv-thr": {
+        "v": "0.750",
+        "status": "review",
+        "note": "Device-measured value (no in-office reading). Verify.",
+        "src": "p1"
+      },
+      "lead-ra-pw": {
+        "v": "0.40",
+        "status": "auto",
+        "note": "",
+        "src": "p1"
+      },
+      "lead-rv-pw": {
+        "v": "0.40",
+        "status": "auto",
+        "note": "",
+        "src": "p1"
+      },
+      "ep-af-burden": {
+        "v": "",
+        "status": "empty",
+        "note": "",
+        "src": ""
+      },
+      "ep-ahr": {
+        "v": "",
+        "status": "empty",
+        "note": "AT/AF episode count from Clinical Status (since last session). Confirm in the episode log.",
+        "src": ""
+      },
+      "ep-hvr": {
+        "v": "",
+        "status": "empty",
+        "note": "Non-sustained VT count this session. Confirm episode counts in the device log.",
+        "src": ""
+      },
+      "obs-yn": {
+        "v": "N/A",
+        "status": "auto",
+        "note": "",
+        "src": ""
+      },
+      "rp-chg": {
+        "v": "",
+        "status": "review",
+        "note": "Changes table present — review.",
+        "src": ""
+      },
+      "sig-date": {
+        "v": "2024-12-15",
+        "status": "auto",
+        "note": "",
+        "src": "visit date"
+      }
+    },
+    "leads": [
+      {
+        "location": "Atrial",
+        "manufacturer": "Medtronic",
+        "model": "5076",
+        "serial": "XXX0000002",
+        "date": "Sep/02/2017"
+      },
+      {
+        "location": "RV",
+        "manufacturer": "Medtronic",
+        "model": "5076",
+        "serial": "XXX0000003",
+        "date": "Sep/02/2017"
+      }
+    ],
+    "episodes": [
+      {
+        "dt": "2024-12-09T15:12",
+        "dur": "00:00:45",
+        "rate": "230",
+        "types": [
+          "AF/AHR"
+        ],
+        "flags": [
+          "Recent"
+        ],
+        "notes": "Episode #12"
+      },
+      {
+        "dt": "2024-11-26T11:05",
+        "dur": "01:02:36",
+        "rate": "200",
+        "types": [
+          "AF/AHR"
+        ],
+        "flags": [
+          "Longest"
+        ],
+        "notes": "Episode #11"
+      }
+    ]
+  },
+  "expected": {
+    "fields": {
+      "pt-name": "DOE, TEST Q",
+      "pt-dob": "1948-05-03",
+      "pt-mrn": "00000001",
+      "pt-date": "2024-12-15",
+      "dev-implant": "2017-09-02",
+      "mfr": "Medtronic",
+      "dtype": "PPM-DC",
+      "dev-model": "Azure XT DR MRI W1DR01",
+      "dev-serial": "XXX000001X",
+      "bat-lon-cur": "9.5",
+      "bat-lon-unit": "years",
+      "bat-cc-cur": "",
+      "bat-status": "",
+      "pct-a": "12.3",
+      "pct-v": "<0.1",
+      "pct-lv": "",
+      "pct-biv": "",
+      "p-mode": "DDDR",
+      "p-lrl": "60",
+      "p-utr": "130",
+      "p-usr": "120",
+      "dyn-av": "",
+      "p-sav": "",
+      "p-sav-hi": "",
+      "p-pav": "",
+      "p-pav-hi": "",
+      "p-ms": "",
+      "p-msrate": "",
+      "lead-ra-imp": "456",
+      "lead-ra-sens": "2.8",
+      "lead-ra-thr": "0.625",
+      "lead-ra-pw": "0.40",
+      "lead-rv-imp": "589",
+      "lead-rv-sens": "11.2",
+      "lead-rv-thr": "0.5",
+      "lead-rv-pw": "0.40",
+      "lead-lv-imp": "",
+      "lead-lv-sens": "",
+      "lead-lv-thr": "",
+      "lead-lv-pw": "",
+      "lead-leadless-imp": "",
+      "lead-leadless-sens": "",
+      "lead-leadless-thr": "",
+      "lead-leadless-pw": "",
+      "lead-rv-coil-imp": "",
+      "lead-svc-coil-imp": "",
+      "ep-since-date": "",
+      "ep-af-burden": "",
+      "ep-ahr": "",
+      "ep-hvr": "",
+      "ep-pmt": "",
+      "obs-yn": "N/A",
+      "rp-chg": "",
+      "sig-date": "2024-12-15"
+    },
+    "omitted": [
+      "pt-provider"
+    ],
+    "leads": [
+      {
+        "location": "Atrial",
+        "manufacturer": "Medtronic",
+        "model": "5076",
+        "serial": "XXX0000002",
+        "date": "09/02/2017"
+      },
+      {
+        "location": "RV",
+        "manufacturer": "Medtronic",
+        "model": "5076",
+        "serial": "XXX0000003",
+        "date": "09/02/2017"
+      }
+    ],
+    "episodes": [
+      {
+        "dt": "2024-12-09T15:12",
+        "dur": "00:00:45",
+        "rate": "230",
+        "types": [
+          "AF/AHR"
+        ],
+        "flags": [
+          "Recent"
+        ]
+      },
+      {
+        "dt": "2024-11-26T11:05",
+        "dur": "01:02:36",
+        "rate": "200",
+        "types": [
+          "AF/AHR"
+        ],
+        "flags": [
+          "Longest"
+        ]
+      }
+    ]
+  },
+  "diff": [
+    {
+      "field": "lead-rv-thr",
+      "label": "",
+      "parsed": "0.750",
+      "expected": "0.5",
+      "kind": "mismatch"
+    }
+  ],
+  "leadDiff": [],
+  "fidelity": [],
+  "notes": "Synthetic sample: tech corrected RV threshold from 0.750 to 0.5",
+  "deid": {
+    "method": "known identifiers + date shift + label rules",
+    "known": {
+      "names": 4,
+      "serials": 3,
+      "ids": 1,
+      "dates": 3
+    },
+    "replaced": {
+      "date": 12,
+      "name": 4,
+      "serial": 4,
+      "id": 1,
+      "custom": 1
+    },
+    "kept": [],
+    "redactedStrings": 1,
+    "pagesLookedAt": [
+      1
+    ],
+    "includesPdf": true,
+    "residual": 0
+  },
+  "assert": {
+    "fields": [
+      "pt-name",
+      "pt-dob",
+      "pt-mrn",
+      "pt-date",
+      "dev-implant",
+      "mfr",
+      "dtype",
+      "dev-model",
+      "dev-serial",
+      "bat-lon-cur",
+      "bat-lon-unit",
+      "pct-a",
+      "pct-v",
+      "p-mode",
+      "p-lrl",
+      "p-utr",
+      "p-usr",
+      "lead-ra-imp",
+      "lead-ra-sens",
+      "lead-ra-thr",
+      "lead-ra-pw",
+      "lead-rv-imp",
+      "lead-rv-sens",
+      "lead-rv-pw"
+    ],
+    "leads": true,
+    "episodes": true,
+    "vendor": "Medtronic"
+  }
+}

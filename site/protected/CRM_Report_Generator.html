@@ -2789,6 +2789,10 @@ loadSaved();
 #pdp-status .pdp-vsel{ font:inherit; margin:0 1px; padding:1px 5px; cursor:pointer; background:#fff;
   border:1px solid var(--navy-mid); border-radius:3px; color:var(--navy); }
 #pdp-status .pdp-vsel:hover{ background:var(--navy); border-color:var(--navy); color:#fff; }
+/* "Report import problem": hands the export to the case builder (docs/import-cases.md). */
+#pdp-status .pdp-report{ font:inherit; font-size:9.5px; margin-top:4px; padding:1px 6px; cursor:pointer; background:#fff;
+  border:1px solid #c9a36a; border-radius:3px; color:#8a5a00; }
+#pdp-status .pdp-report:hover{ background:#8a5a00; border-color:#8a5a00; color:#fff; }
 /* Dismiss control for the floating import toast; the fixed-position rule below reserves the
    gutter it sits in so long "Verify:" lists don't run underneath it. */
 #pdp-status .pdp-x{ position:absolute; top:3px; right:4px; background:none; border:none;
@@ -2894,9 +2898,10 @@ window.ensureReportPdfBuilder = function () {
   statusEl.addEventListener('mouseleave', pdpArm);
   statusEl.addEventListener('click', function(e){
     if (e.target.classList.contains('pdp-x')) { pdpClear(); return; }
+    if (e.target.classList.contains('pdp-report')) { reportLastImport(); return; }
     // "Parse as: <vendor>" — re-run the last import through a parser the user picked.
     var forced = e.target.getAttribute && e.target.getAttribute('data-vendor');
-    if (forced) runParse(forced);
+    if (forced) runParse(forced, null, true);
   });
 
   // Resolve a parser field key to the matching form control (radio group, #id, or [name]).
@@ -3018,6 +3023,65 @@ window.ensureReportPdfBuilder = function () {
   // clicks an override the File handle may be gone, and re-extracting is the slow part anyway.
   var LAST_PDF = null;
 
+  /* ── Report import problem ── (docs/import-cases.md)
+     The export behind the form's current auto-fill, so a bad import can be sent to the case
+     builder: the PDF or Abbott .log redactor opened in case mode. It gets the export plus the form
+     as the tech left it, because the finished form is both the answer the parser should have
+     given and the list of identifiers to remove. LAST_IMPORT is cleared by every form reset
+     (patient switch, New Patient, Clear Fields): pairing one patient's export with another
+     patient's form would hand the redactor the wrong identifiers to search for. */
+  var LAST_IMPORT = null;
+  (function () {
+    var base = window.resetFormState;
+    if (typeof base === 'function') window.resetFormState = function () { LAST_IMPORT = null; return base.apply(this, arguments); };
+  })();
+  window.forgetLastImport = function () { LAST_IMPORT = null; };
+  window.lastImportForReport = function () { return LAST_IMPORT; };
+  function reportButton() { return '<br><button type="button" class="pdp-report">Report import problem</button>'; }
+  function reportLastImport() {
+    var last = LAST_IMPORT;
+    if (!last || !last.file) { setStatus('Nothing to report: import a PDF or .log first.', 'err'); return; }
+    window.reportImportProblem(function () { return last.file; }, last.name, last.forced, last.error);
+  }
+
+  // Same handshake as the Schedule's PDF viewer: the new tab announces itself with our one-shot id
+  // and the reply transfers the bytes. window.open must run inside the click, before any await.
+  var CASES = {};
+  window.reportImportProblem = function (getFile, name, forced, importError) {
+    var isLog = /\.(log|txt)$/i.test(name || '');
+    var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    var w = window.open((isLog ? '../tools/abbott-log-redactor.html' : '../tools/cied-pdf-redactor.html') + '#case=' + id, '_blank');
+    if (!w) { setStatus('Your browser blocked the case builder: allow pop-ups for this page, then try again.', 'err'); return; }
+    var label = typeof window.crmSlotLabel === 'function' ? window.crmSlotLabel() : '';
+    CASES[id] = {
+      win: w,
+      ready: Promise.resolve().then(getFile).then(function (file) {
+        if (!file) throw new Error('That export is no longer available.');
+        return file.arrayBuffer().then(function (buf) {
+          return { bytes: buf, payload: {
+            kind: isLog ? 'log' : 'pdf',
+            snapshot: typeof collectFormData === 'function' ? collectFormData() : {},
+            extraNames: label ? [label] : [],
+            forcedVendor: forced || null,
+            importError: importError || ''
+          } };
+        });
+      })
+    };
+  };
+  window.addEventListener('message', function (ev) {
+    if (ev.origin !== location.origin) return;
+    var m = ev.data || {}, c = CASES[m.id];
+    if (m.type !== 'importcase:ready' || !c || ev.source !== c.win || c.sending) return;
+    c.sending = true;
+    var target = location.origin === 'null' ? '*' : location.origin;
+    c.ready.then(function (p) {
+      ev.source.postMessage({ type: 'importcase:load', id: m.id, bytes: p.bytes, payload: p.payload }, target, [p.bytes]);
+    }).catch(function (e) {
+      try { ev.source.postMessage({ type: 'importcase:error', id: m.id, message: e.message }, target); } catch (e2) {}
+    }).then(function () { delete CASES[m.id]; });
+  });
+
   /* Vendor override buttons. Auto-detection reads the text of a report that legitimately names
      OTHER manufacturers (a foreign lead in the inventory table), so it can be wrong — and being
      wrong used to mean a dead end with no way forward. The status box takes HTML and already has
@@ -3030,19 +3094,21 @@ window.ensureReportPdfBuilder = function () {
   }
 
   function deadEnd(vendor){
-    var why = /^Abbott/.test(vendor)
+    var abbott = /^Abbott/.test(vendor);
+    var why = abbott
       ? 'Detected <b>Abbott / St. Jude</b>, whose PDF is a scanned image with no selectable text — '
         + 'use the Merlin <b>.log</b> export instead.'
       : 'Detected <b>'+ vendor +'</b>, which has no PDF parser.';
-    return why + '<br>' + vendorPicker('Parse as:', null);
+    return why + '<br>' + vendorPicker('Parse as:', null) + (abbott ? '' : reportButton());
   }
 
   /* Parse the cached PDF text with a named vendor's parser and fill the form. Shared by the
      initial auto-route and by the override buttons so both behave identically.
      offerFrom = the vendor we're not fully confident about; non-null appends a "Not X?" picker. */
-  function runParse(vendor, offerFrom){
+  function runParse(vendor, offerFrom, forced){
     var parser = PARSERS[vendor];
     if (!LAST_PDF || !parser) return;
+    var source = { file: LAST_PDF.file, name: LAST_PDF.name, forced: forced ? vendor : null, error: '' };
     try {
       if (!LAST_PDF.lines) LAST_PDF.lines = Engine.tagSections(Engine.normalize(LAST_PDF.items));
       var out = parser.runMap(LAST_PDF.lines, {});
@@ -3052,15 +3118,18 @@ window.ensureReportPdfBuilder = function () {
       var merge = !!(document.getElementById('pdp-merge')||{}).checked;
       if (!merge && typeof resetFormState === 'function') resetWithRemoteMonitoring();
       var res = prefillForm(out.RESULT, out.LEADS, out.EPISODES, { merge: merge });
+      LAST_IMPORT = source;   // after the reset inside this import, which clears it
       if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
       var dev = (out.RESULT['dev-model']||{}).v || '';
       var msg = '<b>'+ (out.ROUTE.label || out.ROUTE.dtype || 'Device') +'</b>'
         + (dev ? '<br><span class="pdp-dev">'+dev+'</span>' : '')
         + '<br>'+ res.filled +' fields filled.';
-      // whatever outlives the collapse timer: the Verify list, plus the picker if we're unsure
+      // whatever outlives the collapse timer: the Verify list, plus the picker if we're unsure.
+      // The report button rides with it, and is otherwise in the Import menu once this collapses.
       var keep = res.review.length ? '<span class="pdp-rev">Verify: '+ res.review.join(', ') +'</span>' : '';
       if (offerFrom) keep += (keep ? '<br>' : '') + vendorPicker('Not ' + offerFrom + '?', offerFrom);
-      if (keep) msg += '<br>' + keep;
+      if (keep) keep += reportButton();
+      msg += keep ? '<br>' + keep : reportButton();
       setStatus(msg, 'ok', keep);
       // A confident parse exposes no vendor-override controls, so the extracted page/item graph can
       // be released immediately. Ambiguous and failed detections retain it only while re-parse is
@@ -3068,8 +3137,10 @@ window.ensureReportPdfBuilder = function () {
       if (!offerFrom) LAST_PDF = null;
     } catch(e){
       console.error(e);
+      source.error = e.message;
+      LAST_IMPORT = source;
       setStatus('Could not parse as <b>'+ vendor +'</b>: '+ e.message
-        + '<br>' + vendorPicker('Try:', vendor), 'err');
+        + '<br>' + vendorPicker('Try:', vendor) + reportButton(), 'err');
     }
   }
 
@@ -3095,15 +3166,20 @@ window.ensureReportPdfBuilder = function () {
         var amerge = !!(document.getElementById('pdp-merge')||{}).checked;
         if (!amerge && typeof resetFormState === 'function') resetWithRemoteMonitoring();
         var ares = prefillForm(aout.RESULT, aout.LEADS, aout.EPISODES, { merge: amerge });
+        LAST_IMPORT = { file: file, name: file.name, forced: null, error: '' };
         if (typeof window.afterAutoFillImport === 'function') window.afterAutoFillImport();
         var adev = (aout.RESULT['dev-model']||{}).v || '';
         var amsg = '<b>'+ (aout.ROUTE.label || aout.ROUTE.dtype || 'Abbott device') +'</b>'
           + (adev ? '<br><span class="pdp-dev">'+adev+'</span>' : '')
           + '<br>'+ ares.filled +' fields filled.';
-        var averify = ares.review.length ? '<span class="pdp-rev">Verify: '+ ares.review.join(', ') +'</span>' : '';
-        if (averify) amsg += '<br>' + averify;
+        var averify = ares.review.length ? '<span class="pdp-rev">Verify: '+ ares.review.join(', ') +'</span>' + reportButton() : '';
+        amsg += averify ? '<br>' + averify : reportButton();
         setStatus(amsg, 'ok', averify);
-      } catch(e){ console.error(e); setStatus('Could not parse .log: '+ e.message, 'err'); }
+      } catch(e){
+        console.error(e);
+        LAST_IMPORT = { file: file, name: file.name, forced: null, error: e.message };
+        setStatus('Could not parse .log: '+ e.message + reportButton(), 'err');
+      }
       return;
     }
 
@@ -3128,19 +3204,23 @@ window.ensureReportPdfBuilder = function () {
       var buf = await file.arrayBuffer();
       pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       var items = await Engine.extractItems(pdf);
-      LAST_PDF = { items: items, lines: null, name: file.name };
+      LAST_PDF = { items: items, lines: null, name: file.name, file: file };
       // Ranked, not first-match: a report names other manufacturers (an Abbott lead in a Boston
       // report's inventory table used to route the whole import to Abbott, which has no PDF
       // parser — a hard dead end). See Engine.scoreVendors.
       var ranked = Engine.scoreVendors(items);
       var vendor = (ranked[0] && ranked[0].score) ? ranked[0].name : 'Unknown';
-      if (!PARSERS[vendor]){ setStatus(deadEnd(vendor), 'err'); return; }
+      if (!PARSERS[vendor]){
+        LAST_IMPORT = { file: file, name: file.name, forced: null, error: 'Detected ' + vendor + ', which has no PDF parser' };
+        setStatus(deadEnd(vendor), 'err'); return;
+      }
       // Runner-up close behind: parse with the winner, but keep the override in reach.
       var close = ranked[1] && ranked[1].score > ranked[0].score * 0.75;
       runParse(vendor, close ? vendor : null);
     } catch(e){
       console.error(e);
-      setStatus('Could not parse: '+ e.message +' (a scanned PDF with no selectable text needs OCR).', 'err');
+      LAST_IMPORT = { file: file, name: file.name, forced: null, error: e.message };
+      setStatus('Could not parse: '+ e.message +' (a scanned PDF with no selectable text needs OCR).' + reportButton(), 'err');
     } finally {
       // pdf.js caches every page's parsed content — operator lists, embedded fonts, text layers —
       // on the document, and holds a second copy of all of it inside the worker. None of that is
@@ -3859,9 +3939,13 @@ window.ensureReportPdfBuilder = function () {
   })();
 
   /* ---- open a patient slot ---- */
+  // The Schedule's name for the open patient: one more spelling the case builder searches for.
+  window.crmSlotLabel = function () { return slotLabel; };
   function openSlot(dt, slot, label, allowReset) {
     slotDate = dt; slotName = slot; slotLabel = (label || '').trim();
     setLastOfficeBanner('');
+    // A new patient: the last import belongs to the previous one, even when this open doesn't reset.
+    if (typeof window.forgetLastImport === 'function') window.forgetLastImport();
     // Blank the banner and the tick for the incoming patient; pullRmFromSchedule below fills
     // both in from their row. Leaving the last patient's tick up would be a lie in the meantime.
     (function () { var b = doneEl(); if (b) { b.checked = false; updateDoneToggle(!b.disabled); } })();
@@ -4052,6 +4136,32 @@ window.ensureReportPdfBuilder = function () {
     imMenu.appendChild(item('Import JSON…', function () { importJSON(); }));
     imMenu.appendChild(divEl());
     imMenu.appendChild(toggleItem('Merge — keep what I’ve entered', mergeOn, setMergeOn));
+    // Report import problem (docs/import-cases.md): the export behind the current auto-fill, and
+    // every programmer file in this patient's slot, so a bad import can be reported after the fact
+    // too, once the report has been finished by hand.
+    imMenu.appendChild(divEl());
+    imMenu.appendChild(headerEl('Report import problem'));
+    var reportHolder = document.createElement('div');
+    imMenu.appendChild(reportHolder);
+    var last = typeof window.lastImportForReport === 'function' ? window.lastImportForReport() : null;
+    function reportItem(name, getFile, forced, error) {
+      reportHolder.appendChild(item(name + '…', function () { window.reportImportProblem(getFile, name, forced, error); }));
+    }
+    if (last && last.file) reportItem(last.name, function () { return last.file; }, last.forced, last.error);
+    if (supported && slotRoot && slotName) {
+      WS.slotDir(slotRoot, slotDate, slotName, false)
+        .then(function (dir) { return WS.listFiles(dir); })
+        .then(function (files) {
+          files.forEach(function (fh) {
+            var n = fh.name.toLowerCase();
+            if (!/\.(pdf|log|txt)$/.test(n) || n === 'report.txt' || n === 'report.pdf') return;
+            if (last && last.file && last.name === fh.name) return;   // already listed, with its import details
+            reportItem(fh.name, function () { return fh.getFile(); }, null, '');
+          });
+          if (!reportHolder.children.length) reportHolder.appendChild(noteEl('Import a PDF or .log first.'));
+        })
+        .catch(function () { if (!reportHolder.children.length) reportHolder.appendChild(noteEl('Import a PDF or .log first.')); });
+    } else if (!reportHolder.children.length) reportHolder.appendChild(noteEl('Import a PDF or .log first.'));
   };
 
   /* ---- Files menu: this patient's saved files, opened as blobs in a new tab ---- */

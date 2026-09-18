@@ -1,5 +1,8 @@
 /Info.txt
 /Abbott Test Cases/
+# Import-problem case bundles (docs/import-cases.md): a fixture is installed with scripts/import-case.js add,
+# which copies only case.json and the parser input. The zip also carries page images, which stay out.
+import-case-*.zip
 mileage-backend/.wrangler/
 node_modules/
 

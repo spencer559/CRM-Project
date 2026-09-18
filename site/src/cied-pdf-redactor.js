@@ -170,6 +170,10 @@
     return !!classifyLabel(text, strictDates) || /^[A-Za-z][A-Za-z /()-]{2,}:$/.test(text);
   }
 
+  // Case mode (import-case.js) rewrites the text item a box came from, so a box remembers the
+  // index of its item when the caller numbered them.
+  function tagged(box, item) { if (item && item.index != null) box.index = item.index; return box; }
+
   function detect(items, pageWidth, pageHeight, options) {
     options = options || {};
     var strictDates = options.strictDates !== false, found = [], rows = lineGroups(items);
@@ -178,13 +182,13 @@
         var text = clean(item.text), direct = isStandaloneIdentifier(text), label = classifyLabel(text, strictDates);
         if (direct) {
           var directReplacement = direct.shape === false ? direct.replacement : structuredReplacement(direct.kind, text, direct.replacement);
-          found.push({ rect: normalizedRect(item, pageWidth, pageHeight), kind: direct.kind, replacement: directReplacement, source: text, automatic: true });
+          found.push(tagged({ rect: normalizedRect(item, pageWidth, pageHeight), kind: direct.kind, replacement: directReplacement, source: text, automatic: true }, item));
         }
         if (!label) return;
 
         if (hasInlineValue(text, label.match)) {
           var inlineReplacement = structuredReplacement(label.kind, valueAfterLabel(text, label.match), label.replacement);
-          found.push({ rect: normalizedRect(item, pageWidth, pageHeight), kind: label.kind, replacement: inlineReplacement, selectableReplacement: inlineSelectableReplacement(text, label, inlineReplacement), source: text, automatic: true });
+          found.push(tagged({ rect: normalizedRect(item, pageWidth, pageHeight), kind: label.kind, replacement: inlineReplacement, selectableReplacement: inlineSelectableReplacement(text, label, inlineReplacement), source: text, automatic: true }, item));
           return;
         }
 
@@ -209,7 +213,7 @@
           }
         }
         candidates.slice(0, 3).forEach(function (valueItem) {
-          found.push({ rect: normalizedRect(valueItem, pageWidth, pageHeight), kind: label.kind, replacement: structuredReplacement(label.kind, clean(valueItem.text), label.replacement), source: text, automatic: true });
+          found.push(tagged({ rect: normalizedRect(valueItem, pageWidth, pageHeight), kind: label.kind, replacement: structuredReplacement(label.kind, clean(valueItem.text), label.replacement), source: text, automatic: true }, valueItem));
         });
       });
     });
@@ -219,7 +223,7 @@
         var joined = row.items.map(function (it) { return clean(it.text); }).join(" ");
         if (!DATE_LABEL.test(joined)) return;
         row.items.forEach(function (item) {
-          if (DATE_VALUE.test(clean(item.text))) found.push({ rect: normalizedRect(item, pageWidth, pageHeight), kind: "date", replacement: dateReplacement(clean(item.text), "01/01/2000"), source: clean(item.text), automatic: true });
+          if (DATE_VALUE.test(clean(item.text))) found.push(tagged({ rect: normalizedRect(item, pageWidth, pageHeight), kind: "date", replacement: dateReplacement(clean(item.text), "01/01/2000"), source: clean(item.text), automatic: true }, item));
         });
       });
     }
